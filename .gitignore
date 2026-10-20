@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+build/
+coverage/
+.env*
+!.env.example
+.env.local
+hackathon.db
+hackathon.db-shm
+hackathon.db-wal
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
