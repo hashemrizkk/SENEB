@@ -176,17 +176,6 @@ export function getPatient(id: number): Patient | undefined {
     .get(id);
 }
 
-export function listPatients(): Patient[] {
-  return db
-    .prepare<[], Patient>(
-      `SELECT id, name, age, phone, diabetes_type, last_hba1c_date,
-              last_foot_exam_date, last_bp_date, next_visit_date,
-              edited_by, edited_at
-       FROM patients ORDER BY id`,
-    )
-    .all();
-}
-
 export function insertIntakeWithRevision(data: {
   patient_id: number;
   input_method: string;

@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 
 const loginSchema = z.object({
   name: z.string().trim().min(2).max(80),
-  passcode: z.string().min(1).max(512),
+  password: z.string().min(1).max(512),
 }).strict();
 
 function reply(error: string, status: number): Response {
@@ -30,10 +30,10 @@ export async function POST(request: Request): Promise<Response> {
   const body = await readJsonBody(request, 4_096);
   if (!body.ok) return reply("Provide a valid JSON sign-in request.", body.status);
   const parsed = loginSchema.safeParse(body.value);
-  if (!parsed.success) return reply("Enter a valid staff name and passcode.", 400);
+  if (!parsed.success) return reply("Enter a valid staff name and password.", 400);
 
   try {
-    if (!authenticateDoctor(parsed.data.passcode)) {
+    if (!authenticateDoctor(parsed.data.name, parsed.data.password)) {
       recordFailedLogin(request);
       return reply("Sign in failed. Check your details and try again.", 401);
     }

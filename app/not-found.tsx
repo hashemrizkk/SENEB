@@ -5,7 +5,7 @@ export default function NotFoundPage() {
   return (
     <main dir="rtl" lang="ar" style={{ padding: "2rem", textAlign: "center" }}>
       <h1>{ar.errorPatientNotFound}</h1>
-      <Link href="/intake">{ar.patientListTitle}</Link>
+      <Link href="/register">{ar.homeStart}</Link>
     </main>
   );
 }

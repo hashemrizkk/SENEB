@@ -17,8 +17,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000/register` to register a demo patient or
-`http://localhost:3000/intake` to use the seeded fictional patients.
+Open `http://localhost:3000/register` to register a demo patient.
 SQLite creates and seeds `hackathon.db` automatically. The database file is
 ignored by Git.
 
@@ -28,7 +27,10 @@ Copy `.env.example` to `.env.local`.
 
 - `GOOGLE_GENERATIVE_AI_API_KEY` - optional; tried first for extraction.
 - `GROQ_API_KEY` - optional; tried after Google if configured.
-- `DOCTOR_PASSCODE` - required shared clinic passcode for staff sign-in.
+- `DOCTOR_NAME` and `DOCTOR_PASSWORD` - the configured clinician's sign-in
+  credentials. Both must be set to enable named sign-in.
+- `DOCTOR_PASSCODE` - optional legacy shared passcode, used only when neither
+  named credential is configured.
 - `SESSION_SECRET` - signing key of at least 32 bytes. Generate one with
   `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`.
 - `NEXT_PUBLIC_SITE_URL` - canonical site origin used by same-origin checks.
@@ -37,8 +39,9 @@ Copy `.env.example` to `.env.local`.
 
 With no LLM keys, the app uses clearly marked mock extraction and flags it for
 clinic review. A provider outage does not prevent an intake from being saved.
-Staff sign in at `/doctor/login`; their entered name is recorded with edits,
-but the shared passcode does not independently verify a clinician's identity.
+Staff sign in at `/doctor/login`; with named credentials configured, both the
+name and password are verified before the name is recorded with edits. The
+legacy shared passcode does not independently verify a clinician's identity.
 This is a demo authentication mechanism, not a production patient-data
 security system.
 
@@ -71,13 +74,14 @@ need to preserve local data.
 ## Routes
 
 - `/register` - patient registration and first follow-up
-- `/intake` and `/intake/[id]` - follow-up for a seeded patient
-- `/api/register` and `/api/intake` - validated, same-origin POST endpoints
+- `/api/register` - validated, same-origin registration endpoint
+- `/api/intake` - existing validated intake endpoint retained for compatibility
 - `/api/health` - database availability check
 - `/doctor/login` - staff sign-in
 - `/doctor` - intake review queue with new, triaged, and all filters
-- `/doctor/[patientId]?intakeId=<id>` - intake details, editable questionnaire,
-  staff notes, status/priority, and revision history
+- `/doctor/[patientId]?intakeId=<id>` - patient record, follow-up history,
+  selected intake details, editable questionnaire, staff notes, status/priority,
+  and revision history
 - `/doctor/[patientId]/summary` - staff case-summary view and history
 - `/admin/intakes` - recent intakes, server-computed flags and review metadata
 - `/admin/summaries` - latest 20 generated summaries for developer checks
@@ -87,16 +91,22 @@ unanswered questions are computed by plain code on the server.
 
 ## Doctor review workflow
 
-1. Set `DOCTOR_PASSCODE` and a random `SESSION_SECRET` in `.env.local`.
+1. Set `DOCTOR_NAME`, `DOCTOR_PASSWORD`, and a randomly generated
+   `SESSION_SECRET` in `.env.local`. Keep `.env.local` private and never commit
+   real credentials; generate the session secret with the command above.
 2. Start the app and open `/doctor/login`; sign in with fictional staff details.
-3. Submit a fake patient intake through `/register` or `/intake`. It should
-   appear in `/doctor` and refresh automatically.
-4. Open an intake, change an answer and status/priority, add an optional note
-   and reason, then save. Confirm the revision history shows the new edit and
-   the staff note. Open the same intake in another tab before saving to check
-   that a stale edit reports a conflict and keeps its unsaved text.
-5. Sign out and confirm `/doctor` returns to sign-in. Patient-facing routes
-   remain available without staff authentication.
+3. Submit a fake patient registration through `/register`. It should appear in
+   `/doctor` and refresh automatically.
+4. Open a patient record. Use **Record a new clinic follow-up** to add a
+   separate follow-up record, then select it from the record history. This
+   appends a record without replacing registration or earlier follow-ups.
+   Existing records can also be edited; those changes create a revision on the
+   selected record. Add an optional note and reason when editing, then confirm
+   the revision history shows the saved edit and staff note. Open the same
+   intake in another tab before editing to check that a stale edit reports a
+   conflict and keeps its unsaved text.
+5. Sign out and confirm `/doctor` returns to sign-in. Registration remains
+   available without staff authentication; follow-up recording is doctor-side.
 
 Doctor-review migrations are additive and preserve legacy queue tables. Old
 records receive a clearly marked reconstructed snapshot, not a claimed copy of
