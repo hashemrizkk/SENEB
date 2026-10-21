@@ -1,6 +1,6 @@
 import { generateText, Output } from "ai";
 import { google } from "@ai-sdk/google";
-import { openai } from "@ai-sdk/openai";
+import { groq } from "@ai-sdk/groq";
 import {
   intakeFieldsSchema,
   type IntakeFields,
@@ -119,9 +119,9 @@ async function callLLM(
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
     selectedModel = google("gemini-3.8-flash");
     modelId = "gemini-3.8-flash";
-  } else if (process.env.OPENAI_API_KEY) {
-    selectedModel = openai("gpt-6-luna");
-    modelId = "gpt-6-luna";
+  } else if (process.env.GROQ_API_KEY) {
+    selectedModel = groq("llama-3.3-70b-versatile");
+    modelId = "llama-3.3-70b-versatile";
   } else {
     return null; // no key → caller will use mock
   }
@@ -155,7 +155,7 @@ export async function extractIntake(
   // Check if any API key is set
   const hasKey =
     !!process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
-    !!process.env.OPENAI_API_KEY;
+    !!process.env.GROQ_API_KEY;
 
   if (!hasKey) {
     // Mock mode

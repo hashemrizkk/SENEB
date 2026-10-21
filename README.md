@@ -21,6 +21,12 @@ npm run dev
 Open [http://localhost:3000/doctor](http://localhost:3000/doctor) for the patient list.
 The database is created and seeded automatically the first time the app connects.
 
+## LLM providers
+
+Set `GOOGLE_GENERATIVE_AI_API_KEY` to use Gemini. If it is not set, the app uses
+Groq when `GROQ_API_KEY` is available; if neither key is set, it uses mock mode.
+Copy `.env.example` to `.env.local` and add the provider key you want to use.
+
 ## Database commands
 
 ```sh
