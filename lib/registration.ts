@@ -7,7 +7,7 @@ import { ar } from "./strings.ar.ts";
  */
 
 /**
- * The four tap questions from /intake/[id].
+ * The four tap questions shared by registration and clinic follow-ups.
  * If `intakeFieldsSchema` in lib/intake.ts uses different keys, change them
  * HERE and in the `QUESTIONS` array of app/register/page.tsx.
  * lib/submitIntake.ts uses these same keys as its merge allow-list, so a

@@ -358,7 +358,7 @@ export default function RegisterPage() {
       </p>
 
       <p className="reg-banner" role="note">
-        {ar.register.demoBanner}
+        {ar.demoWarning}
       </p>
       <p className="reg-emergency" role="note">{ar.emergencyNotice}</p>
       <p className="reg-clinic-note" role="note">{ar.clinicReviewNote}</p>

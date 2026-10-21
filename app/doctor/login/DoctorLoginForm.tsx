@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 export default function DoctorLoginForm() {
   const router = useRouter();
   const [name, setName] = useState("Ahmed Mostafa");
-  const [passcode, setPasscode] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -19,7 +19,7 @@ export default function DoctorLoginForm() {
       const response = await fetch("/api/doctor/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, passcode }),
+        body: JSON.stringify({ name, password }),
       });
       const result: unknown = await response.json();
       if (response.ok) {
@@ -57,14 +57,14 @@ export default function DoctorLoginForm() {
         />
       </label>
       <label style={{ display: "grid", gap: 6, marginBlock: 16 }}>
-        Clinic passcode
+        Password
         <input
           type="password"
           autoComplete="current-password"
           required
           maxLength={512}
-          value={passcode}
-          onChange={(event) => setPasscode(event.target.value)}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
           style={{ boxSizing: "border-box", width: "100%", padding: 10 }}
         />
       </label>

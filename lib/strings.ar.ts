@@ -1,24 +1,21 @@
 /**
- * All Arabic strings for the patient-facing intake form.
- * A native speaker can review every patient-visible string in this one file.
+ * Arabic strings for patient-facing pages.
  */
 
 export const ar = {
   appTitle: "مساعد متابعة الرعاية",
   appDescription: "نموذج تجريبي لمتابعة الرعاية في عيادات الرعاية الأولية.",
   homeStart: "ابدأ",
-  // Page titles
   intakeTitle: "استبيان المتابعة",
   patientListTitle: "اختر المريض",
   patientListEmpty: "لا توجد سجلات تجريبية متاحة.",
-
+  demoWarning:
+    "تنبيه: ده نموذج تجريبي. من فضلك استخدم بيانات وهمية فقط، وما تدخلش بيانات حقيقية.",
   // Emergency notice (always visible)
   emergencyNotice: "🚨 لو الحالة طارئة اتصل بالإسعاف 123",
 
   // Clinic review note (always visible)
   clinicReviewNote: "إجاباتك بيراجعها فريق العيادة ومش فورية.",
-
-  // Consent note (always visible)
   consentNote: "بإرسال إجاباتك، أنت موافق إنها تتشارك مع فريق العيادة.",
 
   // Answer buttons
@@ -28,30 +25,19 @@ export const ar = {
   one: "١",
   two: "٢",
   threeOrMore: "٣ أو أكتر",
-
-  // Free text
   freeTextPlaceholder: "اكتب هنا لو عايز تقول حاجة...",
-
-  // Submit
   submitButton: "إرسال",
   submitting: "جاري الإرسال...",
-
-  // After submit
   thankYou: "شكراً، تم إرسال إجاباتك.",
   errorGeneric: "حصل مشكلة، حاول تاني. إجاباتك لسه موجودة.",
-
-  // Not found
-  patientNotFound: "المريض غير موجود.",
-  errorPatientNotFound: "المريض غير موجود أو الرابط غير صحيح.",
-
-  // Character counter
   charCounter: (current: number, max: number) => `${current}/${max}`,
+
+  errorPatientNotFound: "المريض غير موجود أو الرابط غير صحيح.",
 
   // Registration flow
   register: {
     yes: "نعم",
     no: "لا",
-    demoBanner: "تجربة تسجيل سريعة: هذا النموذج يختبر تسجيل المريض.",
     step1Title: "معلوماتك الأساسية",
     step2Title: "أسئلة المتابعة",
     step3Title: "معلومات إضافية",

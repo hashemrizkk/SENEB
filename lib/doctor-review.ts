@@ -631,11 +631,16 @@ export function createPatientRevisionOne(
   db: Database.Database,
   intakeId: number,
   editedAt: string,
+  author: {
+    source: "patient" | "clinician";
+    editedBy: string | null;
+    reason: string | null;
+  } = { source: "patient", editedBy: null, reason: null },
 ): void {
   insertRevision(db, intakeId, {
-    source: "patient",
-    editedBy: null,
-    reason: null,
+    source: author.source,
+    editedBy: author.editedBy,
+    reason: author.reason,
     changedFields: [],
     isBackfill: false,
     editedAt,
@@ -653,13 +658,18 @@ export function savePatientIntake(
     meta_json: string | null;
   },
   editedAt = new Date().toISOString(),
+  author: {
+    source: "patient" | "clinician";
+    editedBy: string | null;
+    reason: string | null;
+  } = { source: "patient", editedBy: null, reason: null },
 ): number {
   return db.transaction(() => {
     const result = db.prepare(
       `INSERT INTO intakes (
          patient_id, input_method, raw_text, structured_json,
-         red_flags_json, meta_json
-       ) VALUES (?, ?, ?, ?, ?, ?)`,
+         red_flags_json, meta_json, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       data.patient_id,
       data.input_method,
@@ -667,9 +677,10 @@ export function savePatientIntake(
       data.structured_json,
       data.red_flags_json,
       data.meta_json,
+      editedAt,
     );
     const intakeId = Number(result.lastInsertRowid);
-    createPatientRevisionOne(db, intakeId, editedAt);
+    createPatientRevisionOne(db, intakeId, editedAt, author);
     return intakeId;
   })();
 }
@@ -694,15 +705,30 @@ function signature(payload: string): Buffer {
   return createHmac("sha256", sessionSecret()).update(payload).digest();
 }
 
-export function authenticateDoctor(passcode: string): boolean {
-  const expected = process.env.DOCTOR_PASSCODE;
-  if (!expected) throw new Error("DOCTOR_PASSCODE is not configured.");
-  const actualBytes = Buffer.from(passcode);
+function secureStringEqual(actual: string, expected: string): boolean {
+  const actualBytes = Buffer.from(actual);
   const expectedBytes = Buffer.from(expected);
   return (
     actualBytes.length === expectedBytes.length &&
     timingSafeEqual(actualBytes, expectedBytes)
   );
+}
+
+export function authenticateDoctor(name: string, password: string): boolean {
+  const expectedName = process.env.DOCTOR_NAME;
+  const expectedPassword = process.env.DOCTOR_PASSWORD;
+  if (expectedName || expectedPassword) {
+    if (!expectedName || !expectedPassword) {
+      throw new Error("DOCTOR_NAME and DOCTOR_PASSWORD must both be configured.");
+    }
+    return name === expectedName && secureStringEqual(password, expectedPassword);
+  }
+
+  const expectedPasscode = process.env.DOCTOR_PASSCODE;
+  if (!expectedPasscode) {
+    throw new Error("Configure DOCTOR_NAME and DOCTOR_PASSWORD.");
+  }
+  return secureStringEqual(password, expectedPasscode);
 }
 
 export function createDoctorSession(name: string, now = Date.now()): string {

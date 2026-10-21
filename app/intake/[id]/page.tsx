@@ -1,5 +1,4 @@
 import { getPatient } from "@/lib/db";
-import { ar } from "@/lib/strings.ar";
 import { notFound } from "next/navigation";
 import IntakeForm from "./IntakeForm";
 

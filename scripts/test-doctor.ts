@@ -129,7 +129,7 @@ try {
     structured_json: JSON.stringify(defaultFields),
     red_flags_json: JSON.stringify(redFlags(defaultFields)),
     meta_json: '{"llm_mode":"none","model":null,"needs_review":false,"contradiction":false}',
-  });
+  }, new Date("2025-01-02T10:00:00Z").toISOString());
   const newIntake = getDoctorPatientRecord(db, 1)?.intakes.find((item) => item.id === nextIntakeId);
   check(newIntake, "new intake should load");
   assert.equal(newIntake.revisions.length, 1);
@@ -137,13 +137,60 @@ try {
   assert.equal(newIntake.revisions[0]?.is_backfill, 0);
   assert.equal(newIntake.originalTrustworthy, true);
 
+  const originalFields = getDoctorPatientRecord(db, 1)?.intakes
+    .find((item) => item.id === 1)?.fields;
+  check(originalFields, "initial registration answers should be available");
+  const followupId = savePatientIntake(
+    db,
+    {
+      patient_id: 1,
+      input_method: "tap",
+      raw_text: "Fake clinic follow-up",
+      structured_json: JSON.stringify({ ...defaultFields, missed_doses: true }),
+      red_flags_json: JSON.stringify(redFlags({ ...defaultFields, missed_doses: true })),
+      meta_json: '{"llm_mode":"none","model":null,"needs_review":false,"contradiction":false}',
+    },
+    new Date("2025-01-03T10:00:00Z").toISOString(),
+    { source: "clinician", editedBy: "Dr Test", reason: "Clinic follow-up" },
+  );
+  const afterFollowup = getDoctorPatientRecord(db, 1);
+  check(afterFollowup, "patient should load after a clinic follow-up");
+  const clinicFollowup = afterFollowup.intakes.find((item) => item.id === followupId);
+  check(clinicFollowup, "clinic follow-up should be a separate record");
+  assert.equal(clinicFollowup.revisions[0]?.source, "clinician");
+  assert.equal(clinicFollowup.revisions[0]?.edited_by, "Dr Test");
+  assert.equal(clinicFollowup.revisions[0]?.reason, "Clinic follow-up");
+  assert.deepEqual(
+    afterFollowup.intakes.find((item) => item.id === 1)?.fields,
+    originalFields,
+    "creating a follow-up must not replace the initial registration answers",
+  );
+  assert.equal(afterFollowup.latestIntake?.id, followupId);
+
   const secret = process.env.SESSION_SECRET;
+  const doctorName = process.env.DOCTOR_NAME;
+  const doctorPassword = process.env.DOCTOR_PASSWORD;
   const passcode = process.env.DOCTOR_PASSCODE;
   process.env.SESSION_SECRET = "test-session-secret-with-at-least-32-bytes";
-  process.env.DOCTOR_PASSCODE = "test-clinic-passcode";
+  process.env.DOCTOR_NAME = "Dr Test";
+  process.env.DOCTOR_PASSWORD = "test-clinician-password";
+  delete process.env.DOCTOR_PASSCODE;
   try {
-    assert.equal(authenticateDoctor("test-clinic-passcode"), true);
-    assert.equal(authenticateDoctor("wrong"), false);
+    assert.equal(authenticateDoctor("Dr Test", "test-clinician-password"), true);
+    assert.equal(authenticateDoctor("Dr Other", "test-clinician-password"), false);
+    assert.equal(authenticateDoctor("Dr Test", "wrong"), false);
+    process.env.DOCTOR_PASSCODE = "test-clinic-passcode";
+    process.env.DOCTOR_NAME = "";
+    process.env.DOCTOR_PASSWORD = "";
+    assert.equal(authenticateDoctor("Any Staff", "test-clinic-passcode"), true);
+    process.env.DOCTOR_NAME = "Dr Test";
+    process.env.DOCTOR_PASSWORD = "test-clinician-password";
+    delete process.env.DOCTOR_PASSWORD;
+    assert.throws(
+      () => authenticateDoctor("Dr Test", "test-clinician-password"),
+      /DOCTOR_NAME and DOCTOR_PASSWORD must both be configured/,
+    );
+    process.env.DOCTOR_PASSWORD = "test-clinician-password";
     const token = createDoctorSession("Dr Test", 1_000);
     assert.deepEqual(verifyDoctorSession(token, 1_001), {
       name: "Dr Test",
@@ -163,9 +210,19 @@ try {
     });
     for (let count = 0; count < 5; count += 1) recordFailedLogin(limitedRequest);
     assert.equal(failedLoginIsLimited(limitedRequest), true);
+
+    delete process.env.DOCTOR_NAME;
+    delete process.env.DOCTOR_PASSWORD;
+    process.env.DOCTOR_PASSCODE = "test-clinic-passcode";
+    assert.equal(authenticateDoctor("Any Staff", "test-clinic-passcode"), true);
+    assert.equal(authenticateDoctor("Any Staff", "wrong"), false);
   } finally {
     if (secret === undefined) delete process.env.SESSION_SECRET;
     else process.env.SESSION_SECRET = secret;
+    if (doctorName === undefined) delete process.env.DOCTOR_NAME;
+    else process.env.DOCTOR_NAME = doctorName;
+    if (doctorPassword === undefined) delete process.env.DOCTOR_PASSWORD;
+    else process.env.DOCTOR_PASSWORD = doctorPassword;
     if (passcode === undefined) delete process.env.DOCTOR_PASSCODE;
     else process.env.DOCTOR_PASSCODE = passcode;
   }
