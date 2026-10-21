@@ -1,4 +1,4 @@
-import { ar } from "./strings.ar";
+import { ar } from "./strings.ar.ts";
 
 export type QuestionAnswer = boolean | number | null;
 

@@ -47,3 +47,25 @@ CREATE TABLE IF NOT EXISTS followups (
   escalated INTEGER DEFAULT 0,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS case_summaries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  intake_id INTEGER NOT NULL REFERENCES intakes(id),
+  generation_mode TEXT NOT NULL CHECK (generation_mode IN ('llm', 'mock', 'fallback')),
+  model TEXT,
+  summary_text TEXT,
+  facts_json TEXT NOT NULL,
+  rule_flags_json TEXT NOT NULL,
+  ai_flags_json TEXT,
+  values_json TEXT,
+  inconsistencies_json TEXT,
+  suggested_priority TEXT CHECK (suggested_priority IN ('urgent', 'important', 'normal')),
+  priority_reasons_json TEXT NOT NULL,
+  rules_version TEXT NOT NULL,
+  dropped_ai_items INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_summaries_patient
+  ON case_summaries(patient_id, created_at DESC);

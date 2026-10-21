@@ -107,6 +107,25 @@ export type IntakeRow = {
   created_at: string | null;
 };
 
+export type CaseSummaryRow = {
+  id: number;
+  patient_id: number;
+  intake_id: number;
+  generation_mode: "llm" | "mock" | "fallback";
+  model: string | null;
+  summary_text: string | null;
+  facts_json: string;
+  rule_flags_json: string;
+  ai_flags_json: string | null;
+  values_json: string | null;
+  inconsistencies_json: string | null;
+  suggested_priority: "urgent" | "important" | "normal" | null;
+  priority_reasons_json: string;
+  rules_version: string;
+  dropped_ai_items: number;
+  created_at: string;
+};
+
 export type PatientContact = Patient & {
   email: string | null;
   self_description: string | null;
@@ -345,6 +364,89 @@ export function latestIntakes(limit: number): IntakeRow[] {
        FROM intakes i
        JOIN patients p ON p.id = i.patient_id
        ORDER BY i.created_at DESC
+       LIMIT ?`,
+    )
+    .all(limit);
+}
+
+export function latestIntakeForPatient(
+  patientId: number,
+): IntakeRow | undefined {
+  return db
+    .prepare<[number], IntakeRow>(
+      `SELECT i.id, i.patient_id, p.name AS patient_name,
+              i.input_method, i.raw_text, i.structured_json, i.red_flags_json,
+              i.meta_json, i.created_at
+       FROM intakes i
+       JOIN patients p ON p.id = i.patient_id
+       WHERE i.patient_id = ?
+       ORDER BY i.created_at DESC, i.id DESC
+       LIMIT 1`,
+    )
+    .get(patientId);
+}
+
+export function getIntakeById(intakeId: number): IntakeRow | undefined {
+  return db
+    .prepare<[number], IntakeRow>(
+      `SELECT i.id, i.patient_id, p.name AS patient_name,
+              i.input_method, i.raw_text, i.structured_json, i.red_flags_json,
+              i.meta_json, i.created_at
+       FROM intakes i
+       JOIN patients p ON p.id = i.patient_id
+       WHERE i.id = ?
+       LIMIT 1`,
+    )
+    .get(intakeId);
+}
+
+export function latestCaseSummary(patientId: number): CaseSummaryRow | undefined {
+  return db
+    .prepare<[number], CaseSummaryRow>(
+      `SELECT id, patient_id, intake_id, generation_mode, model, summary_text,
+              facts_json, rule_flags_json, ai_flags_json, values_json,
+              inconsistencies_json, suggested_priority, priority_reasons_json,
+              rules_version, dropped_ai_items, created_at
+       FROM case_summaries
+       WHERE patient_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+    )
+    .get(patientId);
+}
+
+export function caseSummaryHistory(
+  patientId: number,
+  limit = 5,
+): CaseSummaryRow[] {
+  return db
+    .prepare<[number, number], CaseSummaryRow>(
+      `SELECT id, patient_id, intake_id, generation_mode, model, summary_text,
+              facts_json, rule_flags_json, ai_flags_json, values_json,
+              inconsistencies_json, suggested_priority, priority_reasons_json,
+              rules_version, dropped_ai_items, created_at
+       FROM case_summaries
+       WHERE patient_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?`,
+    )
+    .all(patientId, limit);
+}
+
+export function latestCaseSummaries(
+  limit = 20,
+): (CaseSummaryRow & { patient_name: string })[] {
+  return db
+    .prepare<[number], CaseSummaryRow & { patient_name: string }>(
+      `SELECT s.id, s.patient_id, p.name AS patient_name,
+              s.intake_id, s.generation_mode, s.model,
+              s.summary_text, s.facts_json, s.rule_flags_json, s.ai_flags_json,
+              s.values_json, s.inconsistencies_json, s.suggested_priority,
+              s.priority_reasons_json, s.rules_version, s.dropped_ai_items,
+              s.created_at
+       FROM case_summaries s
+       JOIN patients p ON p.id = s.patient_id
+       ORDER BY s.created_at DESC, s.id DESC
        LIMIT ?`,
     )
     .all(limit);

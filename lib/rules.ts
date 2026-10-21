@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { IntakeFields } from "@/lib/intake";
-import { flagRules } from "@/lib/questions";
+import type { IntakeFields } from "./intake.ts";
+import { flagRules } from "./questions.ts";
 
 export type RedFlagResult = {
   flags: string[];

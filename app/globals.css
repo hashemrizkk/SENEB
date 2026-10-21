@@ -7,3 +7,17 @@ body {
   outline: 3px solid #0f6f5c;
   outline-offset: 3px;
 }
+
+.rule-highlight {
+  background: #fef08a;
+  color: #1f2937;
+}
+
+.ai-highlight {
+  background: #bfdbfe;
+  color: #1e3a8a;
+}
+
+.rule-highlight.ai-highlight {
+  background: linear-gradient(90deg, #fef08a 0 50%, #bfdbfe 50% 100%);
+}

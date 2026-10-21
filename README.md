@@ -62,9 +62,42 @@ recreates the local database with 15 fictional patients.
 - `/api/health` — database availability check
 - `/admin/intakes` — recent intakes, server-computed flags and review metadata
 - `/doctor` — legacy demo list; guarded in production along with the review page
+- `/doctor/[patientId]` — staff case-summary view and history
+- `/admin/summaries` — latest 20 generated summaries for developer checks
 
 The patient screens never show flags or medical interpretation. Red flags and
 unanswered questions are computed by plain code on the server.
+
+## Case summary
+
+The staff case-summary page combines intake answers, the patient's original
+text, care-gap dates, keyword matches, verified highlights, and a short
+narrative. Regenerating a summary creates a new immutable row; it does not
+change the intake, the patient's record, or a queue.
+
+- `/doctor` shows a live suggested-priority column and links to each case.
+- `/doctor/[patientId]` shows the case summary, suggested priority, and the
+  last five summaries.
+- `/admin/summaries` is a developer check page, not for patients.
+- Run `npm run test:summary` for pure-function and in-memory pipeline tests.
+- Run `npm run smoke:summary` for end-to-end cases using fake intake rows.
+
+Plain code decides the suggested priority. The LLM only writes the narrative
+and proposes display-only highlights; code verifies every quoted highlight,
+value, and AI inconsistency against the patient's original text. Staff make
+every final decision. With no provider keys configured, summaries use clearly
+marked mock text; a provider failure is recorded as a code-only fallback.
+
+### Known limitations
+
+- Rules, tiers, and thresholds are placeholders and must be reviewed by a
+  clinician before any real use.
+- The starter keyword list has not been clinically reviewed.
+- Substring matching can over-flag.
+- Nearby negation is annotated for staff but never trusted to lower a tier.
+- The LLM can be wrong; quoted items are checked against the original text.
+- There is no login, and suggested priority is advice only, not a clinical
+  decision or queue assignment.
 
 ## Deployment note
 
