@@ -26,14 +26,21 @@ ignored by Git.
 
 Copy `.env.example` to `.env.local`.
 
-- `GOOGLE_GENERATIVE_AI_API_KEY` — optional; tried first for extraction.
-- `GROQ_API_KEY` — optional; tried after Google if configured.
-- `ADMIN_KEY` — required to access `/admin/intakes` and `/doctor` in production.
-  Send it as an `Authorization: Bearer …` header; it is never accepted in a URL.
-- `NEXT_PUBLIC_SITE_URL` — canonical site origin used by same-origin checks.
+- `GOOGLE_GENERATIVE_AI_API_KEY` - optional; tried first for extraction.
+- `GROQ_API_KEY` - optional; tried after Google if configured.
+- `DOCTOR_PASSCODE` - required shared clinic passcode for staff sign-in.
+- `SESSION_SECRET` - signing key of at least 32 bytes. Generate one with
+  `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`.
+- `NEXT_PUBLIC_SITE_URL` - canonical site origin used by same-origin checks.
+- `HACKATHON_DB_PATH` - optional SQLite path; useful for testing without
+  changing the default `hackathon.db`.
 
 With no LLM keys, the app uses clearly marked mock extraction and flags it for
 clinic review. A provider outage does not prevent an intake from being saved.
+Staff sign in at `/doctor/login`; their entered name is recorded with edits,
+but the shared passcode does not independently verify a clinician's identity.
+This is a demo authentication mechanism, not a production patient-data
+security system.
 
 ## Checks
 
@@ -41,6 +48,9 @@ clinic review. A provider outage does not prevent an intake from being saved.
 npm run typecheck
 npm run lint
 npm run build
+npm run test:doctor
+npm run test:summary
+npm run smoke:summary
 ```
 
 Start the dev server in one terminal, then run the HTTP regression tests in a
@@ -50,23 +60,49 @@ second terminal:
 npm run test:register
 ```
 
-The test uses fictional records and creates test rows in the local database.
+`npm run test:register` uses fictional records and creates test rows in the
+local database. `npm run test:doctor` uses an isolated in-memory database to
+check migration repeatability, legacy queue import, revisions, edit conflicts,
+and signed sessions; it does not reset or write `hackathon.db`.
 `npm run db:check` prints database counts. `npm run db:reset` deletes and
-recreates the local database with 15 fictional patients.
+recreates the local database with 15 fictional patients; do not run it if you
+need to preserve local data.
 
 ## Routes
 
-- `/register` — patient registration and first follow-up
-- `/intake` and `/intake/[id]` — follow-up for a seeded patient
-- `/api/register` and `/api/intake` — validated, same-origin POST endpoints
-- `/api/health` — database availability check
-- `/admin/intakes` — recent intakes, server-computed flags and review metadata
-- `/doctor` — legacy demo list; guarded in production along with the review page
-- `/doctor/[patientId]` — staff case-summary view and history
-- `/admin/summaries` — latest 20 generated summaries for developer checks
+- `/register` - patient registration and first follow-up
+- `/intake` and `/intake/[id]` - follow-up for a seeded patient
+- `/api/register` and `/api/intake` - validated, same-origin POST endpoints
+- `/api/health` - database availability check
+- `/doctor/login` - staff sign-in
+- `/doctor` - intake review queue with new, triaged, and all filters
+- `/doctor/[patientId]?intakeId=<id>` - intake details, editable questionnaire,
+  staff notes, status/priority, and revision history
+- `/doctor/[patientId]/summary` - staff case-summary view and history
+- `/admin/intakes` - recent intakes, server-computed flags and review metadata
+- `/admin/summaries` - latest 20 generated summaries for developer checks
 
 The patient screens never show flags or medical interpretation. Red flags and
 unanswered questions are computed by plain code on the server.
+
+## Doctor review workflow
+
+1. Set `DOCTOR_PASSCODE` and a random `SESSION_SECRET` in `.env.local`.
+2. Start the app and open `/doctor/login`; sign in with fictional staff details.
+3. Submit a fake patient intake through `/register` or `/intake`. It should
+   appear in `/doctor` and refresh automatically.
+4. Open an intake, change an answer and status/priority, add an optional note
+   and reason, then save. Confirm the revision history shows the new edit and
+   the staff note. Open the same intake in another tab before saving to check
+   that a stale edit reports a conflict and keeps its unsaved text.
+5. Sign out and confirm `/doctor` returns to sign-in. Patient-facing routes
+   remain available without staff authentication.
+
+Doctor-review migrations are additive and preserve legacy queue tables. Old
+records receive a clearly marked reconstructed snapshot, not a claimed copy of
+their original submission. Existing registration data may store a yes/no
+low-sugar answer as a count of 1 or 0; the original yes/no meaning cannot be
+recovered from that value.
 
 ## Case summary
 
@@ -75,9 +111,9 @@ text, care-gap dates, keyword matches, verified highlights, and a short
 narrative. Regenerating a summary creates a new immutable row; it does not
 change the intake, the patient's record, or a queue.
 
-- `/doctor` shows a live suggested-priority column and links to each case.
-- `/doctor/[patientId]` shows the case summary, suggested priority, and the
-  last five summaries.
+- `/doctor` lists submitted intakes and assigned staff priorities.
+- `/doctor/[patientId]/summary` shows the case summary, suggested priority, and
+  the last five summaries.
 - `/admin/summaries` is a developer check page, not for patients.
 - Run `npm run test:summary` for pure-function and in-memory pipeline tests.
 - Run `npm run smoke:summary` for end-to-end cases using fake intake rows.
@@ -96,8 +132,8 @@ marked mock text; a provider failure is recorded as a code-only fallback.
 - Substring matching can over-flag.
 - Nearby negation is annotated for staff but never trusted to lower a tier.
 - The LLM can be wrong; quoted items are checked against the original text.
-- There is no login, and suggested priority is advice only, not a clinical
-  decision or queue assignment.
+- Suggested priority is advice only, not a clinical decision or queue
+  assignment. Queue priority is set by clinic staff.
 
 ## Deployment note
 

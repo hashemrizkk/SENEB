@@ -1,7 +1,5 @@
-import { headers } from "next/headers";
-import { notFound } from "next/navigation";
 import { z } from "zod";
-import { hasAdminAccess } from "@/lib/adminAuth";
+import { requireDoctorSession } from "@/lib/doctor-review";
 import { latestIntakes } from "@/lib/db";
 import { intakeFieldsSchema, intakeMetaSchema } from "@/lib/intake";
 import { ar } from "@/lib/strings.ar";
@@ -24,8 +22,7 @@ function parseJson(value: string | null): unknown {
 }
 
 export default async function AdminIntakesPage() {
-  const requestHeaders = await headers();
-  if (!hasAdminAccess(requestHeaders.get("authorization"))) notFound();
+  await requireDoctorSession();
 
   const intakes = latestIntakes(100);
   return (

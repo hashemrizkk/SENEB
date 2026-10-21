@@ -3,16 +3,19 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { seedPatients } from "./seed.ts";
 import {
-  intakeFieldsSchema,
-  intakeMetaSchema,
-  type IntakeFields,
-  type IntakeMeta,
-} from "./intake";
-import { redFlagResultSchema, type RedFlagResult } from "./rules";
+  getDoctorPatientRecord,
+  listDoctorQueue,
+  migrateDoctorReview,
+  savePatientIntake,
+  type ReviewFilter,
+  type ReviewIntake,
+} from "./doctor-review.ts";
 
 // ----- Connection (singleton for dev hot-reload) -----
 
-const databasePath = path.join(process.cwd(), "hackathon.db");
+const databasePath = process.env.HACKATHON_DB_PATH
+  ? path.resolve(process.env.HACKATHON_DB_PATH)
+  : path.join(process.cwd(), "hackathon.db");
 const schemaPath = path.join(process.cwd(), "lib", "schema.sql");
 const globalForDatabase = globalThis as typeof globalThis & {
   hackathonDatabase?: Database.Database;
@@ -81,6 +84,9 @@ db.transaction(() => {
   );
 })();
 
+// Additive clinician-review schema migration; existing queue tables are preserved.
+migrateDoctorReview(db);
+
 // ----- Types -----
 
 export type Patient = {
@@ -93,6 +99,8 @@ export type Patient = {
   last_foot_exam_date: string | null;
   last_bp_date: string | null;
   next_visit_date: string | null;
+  edited_by: string | null;
+  edited_at: string | null;
 };
 
 export type IntakeRow = {
@@ -134,179 +142,25 @@ export type PatientContact = Patient & {
   created_at: string | null;
 };
 
-export type DoctorNote = {
-  id: number;
-  note_text: string | null;
-  edited_by: string | null;
-  created_at: string | null;
-};
-
-export type PatientIntakeRecord = IntakeRow & {
-  fields: IntakeFields;
-  originalFields: IntakeFields;
-  flags: RedFlagResult;
-  meta: IntakeMeta | null;
-  priority: "urgent" | "important" | "normal" | null;
-  status: "new" | "triaged" | "seen";
-  version: number;
-  doctorNotes: DoctorNote[];
-  revisions: unknown[];
-};
+export type PatientIntakeRecord = ReviewIntake;
 
 export type PatientRecord = {
-  patient: PatientContact;
+  patient: PatientContact & {
+    edited_by: string | null;
+    edited_at: string | null;
+  };
   intakes: PatientIntakeRecord[];
   latestIntake: PatientIntakeRecord | null;
 };
 
-export type QueueFilter = "new" | "triaged" | "all";
-
-const intakeColumnNamesAfterMigrations = new Set(
-  db
-    .prepare<[], { name: string }>("SELECT name FROM pragma_table_info('intakes')")
-    .all()
-    .map((column) => column.name),
-);
-const noteColumnNames = new Set(
-  db
-    .prepare<[], { name: string }>("SELECT name FROM pragma_table_info('notes')")
-    .all()
-    .map((column) => column.name),
-);
-
-function parseStoredJson<T>(
-  value: string | null,
-  parser: { safeParse: (value: unknown) => { success: boolean; data?: T } },
-  label: string,
-): T {
-  if (value === null) throw new Error(`Stored ${label} is missing.`);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value) as unknown;
-  } catch {
-    throw new Error(`Stored ${label} is not valid JSON.`);
-  }
-  const result = parser.safeParse(parsed);
-  if (!result.success || result.data === undefined) {
-    throw new Error(`Stored ${label} does not match its schema.`);
-  }
-  return result.data;
-}
-
-function readPatientIntakes(patientId: number): PatientIntakeRecord[] {
-  const priority = intakeColumnNamesAfterMigrations.has("priority")
-    ? "i.priority"
-    : "NULL AS priority";
-  const status = intakeColumnNamesAfterMigrations.has("status")
-    ? "i.status"
-    : "'new' AS status";
-  const version = intakeColumnNamesAfterMigrations.has("version")
-    ? "i.version"
-    : "1 AS version";
-  const rows = db
-    .prepare<
-      [number],
-      IntakeRow & {
-        priority: string | null;
-        status: string;
-        version: number;
-      }
-    >(
-      `SELECT i.id, i.patient_id, p.name AS patient_name, i.input_method,
-              i.raw_text, i.structured_json, i.red_flags_json, i.meta_json,
-              i.created_at, ${priority}, ${status}, ${version}
-       FROM intakes i
-       JOIN patients p ON p.id = i.patient_id
-       WHERE i.patient_id = ?
-       ORDER BY i.created_at DESC, i.id DESC`,
-    )
-    .all(patientId);
-
-  const hasRevisions = db
-    .prepare<[], { count: number }>(
-      "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'intake_revisions'",
-    )
-    .get()?.count === 1;
-  const hasEditedBy = noteColumnNames.has("edited_by");
-
-  return rows.map((row) => {
-    const fields = parseStoredJson(row.structured_json, intakeFieldsSchema, "intake fields");
-    const flags = parseStoredJson(row.red_flags_json, redFlagResultSchema, "intake flags");
-    const meta = row.meta_json === null
-      ? null
-      : parseStoredJson(row.meta_json, intakeMetaSchema, "intake metadata");
-    const doctorNotes = hasEditedBy
-      ? db
-          .prepare<[number], DoctorNote>(
-            `SELECT id, note_text, edited_by, created_at
-             FROM notes WHERE patient_id = ? AND edited_by IS NOT NULL
-             ORDER BY created_at, id`,
-          )
-          .all(patientId)
-      : [];
-
-    return {
-      ...row,
-      fields,
-      originalFields: fields,
-      flags,
-      meta,
-      priority:
-        row.priority === "urgent" ||
-        row.priority === "important" ||
-        row.priority === "normal"
-          ? row.priority
-          : null,
-      status:
-        row.status === "triaged" || row.status === "seen"
-          ? row.status
-          : "new",
-      version: row.version,
-      doctorNotes,
-      revisions: hasRevisions
-        ? db
-            .prepare<[number], { version: number; source: string; edited_by: string | null; edited_at: string; snapshot_json: string; changed_fields_json: string; reason: string | null }>(
-              `SELECT version, source, edited_by, edited_at, snapshot_json,
-                      changed_fields_json, reason
-               FROM intake_revisions WHERE intake_id = ? ORDER BY version`,
-            )
-            .all(row.id)
-        : [],
-    };
-  });
-}
+export type QueueFilter = ReviewFilter;
 
 export function getPatientRecord(patientId: number): PatientRecord | null {
-  const patient = db
-    .prepare<[number], PatientContact>(
-      `SELECT id, name, age, phone, diabetes_type, last_hba1c_date,
-              last_foot_exam_date, last_bp_date, next_visit_date, email,
-              self_description, reference_code, consent_at, created_at
-       FROM patients WHERE id = ?`,
-    )
-    .get(patientId);
-  if (!patient) return null;
-
-  const intakes = readPatientIntakes(patientId);
-  return { patient, intakes, latestIntake: intakes[0] ?? null };
+  return getDoctorPatientRecord(db, patientId);
 }
 
 export function listQueue(filter: QueueFilter = "all"): PatientIntakeRecord[] {
-  const rows = db
-    .prepare<[], { patient_id: number }>(
-      `SELECT patient_id FROM intakes
-       ORDER BY created_at DESC, id DESC`,
-    )
-    .all();
-  const patientIds = [...new Set(rows.map((row) => row.patient_id))];
-  const intakes = patientIds.flatMap((patientId) =>
-    readPatientIntakes(patientId),
-  );
-  return intakes
-    .filter((intake) => filter === "all" || intake.status === filter)
-    .sort((left, right) =>
-      (right.created_at ?? "").localeCompare(left.created_at ?? ""),
-    );
+  return listDoctorQueue(db, filter);
 }
 
 // ----- Query functions -----
@@ -315,7 +169,8 @@ export function getPatient(id: number): Patient | undefined {
   return db
     .prepare<[number], Patient>(
       `SELECT id, name, age, phone, diabetes_type, last_hba1c_date,
-              last_foot_exam_date, last_bp_date, next_visit_date
+              last_foot_exam_date, last_bp_date, next_visit_date,
+              edited_by, edited_at
        FROM patients WHERE id = ?`,
     )
     .get(id);
@@ -325,13 +180,14 @@ export function listPatients(): Patient[] {
   return db
     .prepare<[], Patient>(
       `SELECT id, name, age, phone, diabetes_type, last_hba1c_date,
-              last_foot_exam_date, last_bp_date, next_visit_date
+              last_foot_exam_date, last_bp_date, next_visit_date,
+              edited_by, edited_at
        FROM patients ORDER BY id`,
     )
     .all();
 }
 
-export function insertIntake(data: {
+export function insertIntakeWithRevision(data: {
   patient_id: number;
   input_method: string;
   raw_text: string | null;
@@ -339,20 +195,7 @@ export function insertIntake(data: {
   red_flags_json: string;
   meta_json: string | null;
 }): number {
-  const result = db
-    .prepare(
-      `INSERT INTO intakes (patient_id, input_method, raw_text, structured_json, red_flags_json, meta_json)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      data.patient_id,
-      data.input_method,
-      data.raw_text,
-      data.structured_json,
-      data.red_flags_json,
-      data.meta_json,
-    );
-  return Number(result.lastInsertRowid);
+  return savePatientIntake(db, data);
 }
 
 export function latestIntakes(limit: number): IntakeRow[] {

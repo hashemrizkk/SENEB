@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ar } from "./strings.ar";
+import { ar } from "./strings.ar.ts";
 
 /**
  * ONE schema for the browser AND the server.

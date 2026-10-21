@@ -1,414 +1,197 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import { hasAdminAccess } from "@/lib/adminAuth";
-import {
-  caseSummaryHistory,
-  getIntakeById,
-  getPatient,
-  latestCaseSummary,
-  latestIntakeForPatient,
-} from "@/lib/db";
-import { caseFactsSchema, buildFacts } from "@/lib/case-facts";
-import { intakeFieldsSchema, intakeMetaSchema, type IntakeFields } from "@/lib/intake";
-import { assessIntake } from "@/lib/case-assessment";
-import { cairoDate, formatCairoDateTime } from "@/lib/date-time";
-import { findAllOccurrences, highlightSegments } from "@/lib/text-normalize";
-import SummaryGenerateButton from "./SummaryGenerateButton";
+import { getPatientRecord, type PatientIntakeRecord } from "@/lib/db";
+import { requireDoctorSession } from "@/lib/doctor-review";
+import { formatCairoDateTime } from "@/lib/date-time";
+import { flagLabel, followupQuestions, questionLabel } from "@/lib/questions";
+import { intakeFieldsSchema } from "@/lib/intake";
+import ReviewEditForm from "./ReviewEditForm";
 
 export const dynamic = "force-dynamic";
 
-const lexiconMatchSchema = z.object({
-  id: z.string(),
-  tier: z.enum(["critical", "warning"]),
-  category: z.string(),
-  term: z.string(),
-  start: z.number().int(),
-  end: z.number().int(),
-  negation_nearby: z.boolean(),
-});
-const aiFlagSchema = z.object({
-  quote: z.string(),
-  category: z.string(),
-});
-const valueSchema = z.object({
-  quote: z.string(),
-  meaning: z.string(),
-});
-const inconsistencySchema = z.object({
-  description: z.string(),
-  quotes: z.array(z.string()),
-});
-const reasonSchema = z.object({
-  rule_id: z.string(),
-  text: z.string(),
-});
-const prioritySchema = z.enum(["urgent", "important", "normal"]).nullable();
+function selectedIntake(
+  records: PatientIntakeRecord[],
+  value: string | undefined,
+): PatientIntakeRecord | null {
+  const id = Number(value);
+  return records.find((record) => Number.isSafeInteger(id) && record.id === id) ?? records[0] ?? null;
+}
 
-function parseStored<T>(
-  value: string | null,
-  schema: z.ZodType<T>,
-  label: string,
-  fallback: T,
-): T {
-  if (value === null) return fallback;
+function answerForField(
+  intake: PatientIntakeRecord,
+  key: string | null,
+): boolean | number | null {
+  if (
+    key === "missed_doses" ||
+    key === "hypoglycemia_episodes" ||
+    key === "foot_problem" ||
+    key === "vision_change"
+  ) {
+    return intake.fields[key];
+  }
+  return null;
+}
+
+function displayAnswer(value: boolean | number | null): string {
+  if (value === null) return "Not answered";
+  if (typeof value === "number") return String(value);
+  return value ? "Yes" : "No";
+}
+
+function displayFieldValue(value: boolean | number | string | null): string {
+  if (typeof value === "string") return value || "Not recorded";
+  return displayAnswer(value);
+}
+
+function displayTime(value: string | null): string {
+  return value ? formatCairoDateTime(value) : "Unknown";
+}
+
+const revisionSnapshotSchema = z.object({
+  patient: z.object({ name: z.string() }),
+  intake: z.object({
+    raw_text: z.string().nullable(),
+    priority: z.enum(["urgent", "important", "normal"]).nullable(),
+    status: z.enum(["new", "triaged", "seen"]),
+    structured_json: z.string().nullable(),
+  }),
+});
+
+function revisionSnapshot(value: string) {
   let decoded: unknown;
   try {
     decoded = JSON.parse(value) as unknown;
   } catch {
-    throw new Error(`Stored ${label} is not valid JSON.`);
+    throw new Error("Stored intake revision is not valid JSON.");
   }
-  const parsed = schema.safeParse(decoded);
-  if (!parsed.success) throw new Error(`Stored ${label} is invalid.`);
-  return parsed.data;
+  const parsed = revisionSnapshotSchema.safeParse(decoded);
+  if (!parsed.success) throw new Error("Stored intake revision is invalid.");
+  const fields = parsed.data.intake.structured_json
+    ? intakeFieldsSchema.safeParse(JSON.parse(parsed.data.intake.structured_json))
+    : null;
+  if (fields && !fields.success) throw new Error("Stored revision answers are invalid.");
+  return { ...parsed.data, fields: fields?.data ?? null };
 }
 
-function priorityDetails(priority: string | null): {
-  icon: string;
-  label: string;
-} {
-  if (priority === "urgent") return { icon: "▲", label: "Urgent" };
-  if (priority === "important") return { icon: "●", label: "Important" };
-  if (priority === "normal") return { icon: "○", label: "Normal" };
-  return { icon: "?", label: "Not enough information, staff must decide" };
-}
-
-function dateValue(value: string | null): string {
-  return value ?? "no date on file";
-}
-
-function answerFields(fields: IntakeFields) {
-  return {
-    missed_doses: fields.missed_doses,
-    hypoglycemia_episodes: fields.hypoglycemia_episodes,
-    hypoglycemia_symptoms: fields.hypoglycemia_symptoms,
-    foot_problem: fields.foot_problem,
-    vision_change: fields.vision_change,
-  };
-}
-
-export default async function DoctorCasePage({
+export default async function DoctorIntakePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ patientId: string }>;
+  searchParams: Promise<{ intakeId?: string }>;
 }) {
-  const requestHeaders = await headers();
-  if (!hasAdminAccess(requestHeaders.get("authorization"))) notFound();
-  const { patientId: rawPatientId } = await params;
+  await requireDoctorSession();
+  const [{ patientId: rawPatientId }, { intakeId }] = await Promise.all([params, searchParams]);
   const patientId = Number(rawPatientId);
-  if (!Number.isSafeInteger(patientId) || patientId < 1) {
-    return <main><p>patient not found</p></main>;
+  if (!Number.isSafeInteger(patientId) || patientId < 1) notFound();
+  const record = getPatientRecord(patientId);
+  if (!record) notFound();
+  const intake = selectedIntake(record.intakes, intakeId);
+  if (!intake) {
+    return (
+      <main style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
+        <p><Link href="/doctor">← Review queue</Link></p>
+        <h1>{record.patient.name}</h1>
+        <p>This patient does not have an intake yet.</p>
+      </main>
+    );
   }
-
-  const patient = getPatient(patientId);
-  if (!patient) return <main><p>patient not found</p></main>;
-
-  const intake = latestIntakeForPatient(patientId);
-  const summary = latestCaseSummary(patientId);
-  const summaryIntake = summary ? getIntakeById(summary.intake_id) : undefined;
-  const parsedFields = intake
-    ? intakeFieldsSchema.safeParse(
-        intake.structured_json ? JSON.parse(intake.structured_json) : null,
-      )
-    : null;
-  const fields =
-    parsedFields?.success
-      ? parsedFields.data
-      : {
-          missed_doses: null,
-          hypoglycemia_episodes: null,
-          hypoglycemia_symptoms: null,
-          foot_problem: null,
-          vision_change: null,
-          emergency_symptoms_mentioned: null,
-          symptoms_text: null,
-        };
-  let needsReview = true;
-  if (intake?.meta_json) {
-    const parsedMeta = intakeMetaSchema.safeParse(JSON.parse(intake.meta_json));
-    needsReview = !parsedMeta.success || parsedMeta.data.needs_review;
-  }
-  const liveAssessment = assessIntake({
-    fields,
-    rawText: intake?.raw_text ?? null,
-    hasIntake: Boolean(intake),
-    needsReview,
-  });
-  const now = new Date(`${cairoDate(new Date())}T00:00:00.000Z`);
-  const liveFacts = buildFacts(patient, answerFields(fields), now);
-
-  const history = caseSummaryHistory(patientId, 5);
-  const stale = Boolean(
-    summary && intake && intake.id > summary.intake_id,
-  );
-  const facts = summary
-    ? parseStored(summary.facts_json, caseFactsSchema, "summary facts", liveFacts)
-    : liveFacts;
-  const ruleMatches = summary
-    ? parseStored(
-        summary.rule_flags_json,
-        z.array(lexiconMatchSchema),
-        "rule-matched keywords",
-        [],
-      )
-    : liveAssessment.lexiconMatches;
-  const aiFlags = parseStored(
-    summary?.ai_flags_json ?? null,
-    z.array(aiFlagSchema),
-    "AI highlights",
-    [],
-  );
-  const values = parseStored(
-    summary?.values_json ?? null,
-    z.array(valueSchema),
-    "mentioned values",
-    [],
-  );
-  const storedInconsistencies = parseStored(
-    summary?.inconsistencies_json ?? null,
-    z.array(inconsistencySchema),
-    "inconsistencies",
-    [],
-  );
-  const reasons = summary
-    ? parseStored(
-        summary.priority_reasons_json,
-        z.array(reasonSchema),
-        "priority reasons",
-        [],
-      )
-    : liveAssessment.suggestion.reasons;
-  const suggestedPriority = summary
-    ? prioritySchema.parse(summary.suggested_priority)
-    : liveAssessment.suggestion.priority;
-  const displayedText = summary
-    ? summaryIntake?.raw_text ?? ""
-    : intake?.raw_text ?? "";
-  const textMatches = [
-    ...ruleMatches.map((match) => ({
-      start: match.start,
-      end: match.end,
-      kind: "rule",
-    })),
-    ...aiFlags.flatMap((flag) =>
-      findAllOccurrences(displayedText, flag.quote).map((match) => ({
-        ...match,
-        kind: "ai",
-      })),
-    ),
-  ];
-  const segments = highlightSegments(displayedText, textMatches);
-  const priority = priorityDetails(suggestedPriority);
-  const factsAnswers: [string, string][] = [
-    ["Missed medication doses", facts.answers.missed_doses],
-    ["Low-sugar episodes", facts.answers.hypoglycemia_episodes],
-    ["Low-sugar symptoms", facts.answers.hypoglycemia_symptoms],
-    ["Foot problem", facts.answers.foot_problem],
-    ["Vision change", facts.answers.vision_change],
-  ];
-  const careGaps = [
-    ["HbA1c", facts.care_gaps.hba1c],
-    ["Foot exam", facts.care_gaps.foot_exam],
-    ["Blood pressure", facts.care_gaps.blood_pressure],
-  ] as const;
-  const currentInconsistencies = summary
-    ? storedInconsistencies
-    : liveAssessment.inconsistencies;
-  const timeGenerated = summary
-    ? formatCairoDateTime(summary.created_at)
-    : null;
 
   return (
     <main style={{ maxWidth: 1000, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
+      <p><Link href="/doctor">← Review queue</Link></p>
       <header>
-        <p><Link href="/doctor">← Doctor list</Link></p>
-        <h1>Case summary: {patient.name}</h1>
-        <p>
-          Age: {patient.age ?? "Not recorded"} · Diabetes type:{" "}
-          {patient.diabetes_type ?? "Not recorded"}
-        </p>
-        {summary ? (
-          <>
-            <p>
-              <span style={modeBadgeStyle}>
-                Mode:{" "}
-                <strong>
-                  {summary.generation_mode === "llm"
-                    ? "AI-generated"
-                    : summary.generation_mode === "mock"
-                      ? "MOCK: not real AI"
-                      : "AI unavailable: code-only facts"}
-                </strong>
-              </span>
-            </p>
-            <p>Generated: {timeGenerated}</p>
-          </>
-        ) : (
-          <p>No case summary generated yet.</p>
-        )}
-        <SummaryGenerateButton
-          patientId={patient.id}
-          hasIntake={Boolean(intake)}
-          hasSummary={Boolean(summary)}
-        />
+        <h1>Review: {record.patient.name}</h1>
+        <p>Reference: {record.patient.reference_code ?? "Not available"} · Submitted {displayTime(intake.created_at)}</p>
+        <p>Status: {intake.status} · Staff priority: {intake.priority ?? "Not assigned"} · Version: {intake.version}</p>
+        <p>Age: {record.patient.age ?? "Not recorded"} · Diabetes: {record.patient.diabetes_type ?? "Not recorded"}</p>
+        <p><Link href={`/doctor/${patientId}/summary`}>Open case summary</Link></p>
       </header>
-
-      {stale ? (
-        <p role="status" style={{ background: "#fff7d6", padding: 12 }}>
-          A newer intake exists. Regenerate.
-        </p>
+      {intake.meta?.needs_review ? (
+        <p role="status" style={{ background: "#fff7d6", padding: 12 }}>Extraction needs clinician review.</p>
       ) : null}
-
-      <section style={sectionStyle}>
-        <h2>Suggested priority (fixed rules, not a medical decision)</h2>
-        <p style={{ fontSize: "1.25rem", fontWeight: 700 }}>
-          {priority.icon} {priority.label}
-        </p>
-        {reasons.length ? (
-          <ul>{reasons.map((reason, index) => <li key={`${reason.rule_id}-${index}`}>{reason.text}</li>)}</ul>
-        ) : <p>Not enough information, staff must decide.</p>}
-        <p>Staff decide the priority. Rules version: {summary?.rules_version ?? "v1-placeholder"} (placeholder rules).</p>
-      </section>
-
-      <section style={sectionStyle}>
-        <h2>Key facts</h2>
-        <h3>Intake answers</h3>
-        <ul>{factsAnswers.map(([label, value]) => <li key={label}>{label}: {value}</li>)}</ul>
-        <h3>Care gaps</h3>
-        <ul>
-          {careGaps.map(([label, gap]) => (
-            <li key={label}>
-              {gap.days_since === null
-                ? `${label}: no date on file`
-                : `${label}: ${dateValue(gap.date)} — ${gap.days_since} day(s) since; ${gap.overdue ? "overdue" : "not overdue"} (placeholder threshold ${gap.threshold_days} days)`}
-            </li>
+      {intake.meta?.contradiction ? (
+        <p role="status" style={{ background: "#fff7d6", padding: 12 }}>Potentially conflicting information was detected.</p>
+      ) : null}
+      <section>
+        <h2>Patient answers</h2>
+        <dl>
+          {followupQuestions.slice(0, 4).map((question) => (
+            <div key={question.id}>
+              <dt>{question.label}</dt>
+              <dd>{displayAnswer(answerForField(intake, question.structuredField))}</dd>
+            </div>
           ))}
-          <li>
-            Next visit: {dateValue(facts.care_gaps.next_visit.date)}
-            {facts.care_gaps.next_visit.days_overdue === null
-              ? ""
-              : ` — ${facts.care_gaps.next_visit.days_overdue} day(s) overdue`}
-          </li>
-        </ul>
+          <dt>{questionLabel("hypoglycemia_symptoms")}</dt>
+          <dd>{displayAnswer(intake.fields.hypoglycemia_symptoms)}</dd>
+          <dt>{questionLabel("emergency_symptoms_mentioned")}</dt>
+          <dd>{displayAnswer(intake.fields.emergency_symptoms_mentioned)}</dd>
+          <dt>{questionLabel("symptoms_text")}</dt>
+          <dd>{intake.fields.symptoms_text ?? "Not recorded"}</dd>
+        </dl>
+        {intake.input_method === "typed" && intake.fields.hypoglycemia_episodes !== null ? (
+          <p>
+            Some older registration submissions converted a yes/no low-sugar answer to 1/0.
+            This record does not identify that source, so the stored value is shown as
+            recorded and its original yes/no meaning cannot be recovered.
+          </p>
+        ) : null}
+        <h3>Flags to review</h3>
+        {intake.flags.flags.length ? (
+          <ul>{intake.flags.flags.map((flag) => <li key={flag}>{flagLabel(flag)}</li>)}</ul>
+        ) : <p>No rule flags.</p>}
+        {intake.unansweredCount ? <p>{intake.unansweredCount} unanswered questions.</p> : null}
+        <h3>Submitted patient text</h3>
+        <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{intake.raw_text ?? "No text submitted"}</pre>
       </section>
-
-      <section style={sectionStyle}>
-        <h2>Flagged keywords</h2>
-        <h3>Rule-matched (used for the suggestion)</h3>
-        {ruleMatches.length ? (
-          <ul>
-            {ruleMatches.map((match, index) => (
-              <li key={`${match.id}-${match.start}-${index}`}>
-                <strong>{displayedText.slice(match.start, match.end)}</strong>
-                {" — "}{match.tier}, {match.category}
-                {match.negation_nearby
-                  ? " — negation word nearby: read the original text"
-                  : ""}
+      <ReviewEditForm key={`${intake.id}:${intake.version}`} intake={intake} patient={record.patient} />
+      <section>
+        <h2>Revision history</h2>
+        <ol>
+          {intake.revisions.map((revision) => {
+            const snapshot = revisionSnapshot(revision.snapshot_json);
+            const changedFields = z.array(z.string()).parse(
+              JSON.parse(revision.changed_fields_json) as unknown,
+            );
+            return (
+              <li key={revision.id}>
+                <strong>Revision {revision.revision}</strong> · {revision.source} · {displayTime(revision.edited_at)} · {revision.edited_by ?? "Patient"}
+                {revision.reason ? <p>Reason: {revision.reason}</p> : null}
+                {revision.is_backfill ? (
+                  <p>This is a reconstructed current-state snapshot; it is not the original submission.</p>
+                ) : null}
+                <details>
+                  <summary>View saved record values</summary>
+                  <p>Patient name: {snapshot.patient.name}</p>
+                  <p>Queue status: {snapshot.intake.status} · Priority: {snapshot.intake.priority ?? "Not assigned"}</p>
+                  <h4>Saved answers</h4>
+                  {snapshot.fields ? (
+                    <dl>
+                      {Object.entries(snapshot.fields).map(([field, value]) => (
+                        <div key={field}><dt>{questionLabel(field)}</dt><dd>{displayFieldValue(value)}</dd></div>
+                      ))}
+                    </dl>
+                  ) : <p>Structured answers were not recorded in this revision.</p>}
+                  <h4>Saved free text</h4>
+                  <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{snapshot.intake.raw_text ?? "No text submitted"}</pre>
+                </details>
+                {revision.revision > 1 ? <p>Changed fields: {changedFields.join(", ") || "No field changes recorded"}</p> : null}
               </li>
+            );
+          })}
+        </ol>
+      </section>
+      {intake.doctorNotes.length ? (
+        <section>
+          <h2>Clinician notes</h2>
+          <ul>
+            {intake.doctorNotes.map((note) => (
+              <li key={note.id}>{note.note_text} — {note.edited_by} · {displayTime(note.created_at)}</li>
             ))}
           </ul>
-        ) : <p>No rule-matched keywords.</p>}
-        <h3>AI-highlighted (display only, not used for priority)</h3>
-        {aiFlags.length ? (
-          <p>{aiFlags.map((flag, index) => (
-            <span key={`${flag.quote}-${index}`} style={chipStyle}>
-              {flag.quote} ({flag.category})
-            </span>
-          ))}</p>
-        ) : <p>No verified AI highlights.</p>}
-      </section>
-
-      <section style={sectionStyle}>
-        <h2>Values mentioned in the patient&apos;s text</h2>
-        {values.length ? (
-          <ul>{values.map((value, index) => <li key={`${value.quote}-${index}`}><q>{value.quote}</q> — {value.meaning}</li>)}</ul>
-        ) : <p>No verified values mentioned.</p>}
-      </section>
-
-      <section style={sectionStyle}>
-        <h2>Possible inconsistencies</h2>
-        {currentInconsistencies.length ? (
-          <ul>{currentInconsistencies.map((item, index) => (
-            <li key={`${item.description}-${index}`}>
-              {item.description}
-              {item.quotes.length ? <ul>{item.quotes.map((quote, quoteIndex) => <li key={`${quote}-${quoteIndex}`}><q>{quote}</q></li>)}</ul> : null}
-            </li>
-          ))}</ul>
-        ) : <p>No possible inconsistencies detected.</p>}
-      </section>
-
-      <section style={sectionStyle}>
-        <h2>Patient&apos;s original text</h2>
-        <p><mark className="rule-highlight">Rule-matched</mark>{" "}<mark className="ai-highlight">AI-highlighted</mark></p>
-        {displayedText ? (
-          <pre dir="auto" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-            {segments.map((segment, index) =>
-              segment.highlighted ? (
-                <mark
-                  key={index}
-                  className={[
-                    segment.kinds.includes("rule") ? "rule-highlight" : "",
-                    segment.kinds.includes("ai") ? "ai-highlight" : "",
-                  ].filter(Boolean).join(" ")}
-                >
-                  {segment.text}
-                </mark>
-              ) : <span key={index}>{segment.text}</span>,
-            )}
-          </pre>
-        ) : <p>No free text</p>}
-      </section>
-
-      <section style={sectionStyle}>
-        <h2>AI summary: verify against the patient&apos;s original text</h2>
-        {summary?.generation_mode === "fallback" ? (
-          <p>AI summary unavailable</p>
-        ) : summary?.summary_text ? (
-          <p>{summary.summary_text}</p>
-        ) : summary?.generation_mode === "mock" ? (
-          <p>{summary.summary_text ?? "MOCK summary unavailable."}</p>
-        ) : (
-          <p>Generate a summary to see the narrative.</p>
-        )}
-      </section>
-
-      <section style={sectionStyle}>
-        <h2>Summary history</h2>
-        {history.length ? (
-          <ul>{history.map((item) => (
-            <li key={item.id}>
-              {formatCairoDateTime(item.created_at)} — {item.generation_mode} —{" "}
-              {priorityDetails(item.suggested_priority).label}
-            </li>
-          ))}</ul>
-        ) : <p>No summary history.</p>}
-      </section>
-
-      <footer style={sectionStyle}>
-        Demo only: no login. Do not use with real patients.
-      </footer>
-      {/* TODO: Add a read-only suggestion panel to /triage/[patientId] only if that route is introduced. */}
+        </section>
+      ) : null}
     </main>
   );
 }
-
-const sectionStyle = {
-  border: "1px solid #d1d5db",
-  borderRadius: 12,
-  marginBlock: 16,
-  padding: 16,
-};
-const chipStyle = {
-  display: "inline-block",
-  border: "1px solid #9ca3af",
-  borderRadius: 999,
-  margin: 4,
-  padding: "4px 10px",
-};
-const modeBadgeStyle = {
-  display: "inline-block",
-  border: "1px solid #6b7280",
-  borderRadius: 999,
-  padding: "6px 12px",
-};

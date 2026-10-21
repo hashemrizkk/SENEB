@@ -1,0 +1,214 @@
+import assert from "node:assert/strict";
+import Database from "better-sqlite3";
+import {
+  authenticateDoctor,
+  createDoctorSession,
+  failedLoginIsLimited,
+  getDoctorPatientRecord,
+  migrateDoctorReview,
+  recordFailedLogin,
+  requestDoctorSession,
+  saveClinicianEdit,
+  savePatientIntake,
+  verifyDoctorSession,
+} from "../lib/doctor-review.ts";
+import { intakeFieldsSchema } from "../lib/intake.ts";
+import { redFlags } from "../lib/rules.ts";
+
+function createLegacyDatabase(): Database.Database {
+  const db = new Database(":memory:");
+  db.pragma("foreign_keys = ON");
+  db.exec(`
+    CREATE TABLE patients (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      age INTEGER,
+      phone TEXT,
+      email TEXT,
+      self_description TEXT,
+      reference_code TEXT,
+      request_id TEXT,
+      consent_at TEXT,
+      created_at TEXT,
+      diabetes_type TEXT,
+      last_hba1c_date TEXT,
+      last_foot_exam_date TEXT,
+      last_bp_date TEXT,
+      next_visit_date TEXT
+    );
+    CREATE TABLE intakes (
+      id INTEGER PRIMARY KEY,
+      patient_id INTEGER NOT NULL REFERENCES patients(id),
+      input_method TEXT,
+      raw_text TEXT,
+      structured_json TEXT,
+      red_flags_json TEXT,
+      meta_json TEXT,
+      created_at TEXT
+    );
+    CREATE TABLE notes (
+      id INTEGER PRIMARY KEY,
+      patient_id INTEGER NOT NULL REFERENCES patients(id),
+      note_text TEXT,
+      check_result_json TEXT,
+      override_reason TEXT,
+      created_at TEXT
+    );
+    CREATE TABLE queue_entries (
+      intake_id INTEGER,
+      status TEXT NOT NULL,
+      priority TEXT
+    );
+    CREATE TABLE queue_audit (
+      id INTEGER PRIMARY KEY,
+      intake_id INTEGER,
+      status TEXT
+    );
+    INSERT INTO patients (id, name, age, phone, email, created_at)
+    VALUES (1, 'Test Patient', 40, '01012345678', '', '2025-01-01T10:00:00Z');
+    INSERT INTO intakes (
+      id, patient_id, input_method, raw_text, structured_json,
+      red_flags_json, meta_json, created_at
+    ) VALUES (
+      1, 1, 'tap', 'Original patient text',
+      '{"missed_doses":false,"hypoglycemia_episodes":1,"hypoglycemia_symptoms":null,"foot_problem":false,"vision_change":false,"emergency_symptoms_mentioned":null,"symptoms_text":null}',
+      '{"flags":[],"unanswered":[]}',
+      '{"llm_mode":"none","model":null,"needs_review":false,"contradiction":false}',
+      '2025-01-01T10:00:00Z'
+    );
+    INSERT INTO queue_entries (intake_id, status, priority)
+    VALUES (1, 'waiting', 'urgent');
+  `);
+  return db;
+}
+
+function check(condition: unknown, message: string): asserts condition {
+  assert.ok(condition, message);
+}
+
+const db = createLegacyDatabase();
+try {
+  migrateDoctorReview(db);
+  let record = getDoctorPatientRecord(db, 1);
+  check(record, "legacy patient should load after migration");
+  assert.equal(record.latestIntake?.status, "triaged");
+  assert.equal(record.latestIntake?.priority, "urgent");
+  assert.equal(record.latestIntake?.revisions.length, 1);
+  assert.equal(record.latestIntake?.revisions[0]?.is_backfill, 1);
+  assert.equal(record.latestIntake?.originalTrustworthy, false);
+
+  const migratedSnapshot = JSON.parse(record.latestIntake!.revisions[0]!.snapshot_json) as {
+    intake: { status: string; priority: string };
+  };
+  assert.equal(migratedSnapshot.intake.status, "triaged");
+  assert.equal(migratedSnapshot.intake.priority, "urgent");
+
+  migrateDoctorReview(db);
+  record = getDoctorPatientRecord(db, 1);
+  check(record, "patient should remain available after a repeat migration");
+  assert.equal(record.latestIntake?.revisions.length, 1);
+  assert.equal(
+    db.prepare<[], { count: number }>("SELECT COUNT(*) AS count FROM queue_entries").get()?.count,
+    1,
+    "legacy queue tables must be preserved",
+  );
+
+  const defaultFields = intakeFieldsSchema.parse({
+    missed_doses: null,
+    hypoglycemia_episodes: null,
+    hypoglycemia_symptoms: null,
+    foot_problem: null,
+    vision_change: null,
+    emergency_symptoms_mentioned: null,
+    symptoms_text: null,
+  });
+  const nextIntakeId = savePatientIntake(db, {
+    patient_id: 1,
+    input_method: "tap",
+    raw_text: null,
+    structured_json: JSON.stringify(defaultFields),
+    red_flags_json: JSON.stringify(redFlags(defaultFields)),
+    meta_json: '{"llm_mode":"none","model":null,"needs_review":false,"contradiction":false}',
+  });
+  const newIntake = getDoctorPatientRecord(db, 1)?.intakes.find((item) => item.id === nextIntakeId);
+  check(newIntake, "new intake should load");
+  assert.equal(newIntake.revisions.length, 1);
+  assert.equal(newIntake.revisions[0]?.source, "patient");
+  assert.equal(newIntake.revisions[0]?.is_backfill, 0);
+  assert.equal(newIntake.originalTrustworthy, true);
+
+  const secret = process.env.SESSION_SECRET;
+  const passcode = process.env.DOCTOR_PASSCODE;
+  process.env.SESSION_SECRET = "test-session-secret-with-at-least-32-bytes";
+  process.env.DOCTOR_PASSCODE = "test-clinic-passcode";
+  try {
+    assert.equal(authenticateDoctor("test-clinic-passcode"), true);
+    assert.equal(authenticateDoctor("wrong"), false);
+    const token = createDoctorSession("Dr Test", 1_000);
+    assert.deepEqual(verifyDoctorSession(token, 1_001), {
+      name: "Dr Test",
+      expiresAt: 14_401_000,
+    });
+    assert.equal(verifyDoctorSession(token, 20_000_000), null);
+    assert.equal(verifyDoctorSession(`${token}x`, 1_001), null);
+    const activeToken = createDoctorSession("Dr Test");
+    const activeSession = verifyDoctorSession(activeToken);
+    check(activeSession, "new session should be valid");
+    const request = new Request("http://localhost/api/doctor/intakes/1", {
+      headers: { cookie: `doctor_session=${encodeURIComponent(activeToken)}` },
+    });
+    assert.deepEqual(requestDoctorSession(request), activeSession);
+    const limitedRequest = new Request("http://localhost/api/doctor/login", {
+      headers: { "x-real-ip": "192.0.2.11" },
+    });
+    for (let count = 0; count < 5; count += 1) recordFailedLogin(limitedRequest);
+    assert.equal(failedLoginIsLimited(limitedRequest), true);
+  } finally {
+    if (secret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = secret;
+    if (passcode === undefined) delete process.env.DOCTOR_PASSCODE;
+    else process.env.DOCTOR_PASSCODE = passcode;
+  }
+
+  const edit = {
+    version: 1,
+    patient: {
+      name: "Test Patient Updated",
+      phone: "01012345678",
+      email: "doctor-test@example.org",
+      self_description: "Fake test record",
+    },
+    fields: {
+      ...defaultFields,
+      missed_doses: true,
+      hypoglycemia_episodes: 0,
+    },
+    raw_text: "Edited test note",
+    priority: "important" as const,
+    status: "seen" as const,
+    note: "Clinician test note",
+    reason: "Test edit",
+  };
+  const saved = saveClinicianEdit(db, 1, "Dr Test", edit, new Date("2025-01-02T10:00:00Z"));
+  assert.equal(saved.ok, true);
+  if (!saved.ok) throw new Error("The valid clinician edit unexpectedly conflicted.");
+  assert.equal(saved.record.version, 2);
+  assert.equal(saved.record.status, "seen");
+  assert.equal(saved.record.priority, "important");
+  assert.equal(saved.record.flags.flags.includes("missed doses"), true);
+  assert.equal(saved.record.revisions.length, 2);
+  const changedFields = JSON.parse(
+    saved.record.revisions[1]!.changed_fields_json,
+  ) as string[];
+  for (const field of ["patient.name", "intake.status", "intake.priority"]) {
+    assert.ok(changedFields.includes(field), `revision should include ${field}`);
+  }
+  assert.equal(saved.record.doctorNotes[0]?.note_text, "Clinician test note");
+
+  const stale = saveClinicianEdit(db, 1, "Dr Test", edit);
+  assert.deepEqual(stale, { ok: false, conflict: true });
+
+  console.log("Doctor workflow tests passed: migration, queue import, revisions, edits, conflicts, and sessions.");
+} finally {
+  db.close();
+}

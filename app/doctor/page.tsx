@@ -1,106 +1,90 @@
-import { headers } from "next/headers";
-import { notFound } from "next/navigation";
-import { hasAdminAccess } from "@/lib/adminAuth";
 import Link from "next/link";
-import { latestIntakeForPatient, listPatients } from "@/lib/db";
-import { intakeFieldsSchema, intakeMetaSchema } from "@/lib/intake";
-import { assessIntake } from "@/lib/case-assessment";
+import { requireDoctorSession } from "@/lib/doctor-review";
+import { listQueue, type QueueFilter } from "@/lib/db";
+import { flagLabel } from "@/lib/questions";
+import DoctorQueueRefresh from "./DoctorQueueRefresh";
 
 export const dynamic = "force-dynamic";
 
-export default async function DoctorPage() {
-  const requestHeaders = await headers();
-  if (!hasAdminAccess(requestHeaders.get("authorization"))) notFound();
+function selectedFilter(value: string | undefined): QueueFilter {
+  return value === "new" || value === "triaged" ? value : "all";
+}
 
-  const patients = listPatients();
-
+export default async function DoctorPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ filter?: string }>;
+}) {
+  const session = await requireDoctorSession();
+  const { filter: rawFilter } = await searchParams;
+  const filter = selectedFilter(rawFilter);
+  const records = listQueue(filter);
   return (
-    <main>
-      <h1>Patients</h1>
-      <p>Demo only: no login. Do not use with real patients.</p>
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Age</th>
-            <th>Diabetes type</th>
-            <th>Next visit</th>
-            <th>Last HbA1c</th>
-            <th>Last foot exam</th>
-            <th>Last BP</th>
-            <th>Suggested priority</th>
-          </tr>
-        </thead>
-        <tbody>
-          {patients.map((patient) => {
-            const intake = latestIntakeForPatient(patient.id);
-            let priorityLabel = "No intake";
-            if (intake) {
-              let fields = intakeFieldsSchema.safeParse(null);
-              try {
-                fields = intakeFieldsSchema.safeParse(
-                  intake.structured_json
-                    ? JSON.parse(intake.structured_json)
-                    : null,
-                );
-              } catch {
-                fields = intakeFieldsSchema.safeParse(null);
-              }
-              let needsReview = true;
-              if (intake.meta_json) {
-                try {
-                  const meta = intakeMetaSchema.safeParse(
-                    JSON.parse(intake.meta_json),
-                  );
-                  needsReview = !meta.success || meta.data.needs_review;
-                } catch {
-                  needsReview = true;
-                }
-              }
-              const suggestion = fields.success
-                ? assessIntake({
-                    fields: fields.data,
-                    rawText: intake.raw_text,
-                    hasIntake: true,
-                    needsReview,
-                  }).suggestion
-                : { priority: null };
-              priorityLabel =
-                suggestion.priority === null
-                  ? "Not enough information"
-                  : suggestion.priority[0].toUpperCase() +
-                    suggestion.priority.slice(1);
-            }
-
-            return (
-              <tr key={patient.id}>
+    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+        <div>
+          <h1>Doctor review queue</h1>
+          <p>Signed in as {session.name}. Review flags are decision support, not a diagnosis.</p>
+        </div>
+        <form action="/api/doctor/logout" method="post">
+          <button type="submit">Sign out</button>
+        </form>
+      </header>
+      <DoctorQueueRefresh />
+      <nav aria-label="Queue filters" style={{ display: "flex", gap: 12, marginBlock: 16 }}>
+        {(["new", "triaged", "all"] as const).map((value) => (
+          <Link
+            key={value}
+            href={`/doctor?filter=${value}`}
+            aria-current={filter === value ? "page" : undefined}
+          >
+            {value === "new" ? "New" : value === "triaged" ? "Triaged" : "All"}
+          </Link>
+        ))}
+        <Link href="/admin/intakes">Recent intake details</Link>
+      </nav>
+      {records.length === 0 ? <p>No intakes in this queue.</p> : null}
+      <div style={{ overflowX: "auto" }}>
+        <table>
+          <thead>
+            <tr>
+              <th>Patient / reference</th>
+              <th>Submitted</th>
+              <th>Queue state</th>
+              <th>Priority</th>
+              <th>Review flags</th>
+              <th>Answers missing</th>
+              <th>Record</th>
+            </tr>
+          </thead>
+          <tbody>
+            {records.map((record) => (
+              <tr key={record.id}>
                 <td>
-                  <Link href={`/doctor/${patient.id}`}>{patient.name}</Link>
+                  <strong>{record.patient_name}</strong>
+                  <br />
+                  <small>{record.reference_code ?? "No reference code"}</small>
                 </td>
-                <td>{patient.age ?? "—"}</td>
-                <td>{patient.diabetes_type ?? "—"}</td>
-                <td>{patient.next_visit_date ?? "—"}</td>
-                <td>{patient.last_hba1c_date ?? "—"}</td>
-                <td>{patient.last_foot_exam_date ?? "—"}</td>
-                <td>{patient.last_bp_date ?? "—"}</td>
+                <td>{record.created_at ?? "Unknown"}</td>
+                <td>{record.status}</td>
+                <td>{record.priority ?? "Not assigned"}</td>
                 <td>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      border: "1px solid #999",
-                      borderRadius: 999,
-                      padding: "0.2rem 0.6rem",
-                    }}
-                  >
-                    ● {priorityLabel}
-                  </span>{" "}
-                  <small>(rules v1)</small>
+                  {record.flags.flags.length
+                    ? record.flags.flags.map(flagLabel).join(", ")
+                    : "None"}
+                  {record.edited ? <p>Edited by {record.edited_by}</p> : null}
+                </td>
+                <td>{record.unansweredCount}</td>
+                <td>
+                  <Link href={`/doctor/${record.patient_id}?intakeId=${record.id}`}>Review intake</Link>
+                  <br />
+                  <Link href={`/doctor/${record.patient_id}/summary`}>Case summary</Link>
                 </td>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

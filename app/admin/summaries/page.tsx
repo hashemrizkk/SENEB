@@ -1,6 +1,4 @@
-import { headers } from "next/headers";
-import { notFound } from "next/navigation";
-import { hasAdminAccess } from "@/lib/adminAuth";
+import { requireDoctorSession } from "@/lib/doctor-review";
 import { latestCaseSummaries } from "@/lib/db";
 import { formatCairoDateTime } from "@/lib/date-time";
 
@@ -14,15 +12,14 @@ function parseArray(value: string | null): unknown[] {
 }
 
 export default async function AdminSummariesPage() {
-  const requestHeaders = await headers();
-  if (!hasAdminAccess(requestHeaders.get("authorization"))) notFound();
+  await requireDoctorSession();
 
   const summaries = latestCaseSummaries(20);
   return (
     <main style={{ padding: 24, fontFamily: "system-ui, sans-serif" }}>
       <h1>Developer check: case summaries</h1>
       <p>Developer check page, not for patients.</p>
-      <p>Demo only: no login. Do not use with real patients.</p>
+      <p>Staff-only demo. Do not use with real patient data.</p>
       <div style={{ overflowX: "auto" }}>
       <table>
         <thead>

@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS intakes (
   structured_json TEXT,
   red_flags_json TEXT,
   meta_json TEXT,
+  status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'triaged', 'seen')),
+  priority TEXT CHECK (priority IN ('urgent', 'important', 'normal')),
+  version INTEGER NOT NULL DEFAULT 1,
+  edited_by TEXT,
+  edited_at TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -35,9 +40,25 @@ CREATE TABLE IF NOT EXISTS notes (
   note_text TEXT,
   check_result_json TEXT,
   override_reason TEXT,
+  edited_by TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS intake_revisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  intake_id INTEGER NOT NULL REFERENCES intakes(id),
+  revision INTEGER NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('patient', 'clinician')),
+  edited_by TEXT,
+  edited_at TEXT NOT NULL,
+  reason TEXT,
+  snapshot_json TEXT NOT NULL,
+  changed_fields_json TEXT NOT NULL,
+  is_backfill INTEGER NOT NULL DEFAULT 0 CHECK (is_backfill IN (0, 1)),
+  UNIQUE (intake_id, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_intake_revisions_intake
+  ON intake_revisions(intake_id, revision DESC);
 CREATE TABLE IF NOT EXISTS followups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   patient_id INTEGER NOT NULL REFERENCES patients(id),

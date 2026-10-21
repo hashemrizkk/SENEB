@@ -7,6 +7,7 @@ import {
   readJsonBody,
 } from "@/lib/requestGuards";
 import { generateCaseSummary } from "@/lib/summary";
+import { requestDoctorSession } from "@/lib/doctor-review";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -22,6 +23,9 @@ function errorResponse(error: string, status: number): Response {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  if (!requestDoctorSession(request)) {
+    return errorResponse("Doctor sign-in is required.", 401);
+  }
   if (!hasSameOrigin(request)) {
     return errorResponse("Request origin was not accepted.", 403);
   }

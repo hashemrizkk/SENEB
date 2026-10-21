@@ -1,4 +1,4 @@
-import { insertIntake } from "./db";
+import { insertIntakeWithRevision } from "./db";
 import { extractIntake } from "./llm";
 import {
   intakeFieldsSchema,
@@ -98,7 +98,7 @@ export function saveIntake(data: {
   flags: RedFlagResult;
   meta: IntakeMeta;
 }): number {
-  return insertIntake({
+  return insertIntakeWithRevision({
     patient_id: data.patient_id,
     input_method: data.input_method,
     raw_text: data.raw_text,
