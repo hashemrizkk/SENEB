@@ -1,6 +1,7 @@
 import { generateText, Output } from "ai";
-import { google } from "@ai-sdk/google";
-import { groq } from "@ai-sdk/groq";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createGroq } from "@ai-sdk/groq";
+import { z } from "zod";
 import {
   intakeFieldsSchema,
   type IntakeFields,
@@ -10,6 +11,42 @@ import {
   summaryLlmOutputSchema,
   type SummaryLlmInput,
 } from "@/lib/summary-types.ts";
+import {
+  firstValidProvider,
+  InvalidProviderOutputError,
+  type LlmProviderName,
+  type ProviderAttempt,
+} from "@/lib/provider-fallback";
+
+const GEMINI_MODEL = "gemini-3.8-flash";
+const GROQ_MODEL = "openai/gpt-oss-20b";
+
+function geminiApiKey(): string | undefined {
+  return process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+}
+
+function configuredProviders(): LlmProviderName[] {
+  const providers: LlmProviderName[] = [];
+  if (geminiApiKey()) providers.push("Gemini");
+  if (process.env.GROQ_API_KEY) providers.push("Groq");
+  return providers;
+}
+
+function providerModel(provider: LlmProviderName) {
+  if (provider === "Gemini") {
+    const apiKey = geminiApiKey();
+    if (!apiKey) throw new Error("Gemini API key is not configured.");
+    return createGoogleGenerativeAI({ apiKey })(GEMINI_MODEL);
+  }
+
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error("Groq API key is not configured.");
+  return createGroq({ apiKey })(GROQ_MODEL);
+}
+
+function providerModelId(provider: LlmProviderName): string {
+  return provider === "Gemini" ? GEMINI_MODEL : GROQ_MODEL;
+}
 
 // ----- System prompt -----
 
@@ -45,60 +82,51 @@ Rules:
 - Return JSON only, matching the requested schema.`;
 
 export function hasSummaryProviderConfigured(): boolean {
-  return Boolean(
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GROQ_API_KEY,
-  );
-}
-
-function summaryProviders(): ("google" | "groq")[] {
-  const providers: ("google" | "groq")[] = [];
-  if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) providers.push("google");
-  if (process.env.GROQ_API_KEY) providers.push("groq");
-  return providers;
+  return configuredProviders().length > 0;
 }
 
 async function callSummaryLLM(
-  provider: "google" | "groq",
+  provider: LlmProviderName,
   payload: SummaryLlmInput,
 ): Promise<{ output: unknown; model: string }> {
-  const selectedModel =
-    provider === "google"
-      ? google("gemini-2.5-flash")
-      : groq("llama-3.3-70b-versatile");
-  const model =
-    provider === "google" ? "gemini-2.5-flash" : "llama-3.3-70b-versatile";
-
   const result = await generateText({
-    model: selectedModel,
+    model: providerModel(provider),
     output: Output.object({ schema: summaryLlmOutputSchema }),
     temperature: 0,
+    maxRetries: 0,
     messages: [
       { role: "system", content: CASE_SUMMARY_SYSTEM_PROMPT },
       { role: "user", content: JSON.stringify(payload) },
     ],
     abortSignal: AbortSignal.timeout(20_000),
   });
-  if (!result.output) throw new Error("The summary provider returned no output.");
-  return { output: result.output, model };
+  if (!result.output) throw new InvalidProviderOutputError();
+  return { output: result.output, model: providerModelId(provider) };
 }
 
 export async function summarizeCase(
   payload: SummaryLlmInput,
 ): Promise<{ output: unknown; model: string }> {
-  const providers = summaryProviders();
+  const providers = configuredProviders();
   if (providers.length === 0) {
     throw new Error("No summary provider is configured.");
   }
 
-  for (const provider of providers) {
-    try {
-      return await callSummaryLLM(provider, payload);
-    } catch (error: unknown) {
-      const errorType =
-        error instanceof Error ? error.constructor.name : "UnknownError";
-      console.error(`Case summary generation failed for ${provider} (${errorType}).`);
-    }
-  }
+  const attempts: ProviderAttempt[] = providers.map((provider) => ({
+    provider,
+    run: () => callSummaryLLM(provider, payload),
+  }));
+  const result = await firstValidProvider(attempts, (output) => {
+    if (output === null || typeof output !== "object") return null;
+    if (!("output" in output) || !("model" in output)) return null;
+    if (typeof output.model !== "string") return null;
+    const parsed = summaryLlmOutputSchema.safeParse(output.output);
+    return parsed.success
+      ? { output: parsed.data, model: output.model }
+      : null;
+  });
+  if (result) return result.value;
+
   throw new Error("Case summary generation failed for all configured providers.");
 }
 
@@ -194,20 +222,14 @@ function mockExtract(freeText: string): IntakeFields {
 // ----- Real LLM call -----
 
 async function callLLM(
-  provider: "google" | "groq",
+  provider: LlmProviderName,
   freeText: string,
-): Promise<{ fields: IntakeFields; modelId: string } | null> {
-  const selectedModel =
-    provider === "google"
-      ? google("gemini-2.5-flash")
-      : groq("llama-3.3-70b-versatile");
-  const modelId =
-    provider === "google" ? "gemini-2.5-flash" : "llama-3.3-70b-versatile";
-
+): Promise<unknown> {
   const result = await generateText({
-    model: selectedModel,
+    model: providerModel(provider),
     output: Output.object({ schema: intakeFieldsSchema }),
     temperature: 0,
+    maxRetries: 0,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       {
@@ -218,11 +240,8 @@ async function callLLM(
     abortSignal: AbortSignal.timeout(10_000),
   });
 
-  if (result.output) {
-    return { fields: result.output, modelId };
-  }
-
-  return null;
+  if (!result.output) throw new InvalidProviderOutputError();
+  return result.output;
 }
 
 // ----- Public API -----
@@ -230,12 +249,14 @@ async function callLLM(
 export async function extractIntake(
   freeText: string,
 ): Promise<{ fields: IntakeFields; meta: IntakeMeta }> {
-  const providers: ("google" | "groq")[] = [];
-  if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) providers.push("google");
-  if (process.env.GROQ_API_KEY) providers.push("groq");
+  const input = z.string().trim().min(1).max(1000).safeParse(freeText);
+  if (!input.success) {
+    throw new Error("Intake text must contain 1 to 1000 characters.");
+  }
+  const providers = configuredProviders();
 
   if (providers.length === 0) {
-    const fields = mockExtract(freeText);
+    const fields = mockExtract(input.data);
     return {
       fields,
       meta: {
@@ -247,24 +268,24 @@ export async function extractIntake(
     };
   }
 
-  for (const provider of providers) {
-    try {
-      const result = await callLLM(provider, freeText);
-      if (!result) continue;
-      return {
-        fields: result.fields,
-        meta: {
-          llm_mode: "real",
-          model: result.modelId,
-          needs_review: false,
-          contradiction: false,
-        },
-      };
-    } catch (error: unknown) {
-      const errorType =
-        error instanceof Error ? error.constructor.name : "UnknownError";
-      console.error(`LLM extraction failed for ${provider} (${errorType}).`);
-    }
+  const attempts: ProviderAttempt[] = providers.map((provider) => ({
+    provider,
+    run: () => callLLM(provider, input.data),
+  }));
+  const result = await firstValidProvider(attempts, (output) => {
+    const parsed = intakeFieldsSchema.safeParse(output);
+    return parsed.success ? parsed.data : null;
+  });
+  if (result) {
+    return {
+      fields: result.value,
+      meta: {
+        llm_mode: "real",
+        model: `${result.provider}: ${providerModelId(result.provider)}`,
+        needs_review: false,
+        contradiction: false,
+      },
+    };
   }
 
   return {

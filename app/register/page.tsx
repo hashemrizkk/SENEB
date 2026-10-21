@@ -8,6 +8,7 @@ import TapQuestions, {
 import RegisterProgress from "@/components/register/RegisterProgress";
 import ReviewList from "@/components/register/ReviewList";
 import SuccessScreen from "@/components/register/SuccessScreen";
+import VoiceInput from "@/components/VoiceInput";
 import {
   consentSchema,
   emailSchema,
@@ -16,6 +17,7 @@ import {
   registrationSchema,
 } from "@/lib/registration";
 import { ar } from "@/lib/strings.ar";
+import { appendTranscript } from "@/lib/voice-utils";
 import {
   registrationQuestions,
   registrationTextQuestions,
@@ -80,6 +82,8 @@ export default function RegisterPage() {
     self_description: "",
     notes: "",
   });
+  const [descriptionTranscript, setDescriptionTranscript] = useState("");
+  const [notesTranscript, setNotesTranscript] = useState("");
   const [answers, setAnswers] = useState<TapAnswersState>(emptyAnswers);
   const [consent, setConsent] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -221,6 +225,8 @@ export default function RegisterPage() {
 
       // Everything was in React state only — clear it now.
       setForm({ full_name: "", phone: "", email: "", self_description: "", notes: "" });
+      setDescriptionTranscript("");
+      setNotesTranscript("");
       setAnswers(emptyAnswers());
       setConsent(false);
       setWebsite("");
@@ -495,6 +501,23 @@ export default function RegisterPage() {
                 }))
               }
             />
+            <VoiceInput
+              id="registration-description-voice"
+              label={registrationTextQuestions.selfDescription.label}
+              maxChars={300}
+              transcript={descriptionTranscript}
+              onTranscriptChange={setDescriptionTranscript}
+              onAppend={(value) =>
+                setForm((current) => ({
+                  ...current,
+                  self_description: appendTranscript(
+                    current.self_description,
+                    value,
+                    300,
+                  ),
+                }))
+              }
+            />
             <p className="reg-counter">
               {ar.register.charCount(form.self_description.length, 300)}
             </p>
@@ -511,6 +534,19 @@ export default function RegisterPage() {
               value={form.notes}
               onChange={(event) =>
                 setForm((current) => ({ ...current, notes: event.target.value }))
+              }
+            />
+            <VoiceInput
+              id="registration-notes-voice"
+              label={registrationTextQuestions.notes.label}
+              maxChars={500}
+              transcript={notesTranscript}
+              onTranscriptChange={setNotesTranscript}
+              onAppend={(value) =>
+                setForm((current) => ({
+                  ...current,
+                  notes: appendTranscript(current.notes, value, 500),
+                }))
               }
             />
             <p className="reg-counter">

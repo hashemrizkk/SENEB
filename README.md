@@ -26,8 +26,10 @@ ignored by Git.
 
 Copy `.env.example` to `.env.local`.
 
-- `GOOGLE_GENERATIVE_AI_API_KEY` - optional; tried first for extraction.
-- `GROQ_API_KEY` - optional; tried after Google if configured.
+- `GEMINI_API_KEY` - optional; tried first for extraction and summaries.
+- `GROQ_API_KEY` - optional; tried after Gemini if configured.
+- `GOOGLE_GENERATIVE_AI_API_KEY` - legacy alias accepted when
+  `GEMINI_API_KEY` is unset.
 - `DOCTOR_PASSCODE` - required shared clinic passcode for staff sign-in.
 - `SESSION_SECRET` - signing key of at least 32 bytes. Generate one with
   `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`.
@@ -36,7 +38,57 @@ Copy `.env.example` to `.env.local`.
   changing the default `hackathon.db`.
 
 With no LLM keys, the app uses clearly marked mock extraction and flags it for
-clinic review. A provider outage does not prevent an intake from being saved.
+clinic review. Gemini is attempted first, followed by Groq when configured.
+Requests have bounded timeouts and SDK retries are disabled so the app controls
+fallback behavior. Rate/quota limits, timeouts, network/server failures, and
+invalid structured output can trigger the fallback. Non-retryable provider
+client errors do not; extraction then produces empty fields marked for staff
+review, and the intake can still be saved. Summary failures use the existing
+code-generated fallback.
+
+The configured models are `gemini-3.8-flash` and `openai/gpt-oss-20b`.
+Provider quotas and prices depend on the provider, model, account, and current
+terms; do not assume either service is unlimited or free. Check the providers'
+current [Gemini pricing and usage terms](https://ai.google.dev/gemini-api/docs/pricing),
+[Gemini rate limits](https://ai.google.dev/gemini-api/docs/rate-limits),
+[Groq model availability and pricing](https://console.groq.com/docs/models),
+and [Groq rate limits](https://console.groq.com/docs/rate-limits) before use.
+
+### Third-party data and privacy
+
+When an LLM key is configured, extraction sends the patient's free-text answer
+to that provider. Case summaries send age, recorded diabetes type, structured
+intake answers, care-gap values, and the patient's original intake text. Names
+and phone numbers are not included in these LLM payloads. The application logs
+provider names and error classes, not prompt text or provider response bodies.
+Provider requests are external data transfers: Google documents that some
+Gemini free-tier content may be used to improve its products, and provider
+retention/processing terms can change. Review the current terms linked above
+before using any real or sensitive information; this demo is not approved for
+real patient data.
+
+### Voice input
+
+The optional voice widget records audio with `getUserMedia` and `MediaRecorder`
+in browsers that support them; microphone access requires permission and a
+secure context (HTTPS or localhost). Browser recordings are decoded and
+normalized to mono 16 kHz WAV before sending, to avoid codec incompatibility.
+Recordings stop automatically after 30 seconds, are limited to 8 MB, and are
+sent to this app's `/api/voice/transcribe` route only after the user stops
+recording. The route sends audio to Gemini
+(`gemini-3.8-flash`) using the server-side Gemini key and does not persist audio
+or log the transcript. This audio transfer uses provider quota and is subject
+to Google's current processing and retention terms. Do not use real patient
+audio in this demo.
+
+Choose a language hint (`ar-EG`, `ar`, or `en-US`); it is not a guarantee of
+accurate dialect recognition or code-switching. The user can review/edit the
+returned transcript and must press **أضف إلى الحقل** before inserting it; the
+form is never auto-submitted. After insertion and ordinary form submission,
+the text follows the existing patient text processing and storage flow. The
+standalone `/voice-demo` uses synthetic sample phrases and reports an
+approximate character error rate (CER), ignoring spaces, punctuation, and
+Arabic diacritics for that estimate; it does not save a transcript.
 Staff sign in at `/doctor/login`; their entered name is recorded with edits,
 but the shared passcode does not independently verify a clinician's identity.
 This is a demo authentication mechanism, not a production patient-data
@@ -50,8 +102,29 @@ npm run lint
 npm run build
 npm run test:doctor
 npm run test:summary
+npm run test:providers
+npm run test:voice
+npm run test:voice-api
+npm run test:audio-wav
 npm run smoke:summary
 ```
+
+For a manual voice check, set `GEMINI_API_KEY` in `.env.local`, restart the
+server, and open `/voice-demo` in a browser over localhost or HTTPS. Choose a
+synthetic phrase, allow microphone access, speak, press **إيقاف وإرسال للتحويل**,
+and compare the editable transcript with the reference. This sends the
+recording to Gemini and may use API quota. Also confirm the typing fallback
+works and that no form is submitted automatically. Test `/register` and
+`/intake` separately to confirm that **أضف إلى الحقل** appends reviewed text
+without replacing existing typed text. Automated tests do not exercise a live
+microphone or Gemini request.
+
+To manually check provider priority, configure both provider keys in a local
+`.env.local`, submit fictional test text, then check intake review metadata to
+confirm Gemini is used when it succeeds. For fallback, temporarily use a
+deliberately invalid Gemini key with a valid Groq key and check that extraction
+uses Groq. Do not put keys in `.env.example`, commit them, or use real patient
+data for this test.
 
 Start the dev server in one terminal, then run the HTTP regression tests in a
 second terminal:
@@ -72,7 +145,9 @@ need to preserve local data.
 
 - `/register` - patient registration and first follow-up
 - `/intake` and `/intake/[id]` - follow-up for a seeded patient
+- `/voice-demo` - browser voice-input demo with synthetic phrases and approximate CER
 - `/api/register` and `/api/intake` - validated, same-origin POST endpoints
+- `/api/voice/transcribe` - same-origin, size-limited Gemini audio transcription endpoint
 - `/api/health` - database availability check
 - `/doctor/login` - staff sign-in
 - `/doctor` - intake review queue with new, triaged, and all filters
@@ -132,6 +207,8 @@ marked mock text; a provider failure is recorded as a code-only fallback.
 - Substring matching can over-flag.
 - Nearby negation is annotated for staff but never trusted to lower a tier.
 - The LLM can be wrong; quoted items are checked against the original text.
+- Voice recognition is browser-dependent, may use a third-party speech service,
+  and requires transcript review; it is not a medical transcription guarantee.
 - Suggested priority is advice only, not a clinical decision or queue
   assignment. Queue priority is set by clinic staff.
 

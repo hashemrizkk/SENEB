@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ar } from "@/lib/strings.ar";
 import { followupQuestions } from "@/lib/questions";
+import VoiceInput from "@/components/VoiceInput";
+import { appendTranscript } from "@/lib/voice-utils";
 
 // Toggle: tap same button again → clear back to null
 function toggle<T>(current: T | null, value: T): T | null {
@@ -22,6 +24,7 @@ export default function IntakeForm({
   const [footProblem, setFootProblem] = useState<boolean | null>(null);
   const [visionChange, setVisionChange] = useState<boolean | null>(null);
   const [freeText, setFreeText] = useState("");
+  const [voiceTranscript, setVoiceTranscript] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -240,6 +243,18 @@ export default function IntakeForm({
             fontFamily: "inherit",
             boxSizing: "border-box",
           }}
+        />
+        <VoiceInput
+          id="followup-voice"
+          label={followupQuestions[4].label}
+          maxChars={maxChars}
+          transcript={voiceTranscript}
+          onTranscriptChange={setVoiceTranscript}
+          onAppend={(value) =>
+            setFreeText((current) =>
+              appendTranscript(current, value, maxChars),
+            )
+          }
         />
         <p
           id="free_text-counter"
