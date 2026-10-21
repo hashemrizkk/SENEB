@@ -1,9 +1,16 @@
+import { z } from "zod";
 import type { IntakeFields } from "@/lib/intake";
+import { flagRules } from "@/lib/questions";
 
 export type RedFlagResult = {
   flags: string[];
   unanswered: string[];
 };
+
+export const redFlagResultSchema = z.object({
+  flags: z.array(z.string()),
+  unanswered: z.array(z.string()),
+});
 
 /**
  * Plain-code red-flag rules. No LLM, no scoring.
@@ -18,7 +25,7 @@ export function redFlags(intake: IntakeFields): RedFlagResult {
     intake.hypoglycemia_episodes !== null &&
     intake.hypoglycemia_episodes > 0
   ) {
-    flags.push("hypoglycemia");
+    flags.push(flagRules.hypoglycemia);
   }
 
   if (
@@ -26,27 +33,27 @@ export function redFlags(intake: IntakeFields): RedFlagResult {
     (intake.hypoglycemia_episodes === null ||
       intake.hypoglycemia_episodes === 0)
   ) {
-    flags.push("hypoglycemia (symptoms described)");
+    flags.push(flagRules.hypoglycemiaSymptoms);
   }
 
   // --- Foot ---
   if (intake.foot_problem === true) {
-    flags.push("foot problem");
+    flags.push(flagRules.footProblem);
   }
 
   // --- Vision ---
   if (intake.vision_change === true) {
-    flags.push("vision change");
+    flags.push(flagRules.visionChange);
   }
 
   // --- Missed doses ---
   if (intake.missed_doses === true) {
-    flags.push("missed doses");
+    flags.push(flagRules.missedDoses);
   }
 
   // --- Emergency ---
   if (intake.emergency_symptoms_mentioned === true) {
-    flags.push("possible emergency, review first");
+    flags.push(flagRules.possibleEmergency);
   }
 
   // --- Unanswered ---

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ar } from "@/lib/strings.ar";
+import { followupQuestions } from "@/lib/questions";
 
 // Toggle: tap same button again → clear back to null
 function toggle<T>(current: T | null, value: T): T | null {
@@ -124,7 +125,7 @@ export default function IntakeForm({
       <p style={noteStyle}>{ar.consentNote}</p>
 
       <fieldset style={questionStyle}>
-        <legend style={labelStyle}>{ar.q1Label}</legend>
+        <legend style={labelStyle}>{followupQuestions[0].label}</legend>
         <div style={btnRow}>
           <button
             type="button"
@@ -146,7 +147,7 @@ export default function IntakeForm({
       </fieldset>
 
       <fieldset style={questionStyle}>
-        <legend style={labelStyle}>{ar.q2Label}</legend>
+        <legend style={labelStyle}>{followupQuestions[1].label}</legend>
         <div style={btnRow}>
           {[
             { label: ar.zero, value: 0 },
@@ -170,7 +171,7 @@ export default function IntakeForm({
       </fieldset>
 
       <fieldset style={questionStyle}>
-        <legend style={labelStyle}>{ar.q3Label}</legend>
+        <legend style={labelStyle}>{followupQuestions[2].label}</legend>
         <div style={btnRow}>
           <button
             type="button"
@@ -192,7 +193,7 @@ export default function IntakeForm({
       </fieldset>
 
       <fieldset style={questionStyle}>
-        <legend style={labelStyle}>{ar.q4Label}</legend>
+        <legend style={labelStyle}>{followupQuestions[3].label}</legend>
         <div style={btnRow}>
           <button
             type="button"
@@ -214,7 +215,7 @@ export default function IntakeForm({
       </fieldset>
 
       <div style={questionStyle}>
-        <label htmlFor="free_text" style={labelStyle}>{ar.q5Label}</label>
+        <label htmlFor="free_text" style={labelStyle}>{followupQuestions[4].label}</label>
         <textarea
           id="free_text"
           dir="rtl"

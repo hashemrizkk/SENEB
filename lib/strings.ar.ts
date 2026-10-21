@@ -21,13 +21,6 @@ export const ar = {
   // Consent note (always visible)
   consentNote: "بإرسال إجاباتك، أنت موافق إنها تتشارك مع فريق العيادة.",
 
-  // Questions
-  q1Label: "هل نسيت تاخد الدوا الأسبوع ده؟",
-  q2Label: "كام مرة حسيت بهبوط في السكر (دوخة، عرق، رعشة)؟",
-  q3Label: "في جرح أو ألم أو تنميل في رجلك؟",
-  q4Label: "حصل تغيير في نظرك؟",
-  q5Label: "عايز تقول حاجة تانية؟ (اختياري)",
-
   // Answer buttons
   yes: "نعم",
   no: "لا",
@@ -90,12 +83,6 @@ export const ar = {
     successCodeLabel: "رمز الإحالة الخاص بك",
     successReview: "سيتم مراجعة بياناتك من قبل فريق العيادة.",
     successEmergency: "إذا كانت الحالة طارئة، تواصل مع الطوارئ فورًا.",
-    questions: {
-      missed_doses: "هل نسيت أخذ الدواء خلال الأسبوع الماضي؟",
-      hypo_episodes: "هل تعرضت لهبوط في السكر خلال الأسبوع الماضي؟",
-      foot_problem: "هل توجد مشكلة في القدم أو التورم أو الألم؟",
-      vision_change: "هل حدث تغيير في الرؤية؟",
-    },
     errors: {
       nameRequired: "الاسم مطلوب.",
       nameInvalid: "يرجى إدخال اسم صحيح.",

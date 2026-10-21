@@ -5,6 +5,7 @@ import { hasAdminAccess } from "@/lib/adminAuth";
 import { latestIntakes } from "@/lib/db";
 import { intakeFieldsSchema, intakeMetaSchema } from "@/lib/intake";
 import { ar } from "@/lib/strings.ar";
+import { flagLabel, questionLabel, unansweredLabels } from "@/lib/questions";
 
 export const dynamic = "force-dynamic";
 
@@ -66,18 +67,20 @@ export default async function AdminIntakesPage() {
               <h3>{ar.admin.flags}</h3>
               {flags?.flags.length ? (
                 <ul>
-                  {flags.flags.map((flag) => <li key={flag}>{flag}</li>)}
+                  {flags.flags.map((flag) => <li key={flag}>{flagLabel(flag)}</li>)}
                 </ul>
               ) : (
                 <p>{ar.admin.noFlags}</p>
               )}
               {flags?.unanswered.length ? (
-                <p>{ar.admin.unanswered}: {flags.unanswered.join("، ")}</p>
+                <p>                {ar.admin.unanswered}: {flags.unanswered.map((key) => unansweredLabels[key] ?? questionLabel(key)).join("، ")}</p>
               ) : null}
               <p>
                 {ar.admin.answers}:{" "}
                 {fields
-                  ? JSON.stringify(fields)
+                  ? Object.entries(fields)
+                      .map(([key, value]) => `${questionLabel(key)}: ${value ?? ar.admin.none}`)
+                      .join("، ")
                   : ar.admin.unavailable}
               </p>
               <p>{ar.admin.patientText}</p>

@@ -16,16 +16,18 @@ import {
   registrationSchema,
 } from "@/lib/registration";
 import { ar } from "@/lib/strings.ar";
+import {
+  registrationQuestions,
+  registrationTextQuestions,
+} from "@/lib/questions";
 
 const TOTAL_STEPS = 4;
 const FIELD_ORDER = ["full_name", "phone", "email"];
 
-const QUESTIONS: TapQuestion[] = [
-  { key: "missed_doses", label: ar.register.questions.missed_doses },
-  { key: "hypo_episodes", label: ar.register.questions.hypo_episodes },
-  { key: "foot_problem", label: ar.register.questions.foot_problem },
-  { key: "vision_change", label: ar.register.questions.vision_change },
-];
+const QUESTIONS: TapQuestion[] = registrationQuestions.map((question) => ({
+  key: question.key,
+  label: question.label,
+}));
 
 function emptyAnswers(): TapAnswersState {
   return {
@@ -479,7 +481,7 @@ export default function RegisterPage() {
 
           <div className="reg-field">
             <label className="reg-label" htmlFor="self_description">
-              {ar.register.selfDescription}
+              {registrationTextQuestions.selfDescription.label}
             </label>
             <textarea
               id="self_description"
@@ -500,7 +502,7 @@ export default function RegisterPage() {
 
           <div className="reg-field">
             <label className="reg-label" htmlFor="notes">
-              {ar.register.notes}
+              {registrationTextQuestions.notes.label}
             </label>
             <textarea
               id="notes"

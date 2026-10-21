@@ -2,6 +2,7 @@
 
 import type { TapQuestion } from "@/components/TapQuestions";
 import { ar } from "@/lib/strings.ar";
+import { registrationTextQuestions } from "@/lib/questions";
 
 export type ReviewForm = {
   full_name: string;
@@ -76,7 +77,7 @@ export default function ReviewList({
 
       {form.self_description ? (
         <Row
-          label={ar.register.selfDescription}
+          label={registrationTextQuestions.selfDescription.label}
           value={form.self_description}
           step={3}
           onEdit={onEdit}
@@ -84,7 +85,7 @@ export default function ReviewList({
       ) : null}
 
       {form.notes ? (
-        <Row label={ar.register.notes} value={form.notes} step={3} onEdit={onEdit} />
+        <Row label={registrationTextQuestions.notes.label} value={form.notes} step={3} onEdit={onEdit} />
       ) : null}
 
       {unanswered.length > 0 ? (
