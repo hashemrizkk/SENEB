@@ -12,6 +12,9 @@
     "db:check": "node --experimental-strip-types scripts/db-check.ts"
   },
   "dependencies": {
+    "@ai-sdk/google": "^4.0.102",
+    "@ai-sdk/openai": "^4.0.99",
+    "ai": "^7.0.148",
     "better-sqlite3": "^13.0.3",
     "next": "16.4.2",
     "react": "19.3.0",
