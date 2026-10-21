@@ -54,48 +54,57 @@ function mockExtract(freeText: string): IntakeFields {
 
   const fields = nullFields();
   const t = freeText;
+  const westernized = arabicIndicToWestern(t);
 
-  // Missed doses
-  if (/نسيت|نسي|mansit/i.test(t)) {
+  if (/(?:نسيت|نسي|mansit)/i.test(t) && !/(?:ما\s*نسيتش|منسيتش|مش\s*نسي)/i.test(t)) {
     fields.missed_doses = true;
   }
 
-  // Hypoglycemia episodes (specific count)
-  if (/مرتين/i.test(t)) {
-    fields.hypoglycemia_episodes = 2;
-  } else if (/تلات|ثلاث|3/.test(t)) {
-    fields.hypoglycemia_episodes = 3;
-  } else if (/مرة|mara/i.test(t)) {
-    fields.hypoglycemia_episodes = 1;
-  }
-
-  // Arabic-Indic digits
-  const westernized = arabicIndicToWestern(t);
-  const digitMatch = westernized.match(/(\d+)\s*مر[ةت]/);
-  if (digitMatch) {
-    const n = parseInt(digitMatch[1], 10);
-    if (n >= 0 && n <= 20) {
-      fields.hypoglycemia_episodes = n;
+  const mentionsHypoglycemia = /هبوط|السكر|سكر واطي|hypoglyc|low sugar/i.test(t);
+  if (mentionsHypoglycemia) {
+    if (/مرتين/.test(t)) {
+      fields.hypoglycemia_episodes = 2;
+    } else if (/تلات|ثلاث/.test(t)) {
+      fields.hypoglycemia_episodes = 3;
+    } else {
+      const countMatch = westernized.match(
+        /(\d+)\s*(?:مر(?:ة|ات)|مرة)|(?:^|\s)(\d+)\s*(?:أو|و)?\s*(?:أكتر|اكثر|زياده)/,
+      );
+      if (countMatch) {
+        const count = Number(countMatch[1] ?? countMatch[2]);
+        if (Number.isInteger(count) && count >= 0 && count <= 20) {
+          fields.hypoglycemia_episodes = count;
+        }
+      } else if (/مرة|mara/i.test(t)) {
+        fields.hypoglycemia_episodes = 1;
+      }
     }
   }
 
-  // Hypoglycemia symptoms (dizziness, sweating, shaking)
-  if (/هبوط|دوخة|عرق|رعشة|dour/i.test(t)) {
+  if (
+    fields.hypoglycemia_episodes === null &&
+    /هبوط|دوخة|عرق|رعشة|dour/i.test(t) &&
+    !/(?:مش|مفيش|مافيش|معنديش|ما\s*بحسش)\s*(?:بهبوط|دوخة|عرق|رعشة)/i.test(t)
+  ) {
     fields.hypoglycemia_symptoms = true;
   }
 
-  // Foot problem
-  if (/جرح|ألم|تنميل|رجل/i.test(t)) {
+  if (
+    /(?:قدم|رجلي|رجلى|صوابع رجلي)/i.test(t) &&
+    /(?:جرح|قرحة|ألم|وجع|بتوجع|تنميل|وخز|تورم)/i.test(t)
+  ) {
     fields.foot_problem = true;
   }
 
-  // Vision change
-  if (/نظر|واضح/i.test(t)) {
+  if (/زغللة|تغيير في النظر|تغير في النظر|الرؤية مش واضحة|مش شايف كويس/i.test(t)) {
     fields.vision_change = true;
   }
 
-  // Emergency
-  if (/اغمى|إغماء|صدر|نفس/i.test(t)) {
+  if (
+    /إغماء|اغمى|فقد الوعي|ألم في الصدر|وجع في الصدر|ضيق نفس|صعوبة في التنفس|قيء متكرر|ترجيع متكرر|مشوش/i.test(
+      t,
+    )
+  ) {
     fields.emergency_symptoms_mentioned = true;
   }
 
@@ -110,21 +119,15 @@ function mockExtract(freeText: string): IntakeFields {
 // ----- Real LLM call -----
 
 async function callLLM(
+  provider: "google" | "groq",
   freeText: string,
 ): Promise<{ fields: IntakeFields; modelId: string } | null> {
-  // Determine which model to use
-  let selectedModel;
-  let modelId: string;
-
-  if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-    selectedModel = google("gemini-3.8-flash");
-    modelId = "gemini-3.8-flash";
-  } else if (process.env.GROQ_API_KEY) {
-    selectedModel = groq("llama-3.3-70b-versatile");
-    modelId = "llama-3.3-70b-versatile";
-  } else {
-    return null; // no key → caller will use mock
-  }
+  const selectedModel =
+    provider === "google"
+      ? google("gemini-2.5-flash")
+      : groq("llama-3.3-70b-versatile");
+  const modelId =
+    provider === "google" ? "gemini-2.5-flash" : "llama-3.3-70b-versatile";
 
   const result = await generateText({
     model: selectedModel,
@@ -152,35 +155,27 @@ async function callLLM(
 export async function extractIntake(
   freeText: string,
 ): Promise<{ fields: IntakeFields; meta: IntakeMeta }> {
-  // Check if any API key is set
-  const hasKey =
-    !!process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
-    !!process.env.GROQ_API_KEY;
+  const providers: ("google" | "groq")[] = [];
+  if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) providers.push("google");
+  if (process.env.GROQ_API_KEY) providers.push("groq");
 
-  if (!hasKey) {
-    // Mock mode
+  if (providers.length === 0) {
     const fields = mockExtract(freeText);
     return {
       fields,
       meta: {
         llm_mode: "mock",
         model: null,
-        needs_review: false,
+        needs_review: true,
         contradiction: false,
       },
     };
   }
 
-  // Real LLM mode
-  try {
-    let result = await callLLM(freeText);
-
-    // Retry once if output was null/invalid
-    if (!result) {
-      result = await callLLM(freeText);
-    }
-
-    if (result) {
+  for (const provider of providers) {
+    try {
+      const result = await callLLM(provider, freeText);
+      if (!result) continue;
       return {
         fields: result.fields,
         meta: {
@@ -190,34 +185,20 @@ export async function extractIntake(
           contradiction: false,
         },
       };
+    } catch (error: unknown) {
+      const errorType =
+        error instanceof Error ? error.constructor.name : "UnknownError";
+      console.error(`LLM extraction failed for ${provider} (${errorType}).`);
     }
-
-    // Both attempts failed — needs review
-    console.error("LLM: both attempts returned null output");
-    return {
-      fields: nullFields(),
-      meta: {
-        llm_mode: "real",
-        model: null,
-        needs_review: true,
-        contradiction: false,
-      },
-    };
-  } catch (error: unknown) {
-    // Log error type only, never patient text
-    const errType =
-      error instanceof Error ? error.constructor.name : "UnknownError";
-    const errMsg = error instanceof Error ? error.message : String(error);
-    console.error(`LLM extraction failed (${errType}): ${errMsg}`);
-
-    return {
-      fields: nullFields(),
-      meta: {
-        llm_mode: "real",
-        model: null,
-        needs_review: true,
-        contradiction: false,
-      },
-    };
   }
+
+  return {
+    fields: nullFields(),
+    meta: {
+      llm_mode: "none",
+      model: null,
+      needs_review: true,
+      contradiction: false,
+    },
+  };
 }

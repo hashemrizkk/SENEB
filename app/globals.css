@@ -1,0 +1,9 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+}
+
+:where(a, button, input, textarea):focus-visible {
+  outline: 3px solid #0f6f5c;
+  outline-offset: 3px;
+}

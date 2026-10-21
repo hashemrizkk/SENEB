@@ -8,8 +8,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "db:reset": "node --experimental-strip-types scripts/db-reset.ts",
-    "db:check": "node --experimental-strip-types scripts/db-check.ts"
+    "db:check": "node --experimental-strip-types scripts/db-check.ts",
+    "test:register": "node --experimental-strip-types scripts/test-register.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.102",

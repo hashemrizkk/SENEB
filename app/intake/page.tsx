@@ -29,6 +29,7 @@ export default function IntakeListPage() {
         {ar.emergencyNotice}
       </p>
 
+      {patients.length === 0 ? <p>{ar.patientListEmpty}</p> : null}
       <ul style={{ listStyle: "none", padding: 0 }}>
         {patients.map((p) => (
           <li key={p.id} style={{ marginBottom: "0.5rem" }}>
@@ -42,7 +43,7 @@ export default function IntakeListPage() {
                 textDecoration: "none",
                 color: "#1a1a1a",
                 fontSize: "1.2rem",
-                minHeight: "44px",
+                minHeight: "48px",
               }}
             >
               {p.name}
@@ -53,4 +54,3 @@ export default function IntakeListPage() {
     </main>
   );
 }
-

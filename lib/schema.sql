@@ -5,6 +5,12 @@ CREATE TABLE IF NOT EXISTS patients (
   name TEXT NOT NULL,
   age INTEGER,
   phone TEXT,
+  email TEXT,
+  self_description TEXT,
+  reference_code TEXT,
+  request_id TEXT,
+  consent_at TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   diabetes_type TEXT,
   last_hba1c_date TEXT,
   last_foot_exam_date TEXT,
@@ -19,6 +25,7 @@ CREATE TABLE IF NOT EXISTS intakes (
   raw_text TEXT,
   structured_json TEXT,
   red_flags_json TEXT,
+  meta_json TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 

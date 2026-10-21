@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ar } from "@/lib/strings.ar";
 
 // Toggle: tap same button again → clear back to null
@@ -25,8 +25,14 @@ export default function IntakeForm({
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  const inFlight = useRef(false);
 
   const maxChars = 500;
+
+  useEffect(() => {
+    if (error) errorRef.current?.focus();
+  }, [error]);
 
   if (submitted) {
     return (
@@ -41,11 +47,15 @@ export default function IntakeForm({
         >
           ✅ {ar.thankYou}
         </p>
+        <p style={noteStyle}>{ar.clinicReviewNote}</p>
+        <p style={emergencyStyle}>{ar.emergencyNotice}</p>
       </main>
     );
   }
 
   async function handleSubmit() {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setSubmitting(true);
     setError(null);
 
@@ -69,14 +79,28 @@ export default function IntakeForm({
         body: JSON.stringify(body),
       });
 
-      if (res.ok) {
+      const result: unknown = await res.json().catch(() => null);
+      const ok =
+        result !== null &&
+        typeof result === "object" &&
+        "ok" in result &&
+        result.ok === true;
+      if (res.ok && ok) {
         setSubmitted(true);
       } else {
-        setError(ar.errorGeneric);
+        setError(
+          result !== null &&
+            typeof result === "object" &&
+            "error" in result &&
+            result.error === "patient_not_found"
+            ? ar.errorPatientNotFound
+            : ar.errorGeneric,
+        );
       }
     } catch {
       setError(ar.errorGeneric);
     } finally {
+      inFlight.current = false;
       setSubmitting(false);
     }
   }
@@ -99,12 +123,12 @@ export default function IntakeForm({
       {/* Consent note - always visible */}
       <p style={noteStyle}>{ar.consentNote}</p>
 
-      {/* Q1: Missed doses */}
-      <div style={questionStyle}>
-        <p style={labelStyle}>{ar.q1Label}</p>
+      <fieldset style={questionStyle}>
+        <legend style={labelStyle}>{ar.q1Label}</legend>
         <div style={btnRow}>
           <button
             type="button"
+            aria-pressed={missedDoses === true}
             style={btnStyle(missedDoses === true)}
             onClick={() => setMissedDoses(toggle(missedDoses, true))}
           >
@@ -112,17 +136,17 @@ export default function IntakeForm({
           </button>
           <button
             type="button"
+            aria-pressed={missedDoses === false}
             style={btnStyle(missedDoses === false)}
             onClick={() => setMissedDoses(toggle(missedDoses, false))}
           >
             {ar.no}
           </button>
         </div>
-      </div>
+      </fieldset>
 
-      {/* Q2: Hypoglycemia episodes */}
-      <div style={questionStyle}>
-        <p style={labelStyle}>{ar.q2Label}</p>
+      <fieldset style={questionStyle}>
+        <legend style={labelStyle}>{ar.q2Label}</legend>
         <div style={btnRow}>
           {[
             { label: ar.zero, value: 0 },
@@ -133,6 +157,7 @@ export default function IntakeForm({
             <button
               key={opt.value}
               type="button"
+              aria-pressed={hypoEpisodes === opt.value}
               style={btnStyle(hypoEpisodes === opt.value)}
               onClick={() =>
                 setHypoEpisodes(toggle(hypoEpisodes, opt.value))
@@ -142,14 +167,14 @@ export default function IntakeForm({
             </button>
           ))}
         </div>
-      </div>
+      </fieldset>
 
-      {/* Q3: Foot problem */}
-      <div style={questionStyle}>
-        <p style={labelStyle}>{ar.q3Label}</p>
+      <fieldset style={questionStyle}>
+        <legend style={labelStyle}>{ar.q3Label}</legend>
         <div style={btnRow}>
           <button
             type="button"
+            aria-pressed={footProblem === true}
             style={btnStyle(footProblem === true)}
             onClick={() => setFootProblem(toggle(footProblem, true))}
           >
@@ -157,20 +182,21 @@ export default function IntakeForm({
           </button>
           <button
             type="button"
+            aria-pressed={footProblem === false}
             style={btnStyle(footProblem === false)}
             onClick={() => setFootProblem(toggle(footProblem, false))}
           >
             {ar.no}
           </button>
         </div>
-      </div>
+      </fieldset>
 
-      {/* Q4: Vision change */}
-      <div style={questionStyle}>
-        <p style={labelStyle}>{ar.q4Label}</p>
+      <fieldset style={questionStyle}>
+        <legend style={labelStyle}>{ar.q4Label}</legend>
         <div style={btnRow}>
           <button
             type="button"
+            aria-pressed={visionChange === true}
             style={btnStyle(visionChange === true)}
             onClick={() => setVisionChange(toggle(visionChange, true))}
           >
@@ -178,21 +204,24 @@ export default function IntakeForm({
           </button>
           <button
             type="button"
+            aria-pressed={visionChange === false}
             style={btnStyle(visionChange === false)}
             onClick={() => setVisionChange(toggle(visionChange, false))}
           >
             {ar.no}
           </button>
         </div>
-      </div>
+      </fieldset>
 
-      {/* Q5: Free text */}
       <div style={questionStyle}>
-        <p style={labelStyle}>{ar.q5Label}</p>
+        <label htmlFor="free_text" style={labelStyle}>{ar.q5Label}</label>
         <textarea
+          id="free_text"
           dir="rtl"
           lang="ar"
           value={freeText}
+          maxLength={maxChars}
+          aria-describedby="free_text-counter"
           onChange={(e) => {
             if (e.target.value.length <= maxChars) {
               setFreeText(e.target.value);
@@ -212,6 +241,7 @@ export default function IntakeForm({
           }}
         />
         <p
+          id="free_text-counter"
           style={{
             fontSize: "0.85rem",
             color: freeText.length >= maxChars ? "#dc2626" : "#888",
@@ -226,6 +256,9 @@ export default function IntakeForm({
       {/* Error message */}
       {error && (
         <p
+          ref={errorRef}
+          tabIndex={-1}
+          role="alert"
           style={{
             color: "#dc2626",
             fontSize: "1.1rem",
@@ -287,6 +320,8 @@ const noteStyle: React.CSSProperties = {
 
 const questionStyle: React.CSSProperties = {
   marginBottom: "1.5rem",
+  border: 0,
+  padding: 0,
 };
 
 const labelStyle: React.CSSProperties = {
@@ -305,7 +340,7 @@ function btnStyle(selected: boolean): React.CSSProperties {
   return {
     flex: "1 1 0",
     minWidth: "80px",
-    minHeight: "44px",
+    minHeight: "48px",
     fontSize: "1.1rem",
     padding: "0.6rem 0.5rem",
     borderRadius: "10px",
@@ -317,4 +352,3 @@ function btnStyle(selected: boolean): React.CSSProperties {
     fontWeight: selected ? 600 : 400,
   };
 }
-
