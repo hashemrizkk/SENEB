@@ -15,6 +15,8 @@ import {
   type ReviewIntake,
 } from "./doctor-review.ts";
 import type { FollowupPlan } from "./followup-plan.ts";
+import { buildFacts } from "./case-facts.ts";
+import type { AfterWorkRating, AfterWorkRatingInput } from "./summary-types.ts";
 
 // ----- Connection (singleton for dev hot-reload) -----
 
@@ -161,6 +163,36 @@ export function migrateFollowupPlanDrafts(database: Database.Database): void {
 
 migrateFollowupPlanDrafts(db);
 
+export function migrateAfterWorkRatings(database: Database.Database): void {
+  const tableExists = database.prepare<[string], { name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+  ).get("after_work_ratings");
+  if (!tableExists) {
+    database.exec(`
+      CREATE TABLE after_work_ratings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+        intake_id INTEGER NOT NULL REFERENCES intakes(id) ON DELETE CASCADE,
+        note_hash TEXT NOT NULL,
+        note_rating TEXT NOT NULL CHECK (note_rating IN ('green', 'yellow', 'red')),
+        profile_rating TEXT NOT NULL CHECK (profile_rating IN ('green', 'yellow', 'red')),
+        payload_json TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK (mode IN ('llm', 'mock', 'fallback')),
+        model TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+  }
+  database.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_after_work_rating_note
+      ON after_work_ratings(intake_id, note_hash);
+    CREATE INDEX IF NOT EXISTS idx_after_work_rating_patient
+      ON after_work_ratings(patient_id, created_at DESC);
+  `);
+}
+
+migrateAfterWorkRatings(db);
+
 // ----- Types -----
 
 export type Patient = {
@@ -235,6 +267,143 @@ export type StoredFollowupPlanDraft = {
   generation_mode: "mock" | "llm";
   created_at: string;
 };
+
+export type StoredAfterWorkRating = {
+  id: number;
+  patient_id: number;
+  intake_id: number;
+  note_hash: string;
+  note_rating: "green" | "yellow" | "red";
+  profile_rating: "green" | "yellow" | "red";
+  payload_json: string;
+  mode: "llm" | "mock" | "fallback";
+  model: string | null;
+  created_at: string;
+};
+
+export function buildAfterWorkRatingInput(
+  database: Database.Database,
+  intakeId: number,
+  note: string,
+  today = new Date(),
+): { patientId: number; input: AfterWorkRatingInput } | null {
+  const row = database.prepare<[number], { patient_id: number }>(
+    "SELECT patient_id FROM intakes WHERE id = ?",
+  ).get(intakeId);
+  if (!row) return null;
+  const record = getDoctorPatientRecord(database, row.patient_id);
+  const intake = record?.intakes.find((item) => item.id === intakeId);
+  if (!record || !intake) return null;
+  const patient = record.patient;
+  const facts = buildFacts(patient, intake.fields, today);
+  const careItems: AfterWorkRatingInput["patient_profile"]["care_items"] = [
+    { item: "HbA1c", ...facts.care_gaps.hba1c },
+    { item: "Foot exam", ...facts.care_gaps.foot_exam },
+    { item: "Blood pressure", ...facts.care_gaps.blood_pressure },
+    {
+      item: "Eye exam",
+      date: patient.last_eye_exam_date,
+      days_since: null,
+      overdue: false,
+      threshold_days: 0,
+    },
+    {
+      item: "Kidney labs",
+      date: patient.last_kidney_labs_date,
+      days_since: null,
+      overdue: false,
+      threshold_days: 0,
+    },
+  ];
+  return {
+    patientId: patient.id,
+    input: {
+      doctor_note: note,
+      patient_profile: {
+        age: patient.age,
+        diabetes_type: patient.diabetes_type,
+        phone: patient.phone === null ? null : "recorded",
+        messaging_consent: patient.consent_at !== null,
+        next_visit_date: patient.next_visit_date,
+        care_items: careItems,
+      },
+    },
+  };
+}
+
+export function hasAfterWorkRating(
+  database: Database.Database,
+  intakeId: number,
+  note: string,
+): boolean {
+  const hash = noteHash(note);
+  return Boolean(database.prepare<[number, string], { id: number }>(
+    "SELECT id FROM after_work_ratings WHERE intake_id = ? AND note_hash = ? LIMIT 1",
+  ).get(intakeId, hash));
+}
+
+export function getAfterWorkRatingForNote(
+  database: Database.Database,
+  patientId: number,
+  intakeId: number,
+  note: string,
+): StoredAfterWorkRating | null {
+  if (!note.trim()) return null;
+  return database.prepare<[number, number, string], StoredAfterWorkRating>(
+    `SELECT id, patient_id, intake_id, note_hash, note_rating, profile_rating,
+            payload_json, mode, model, created_at
+     FROM after_work_ratings
+     WHERE patient_id = ? AND intake_id = ? AND note_hash = ?
+     ORDER BY created_at DESC, id DESC LIMIT 1`,
+  ).get(patientId, intakeId, noteHash(note)) ?? null;
+}
+
+export function saveAfterWorkRating(
+  database: Database.Database,
+  input: {
+    patientId: number;
+    intakeId: number;
+    note: string;
+    output: AfterWorkRating;
+    mode: "llm" | "mock" | "fallback";
+    model: string | null;
+    now?: Date;
+  },
+): boolean {
+  if (!input.note.trim() || getLatestClinicianNote(database, input.intakeId) !== input.note) {
+    return false;
+  }
+  const result = database.prepare(
+    `INSERT OR IGNORE INTO after_work_ratings (
+       patient_id, intake_id, note_hash, note_rating, profile_rating,
+       payload_json, mode, model, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.patientId,
+    input.intakeId,
+    noteHash(input.note),
+    input.output.note_rating,
+    input.output.profile_rating,
+    JSON.stringify(input.output),
+    input.mode,
+    input.model,
+    (input.now ?? new Date()).toISOString(),
+  );
+  return result.changes === 1;
+}
+
+export function latestAfterWorkRating(
+  database: Database.Database,
+  patientId: number,
+): StoredAfterWorkRating | null {
+  return database.prepare<[number], StoredAfterWorkRating>(
+    `SELECT id, patient_id, intake_id, note_hash, note_rating, profile_rating,
+            payload_json, mode, model, created_at
+     FROM after_work_ratings
+     WHERE patient_id = ?
+     ORDER BY created_at DESC, id DESC LIMIT 1`,
+  ).get(patientId) ?? null;
+}
 
 export function getLatestClinicianNote(database: Database.Database, intakeId: number): string | null {
   const note = database.prepare<[number], { note_text: string | null }>(

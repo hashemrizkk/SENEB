@@ -60,3 +60,40 @@ export const summaryLlmOutputSchema = z.object({
 });
 
 export type SummaryLlmOutput = z.infer<typeof summaryLlmOutputSchema>;
+
+export const afterWorkRatingSchema = z.object({
+  note_rating: z.enum(["green", "yellow", "red"]),
+  note_assessment: z.string().min(1).max(500),
+  note_missing_required: z.array(z.string().max(160)).max(5),
+  note_missing_important: z.array(z.string().max(160)).max(6),
+  note_present: z.array(z.string().max(160)).max(12),
+  note_suggestions: z.array(z.string().max(200)).max(8),
+  profile_rating: z.enum(["green", "yellow", "red"]),
+  profile_gaps: z.array(z.object({
+    field: z.string().max(60),
+    importance: z.enum(["required", "important", "optional"]),
+    reason: z.string().max(200),
+  })).max(12),
+}).strict();
+
+export type AfterWorkRating = z.infer<typeof afterWorkRatingSchema>;
+
+export const afterWorkRatingInputSchema = z.object({
+  doctor_note: z.string().max(4_000),
+  patient_profile: z.object({
+    age: z.number().int().nullable(),
+    diabetes_type: z.string().nullable(),
+    phone: z.string().nullable(),
+    messaging_consent: z.boolean().nullable(),
+    next_visit_date: z.string().nullable(),
+    care_items: z.array(z.object({
+      item: z.string(),
+      date: z.string().nullable(),
+      days_since: z.number().int().nullable(),
+      overdue: z.boolean(),
+      threshold_days: z.number().int(),
+    })),
+  }).strict(),
+}).strict();
+
+export type AfterWorkRatingInput = z.infer<typeof afterWorkRatingInputSchema>;
