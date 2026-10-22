@@ -1,0 +1,77 @@
+[
+  {
+    "route": "/",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية فحص مخاطر السكري ابدأ جرّب الإملاء الصوتي"
+  },
+  {
+    "route": "/register",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية تنبيه: ده نموذج تجريبي. من فضلك استخدم بيانات وهمية فقط، وما تدخلش بيانات حقيقية. 🚨 لو الحالة طارئة اتصل بالإسعاف 123 إجاباتك بيراجعها فريق العيادة ومش فورية. الخطوة 1 من 4 معلوماتك الأساسية الاسم الكامل رقم الهاتف البريد الإلكتروني التالي ←"
+  },
+  {
+    "route": "/screening",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية English أشعر بتوعك شديد فحص مخاطر السكري هذا الاستبيان لا يشخّص السكري. يقدّر مستوى الخطر من إجاباتك. فحص الدم هو الطريقة للتحقق. هذا فحص أولي وليس تشخيصًا. فحص الدم هو الطريقة للتحقق. ابدأ هذا فحص أولي وليس تشخيصًا. فحص الدم هو الطريقة للتحقق."
+  },
+  {
+    "route": "/survey",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية English أشعر بتوعك شديد فحص مخاطر السكري هذا الاستبيان لا يشخّص السكري. يقدّر مستوى الخطر من إجاباتك. فحص الدم هو الطريقة للتحقق. هذا فحص أولي وليس تشخيصًا. فحص الدم هو الطريقة للتحقق. ابدأ هذا فحص أولي وليس تشخيصًا. فحص الدم هو الطريقة للتحقق."
+  },
+  {
+    "route": "/voice-demo",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية تجربة الإملاء الصوتي جرّب الميكروفون أو اكتب النص يدويًا، ثم قارن النتيجة بعبارة مرجعية. هذه النسبة تقريبية وليست تقييمًا رسميًا لدقة الخدمة. سجّل حتى 30 ثانية، ثم يُحوّل Gemini الصوت إلى نص. لا تستخدم بيانات شخصية أو صحية حقيقية في هذه التجربة. اختَر عبارة اختبار صباح الخير، أنا جاهز لاختبار الإملاء الصوتي. النهارده الجو جميل والشارع هادي. عايز أراجع الكلام قبل ما أستخدمه. التسجيل الصوتي والنسخ إلى نص اكتب النص هنا أو راجع النص المحوّل 0/300 حرف العربية (مصر) العربية English ابدأ التسجيل مسح النص هذا المتصفح لا يدعم تسجيل الصوت. استخدم متصفحًا حديثًا أو اكتب النص يدويًا. بعد الإيقاف، يُرسل الصوت إلى خادم التطبيق ثم إلى Google Gemini، وقد يُرسل إلى Groq إذا تعذّر التحويل الأول؛ لا يُحفظ التسجيل في قاعدة بيانات التطبيق. استخدم تسجيلات تجريبية فقط وراجع النص قبل استخدامه. يستلزم ذلك اتصالًا بالإنترنت وقد يستهلك حصة API. العبارة المرجعية صباح الخير، أنا جاهز لاختبار الإملاء الصوتي. معدل خطأ الأحرف التقريبي: أدخل نصًا للمقارنة بدء اختبار جديد"
+  },
+  {
+    "route": "/doctor/login",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية Doctor sign in Sign in with your configured staff name and password. Staff name Password Sign in"
+  },
+  {
+    "route": "/nurse/login",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية Nurse sign in Sign in with the separately configured nurse credentials. Nurse name Password Sign in"
+  },
+  {
+    "route": "/staff",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية Screening staff sign in Demo-grade authentication, not production-ready. Username Password Sign in"
+  },
+  {
+    "route": "/screening/locations",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية العودة إلى الفحص أماكن الفحص المواقع المعروضة تجريبية وليست أماكن حقيقية. المدينة كل المدن القاهرة الجيزة نوع الفحص كل الفحوصات HbA1c جلوكوز صائم تصفية Demo Lab — Downtown Cairo موقع تجريبي Downtown ، Cairo — Demo address, Downtown Cairo Demo hours: Sunday–Thursday, 9:00–17:00 الهاتف: 0000000000 الفحوصات: HbA1c، جلوكوز صائم احجز فحصًا / اعرض بيانات التواصل Demo Pharmacy — Nasr City موقع تجريبي Nasr City ، Cairo — Demo address, Nasr City Demo hours: Daily, 12:00–22:00 الهاتف: 0000000000 الفحوصات: جلوكوز صائم احجز فحصًا / اعرض بيانات التواصل Demo Primary Care Clinic — Giza موقع تجريبي Dokki ، Giza — Demo address, Dokki Demo hours: Saturday–Wednesday, 10:00–16:00 الهاتف: 0000000000 الفحوصات: HbA1c، جلوكوز صائم احجز فحصًا / اعرض بيانات التواصل"
+  },
+  {
+    "route": "/screening/summary",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية Summary unavailable Complete the screening first to view a summary. Start screening"
+  },
+  {
+    "route": "/doctor",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية Doctor sign in Sign in with your configured staff name and password. Staff name Password Sign in"
+  },
+  {
+    "route": "/admin/intakes",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية Doctor sign in Sign in with your configured staff name and password. Staff name Password Sign in"
+  },
+  {
+    "route": "/admin/notes",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية Doctor sign in Sign in with your configured staff name and password. Staff name Password Sign in"
+  },
+  {
+    "route": "/admin/sessions",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية Doctor sign in Sign in with your configured staff name and password. Staff name Password Sign in"
+  },
+  {
+    "route": "/admin/summaries",
+    "status": 200,
+    "visibleText": "مساعد متابعة الرعاية Doctor sign in Sign in with your configured staff name and password. Staff name Password Sign in"
+  }
+]
