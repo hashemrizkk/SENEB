@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import {
   appendTranscript,
   characterErrorRate,
+  deriveInputMethod,
+  inputMethodLabel,
+  inputMethodNote,
 } from "../lib/voice-utils.ts";
+import { intakeRequestSchema } from "../lib/intake.ts";
+import { registrationSchema } from "../lib/registration.ts";
 
 let failures = 0;
 let total = 0;
@@ -43,6 +48,43 @@ report("CER handles insertions, deletions, and empty references", () => {
   assert.equal(characterErrorRate("abc", "ab"), 1 / 3);
   assert.equal(characterErrorRate("", "abc"), 1);
   assert.equal(characterErrorRate("", ""), 0);
+});
+
+report("input method distinguishes tap, typed, voice, and mixed", () => {
+  const method = (text: string, pieces: string[], edited = false) => deriveInputMethod({
+    texts: [text], transcriptPieces: [pieces], editedAfterAppend: [edited], maxChars: [500],
+  });
+  assert.equal(method("  ", []), "tap");
+  assert.equal(method("typed words", []), "typed");
+  assert.equal(method("spoken words", ["spoken words"]), "voice");
+  assert.equal(method("spoken words + typed", ["spoken words"]), "mixed");
+  assert.equal(method("spoken words", ["spoken words"], true), "mixed");
+  assert.equal(inputMethodLabel("mixed"), "مكتوب + صوت");
+  assert.ok(inputMethodNote("voice"));
+});
+
+report("intake and registration schemas accept voice and mixed only", () => {
+  const intake = {
+    patient_id: 1,
+    tap_missed_doses: null,
+    tap_hypo_episodes: null,
+    tap_foot_problem: null,
+    tap_vision_change: null,
+    free_text: "spoken",
+  };
+  const registration = {
+    full_name: "Test Patient",
+    phone: "01012345678",
+    answers: {},
+    consent: true,
+    request_id: "11111111-1111-4111-8111-111111111111",
+  };
+  for (const input_method of ["voice", "mixed"] as const) {
+    assert.equal(intakeRequestSchema.safeParse({ ...intake, input_method }).success, true);
+    assert.equal(registrationSchema.safeParse({ ...registration, input_method }).success, true);
+  }
+  assert.equal(intakeRequestSchema.safeParse({ ...intake, input_method: "unknown" }).success, false);
+  assert.equal(registrationSchema.safeParse({ ...registration, input_method: "unknown" }).success, false);
 });
 
 console.log(`\n${total - failures}/${total} voice utility tests passed.`);

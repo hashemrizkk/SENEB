@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
+import { migrateInputMethodCheck } from "../lib/db-migrations.ts";
 import {
   authenticateDoctor,
   createDoctorSession,
   failedLoginIsLimited,
   getDoctorPatientRecord,
+  listDoctorQueue,
   migrateDoctorReview,
   recordFailedLogin,
   requestDoctorSession,
@@ -70,7 +72,7 @@ function createLegacyDatabase(): Database.Database {
       id, patient_id, input_method, raw_text, structured_json,
       red_flags_json, meta_json, created_at
     ) VALUES (
-      1, 1, 'tap', 'Original patient text',
+      1, 1, 'voice', 'Original patient text',
       '{"missed_doses":false,"hypoglycemia_episodes":1,"hypoglycemia_symptoms":null,"foot_problem":false,"vision_change":false,"emergency_symptoms_mentioned":null,"symptoms_text":null}',
       '{"flags":[],"unanswered":[]}',
       '{"llm_mode":"none","model":null,"needs_review":false,"contradiction":false}',
@@ -86,8 +88,57 @@ function check(condition: unknown, message: string): asserts condition {
   assert.ok(condition, message);
 }
 
+function testInputMethodMigration(): void {
+  const database = new Database(":memory:");
+  database.pragma("foreign_keys = ON");
+  try {
+    database.exec(`
+      CREATE TABLE patients (id INTEGER PRIMARY KEY);
+      CREATE TABLE intakes (
+        id INTEGER PRIMARY KEY,
+        patient_id INTEGER NOT NULL REFERENCES patients(id),
+        input_method TEXT CHECK (input_method IN ('tap', 'typed', 'voice', 'assisted')),
+        raw_text TEXT,
+        structured_json TEXT,
+        red_flags_json TEXT,
+        meta_json TEXT,
+        status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'triaged', 'seen')),
+        priority TEXT CHECK (priority IN ('urgent', 'important', 'normal')),
+        version INTEGER NOT NULL DEFAULT 1,
+        edited_by TEXT,
+        edited_at TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE child_records (
+        intake_id INTEGER REFERENCES intakes(id), detail TEXT
+      );
+      INSERT INTO patients VALUES (1);
+      INSERT INTO intakes (id, patient_id, input_method, raw_text)
+      VALUES (9, 1, 'assisted', 'preserved');
+      INSERT INTO child_records VALUES (9, 'child preserved');
+    `);
+    migrateInputMethodCheck(database);
+    migrateInputMethodCheck(database);
+    assert.deepEqual(
+      database.prepare("SELECT id, input_method, raw_text FROM intakes").get(),
+      { id: 9, input_method: "assisted", raw_text: "preserved" },
+    );
+    assert.deepEqual(
+      database.prepare("SELECT intake_id, detail FROM child_records").get(),
+      { intake_id: 9, detail: "child preserved" },
+    );
+    assert.deepEqual(database.pragma("foreign_key_check"), []);
+    database.prepare(
+      "UPDATE intakes SET input_method = 'mixed' WHERE id = 9",
+    ).run();
+  } finally {
+    database.close();
+  }
+}
+
 const db = createLegacyDatabase();
 try {
+  testInputMethodMigration();
   migrateDoctorReview(db);
   let record = getDoctorPatientRecord(db, 1);
   check(record, "legacy patient should load after migration");
@@ -96,12 +147,15 @@ try {
   assert.equal(record.latestIntake?.revisions.length, 1);
   assert.equal(record.latestIntake?.revisions[0]?.is_backfill, 1);
   assert.equal(record.latestIntake?.originalTrustworthy, false);
+  assert.equal(record.latestIntake?.input_method, "voice");
+  assert.equal(listDoctorQueue(db, "all")[0]?.input_method, "voice");
 
   const migratedSnapshot = JSON.parse(record.latestIntake!.revisions[0]!.snapshot_json) as {
-    intake: { status: string; priority: string };
+    intake: { status: string; priority: string; input_method: string };
   };
   assert.equal(migratedSnapshot.intake.status, "triaged");
   assert.equal(migratedSnapshot.intake.priority, "urgent");
+  assert.equal(migratedSnapshot.intake.input_method, "voice");
 
   migrateDoctorReview(db);
   record = getDoctorPatientRecord(db, 1);
@@ -253,6 +307,9 @@ try {
   assert.equal(saved.record.status, "seen");
   assert.equal(saved.record.priority, "important");
   assert.equal(saved.record.flags.flags.includes("missed doses"), true);
+  assert.equal(saved.record.input_method, "voice", "doctor edit preserves original provenance");
+  assert.equal(saved.record.revisions[0]?.snapshot_json.includes('"input_method":"voice"'), true);
+  assert.equal(saved.record.revisions[1]?.snapshot_json.includes('"input_method":"voice"'), true);
   assert.equal(saved.record.revisions.length, 2);
   const changedFields = JSON.parse(
     saved.record.revisions[1]!.changed_fields_json,
