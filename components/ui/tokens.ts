@@ -1,0 +1,22 @@
+export const uiTokens = {
+  color: {
+    primaryStrong: "#2E7D4F",
+    primaryHover: "#23663E",
+    primaryBright: "#4CAF6E",
+    background: "#FAFAF7",
+    surface: "#FFFFFF",
+    cardBorder: "#E8E6DF",
+    controlBorder: "#626B75",
+    text: "#1F2937",
+    textSecondary: "#59636F",
+    focusRing: "#075985",
+    focusGap: "#FFFFFF",
+    urgent: { background: "#FEE2E2", text: "#7F1D1D", border: "#B91C1C" },
+    important: { background: "#FEF3C7", text: "#78350F", border: "#B45309" },
+    normal: { background: "#E2E8F0", text: "#334155", border: "#64748B" },
+    info: { background: "#DBEAFE", text: "#1E3A8A", border: "#1D4ED8" },
+    success: { background: "#DCFCE7", text: "#166534", border: "#15803D" },
+  },
+  radius: { control: 12, card: 16, pill: 999 },
+  space: [4, 8, 12, 16, 20, 24, 32, 40, 48],
+} as const;

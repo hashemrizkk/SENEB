@@ -1,11 +1,49 @@
+@import "../components/ui/tokens.css";
+
 body {
   margin: 0;
-  font-family: system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  font-family: var(--font-arabic), sans-serif;
+  font-size: 18px;
+  line-height: 1.7;
 }
 
-:where(a, button, input, textarea):focus-visible {
-  outline: 3px solid #0f6f5c;
+:where(a, button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 3px solid var(--focus-ring);
   outline-offset: 3px;
+  box-shadow: 0 0 0 3px var(--focus-gap);
+}
+
+:where(button, input, select, textarea) { font: inherit; }
+:where(button, input, select) { min-block-size: 48px; }
+:where(button):not(:disabled) { cursor: pointer; }
+::selection { color: var(--text); background: #B9E3C7; }
+
+.doctor-app,
+.admin-app,
+.nurse-app,
+.staff-app {
+  min-block-size: 100vh;
+  color: var(--text);
+  background: var(--bg);
+  font-family: var(--font-english), sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.doctor-shell { font-family: var(--font-english), sans-serif; }
+:lang(ar) { font-family: var(--font-arabic), sans-serif; }
+:where(.doctor-app, .admin-app, .nurse-app, .staff-app) :where(button, input, select, textarea) { font-family: inherit; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transform: none !important;
+  }
 }
 
 .rule-highlight {
