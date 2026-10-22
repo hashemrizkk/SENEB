@@ -61,6 +61,10 @@ function providerModelId(provider: LlmProviderName): string {
 
 // ----- System prompt -----
 
+export const SURVEY_PHRASING_PROMPT = `Create a compact, patient-friendly Arabic survey section for diabetes follow-up. Keep the wording neutral and clear, and provide exactly 8 question items using the supplied label and answer data. Return valid JSON matching the schema.`;
+
+export const SURVEY_EXPLANATION_PROMPT = `Explain the purpose of the diabetes follow-up survey in plain Arabic for a patient. Keep it brief, reassuring, and easy to read. Return valid JSON matching the schema.`;
+
 const SYSTEM_PROMPT = `You are a medical data extraction assistant. You extract structured fields from what a patient said in Egyptian Arabic, MSA, Franco-Arabic, or mixed text.
 
 Rules:
