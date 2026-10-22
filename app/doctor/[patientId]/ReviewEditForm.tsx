@@ -1,9 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import DoctorDictation from "@/components/DoctorDictation";
-import EncounterClose from "./EncounterClose";
 import type { PatientContact, PatientIntakeRecord } from "@/lib/db";
 import { intakeFieldsSchema, type IntakeFields } from "@/lib/intake";
 import { followupQuestions, questionLabel } from "@/lib/questions";
@@ -96,12 +94,10 @@ function isStatus(value: string): value is PatientIntakeRecord["status"] {
 export default function ReviewEditForm({
   intake,
   patient,
-  followupDraftAvailable,
   initialNoteRating,
 }: {
   intake: PatientIntakeRecord;
   patient: PatientContact;
-  followupDraftAvailable: boolean;
   initialNoteRating: NoteRatingDisplay | null;
 }) {
   const router = useRouter();
@@ -116,8 +112,6 @@ export default function ReviewEditForm({
   const [note, setNote] = useState(
     intake.doctorNotes[intake.doctorNotes.length - 1]?.note_text ?? "",
   );
-  const [draftReady, setDraftReady] = useState(followupDraftAvailable);
-  const noteRef = useRef<HTMLTextAreaElement>(null);
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -148,14 +142,6 @@ export default function ReviewEditForm({
       const result: unknown = await response.json();
       if (response.ok) {
         setMessage("Changes saved and added to revision history.");
-        if (
-          result !== null &&
-          typeof result === "object" &&
-          "noteChanged" in result &&
-          result.noteChanged === true
-        ) {
-          setDraftReady(true);
-        }
         setReason("");
         router.refresh();
       } else if (
@@ -240,7 +226,6 @@ export default function ReviewEditForm({
       <label htmlFor="clinician-note">Clinician note (optional)</label>
       <textarea
         id="clinician-note"
-        ref={noteRef}
         value={note}
         onChange={(event) => setNote(event.target.value)}
         maxLength={4000}
@@ -253,20 +238,12 @@ export default function ReviewEditForm({
           mode={initialNoteRating.mode}
         />
       ) : null}
-      <DoctorDictation value={note} onChange={setNote} textareaRef={noteRef} />
       <label>Reason for changes (optional)<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} /></label>
       <p>
         Low-sugar symptoms: {fields.hypoglycemia_symptoms === null ? "not recorded" : fields.hypoglycemia_symptoms ? "reported" : "not reported"}
         {" · "}Emergency symptoms: {fields.emergency_symptoms_mentioned === null ? "not recorded" : fields.emergency_symptoms_mentioned ? "mentioned" : "not mentioned"}
       </p>
       <button type="button" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
-      <EncounterClose
-        intakeId={intake.id}
-        version={intake.version}
-        note={note}
-        existingDate={patient.next_visit_date}
-        followupDraftAvailable={draftReady || followupDraftAvailable}
-      />
       {message ? <p role="status">{message}</p> : null}
       {conflictVersion !== null ? <p>Latest server version: {conflictVersion}.</p> : null}
       {latestRecord ? (

@@ -1,64 +1,20 @@
 import { after, NextResponse } from "next/server";
 import db, {
-  buildAfterWorkRatingInput,
-  hasAfterWorkRating,
   getLatestClinicianNote,
   getPatientRecord,
-  saveAfterWorkRating,
-  saveFollowupPlanDraft,
 } from "@/lib/db";
+import { generateAndSaveAfterWorkRating } from "@/lib/after-work-rating";
 import {
   clinicianEditSchema,
   requestDoctorSession,
   saveClinicianEdit,
 } from "@/lib/doctor-review";
-import { generateFollowupPlanDraft } from "@/lib/followup-plan-drafts";
-import {
-  draftFollowupPlan,
-  generateAfterWorkRating,
-  hasSummaryProviderConfigured,
-  verifyAfterWorkRatingQuotes,
-} from "@/lib/llm";
 import { hasSameOrigin, readJsonBody } from "@/lib/requestGuards";
-import { afterWorkRatingSchema } from "@/lib/summary-types";
 
 export const runtime = "nodejs";
 
 function reply(error: string, status: number): Response {
   return NextResponse.json({ ok: false, error }, { status });
-}
-
-async function generateAndSaveAfterWorkRating(intakeId: number, note: string): Promise<void> {
-  try {
-    const safeNote = /requestedSchema/i.test(note) ? "" : note;
-    const context = buildAfterWorkRatingInput(db, intakeId, safeNote);
-    if (!context || hasAfterWorkRating(db, intakeId, note)) return;
-    const generated = await generateAfterWorkRating(context.input);
-    if (!generated) return;
-    const output = afterWorkRatingSchema.safeParse(
-      verifyAfterWorkRatingQuotes(generated.output, safeNote),
-    );
-    if (!output.success) {
-      console.error("After-work rating output did not pass validation.");
-      return;
-    }
-    const mode = generated.model === "fallback"
-      ? "fallback"
-      : generated.model === "mock"
-        ? "mock"
-        : "llm";
-    saveAfterWorkRating(db, {
-      patientId: context.patientId,
-      intakeId,
-      note,
-      output: output.data,
-      mode,
-      model: mode === "llm" ? generated.model : null,
-    });
-  } catch (error: unknown) {
-    const errorType = error instanceof Error ? error.constructor.name : "UnknownError";
-    console.error(`After-work rating failed (${errorType}).`);
-  }
 }
 
 export async function PUT(
@@ -90,47 +46,13 @@ export async function PUT(
       previousNote,
     );
     if (result.ok) {
-      if (result.noteChanged && parsed.data.note) {
-        const note = parsed.data.note;
-        const patientRecord = getPatientRecord(result.record.patient_id);
-        const intake = patientRecord?.intakes.find((item) => item.id === intakeId);
-        if (patientRecord && intake) {
-          const payload = {
-            patient: {
-              age: patientRecord.patient.age,
-              diabetes_type: patientRecord.patient.diabetes_type,
-              next_visit_date: patientRecord.patient.next_visit_date,
-            },
-            intake: {
-              answers: intake.fields,
-              flags: intake.flags,
-              patient_text: intake.raw_text,
-            },
-            doctor_note: parsed.data.note,
-          };
-          after(async () => {
-            await Promise.all([
-              generateFollowupPlanDraft(
-                {
-                  intakeId,
-                  noteChanged: true,
-                  note,
-                  existingDate: patientRecord.patient.next_visit_date,
-                  patientDates: patientRecord.patient,
-                  payload,
-                },
-                {
-                  providerConfigured: hasSummaryProviderConfigured(),
-                  generate: draftFollowupPlan,
-                  save: (id, note, plan, mode) =>
-                    saveFollowupPlanDraft(db, id, note, plan, mode),
-                },
-              ),
-              generateAndSaveAfterWorkRating(intakeId, note),
-            ]);
-          });
-        } else {
-          console.error("Automatic follow-up draft could not load the saved intake.");
+      const note = parsed.data.note;
+      if (result.noteChanged && note) {
+        try {
+          after(() => generateAndSaveAfterWorkRating(intakeId, note));
+        } catch (error: unknown) {
+          const errorType = error instanceof Error ? error.constructor.name : "UnknownError";
+          console.error(`Could not schedule after-work rating (${errorType}).`);
         }
       }
       return NextResponse.json({

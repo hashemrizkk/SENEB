@@ -1,8 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import DoctorDictation from "@/components/DoctorDictation";
 import type { IntakeFields } from "@/lib/intake";
 import type { ReviewPriority, ReviewStatus } from "@/lib/doctor-review";
 
@@ -28,7 +27,6 @@ export default function CaseSummaryNote({
   intake,
 }: CaseSummaryNoteProps) {
   const router = useRouter();
-  const noteRef = useRef<HTMLTextAreaElement>(null);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -79,13 +77,11 @@ export default function CaseSummaryNote({
       <label htmlFor="summary-clinician-note">Add a note (optional)</label>
       <textarea
         id="summary-clinician-note"
-        ref={noteRef}
         value={note}
         onChange={(event) => setNote(event.target.value)}
         maxLength={4_000}
         style={textareaStyle}
       />
-      <DoctorDictation value={note} onChange={setNote} textareaRef={noteRef} />
       <button type="button" onClick={() => void saveNote()} disabled={saving || !note.trim()}>
         {saving ? "Saving…" : "Save note"}
       </button>

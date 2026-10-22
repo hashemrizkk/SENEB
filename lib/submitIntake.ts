@@ -1,15 +1,15 @@
-import { insertIntakeWithRevision } from "./db";
-import { extractIntake } from "./llm";
+import { insertIntakeWithRevision } from "./db.ts";
+import { extractIntake } from "./llm.ts";
 import {
   type InputMethod,
   intakeFieldsSchema,
   type IntakeFields,
   type IntakeMeta,
-} from "./intake";
-import { redFlags, type RedFlagResult } from "./rules";
+} from "./intake.ts";
+import { redFlags, type RedFlagResult } from "./rules.ts";
 import { autoPriorityMetadata } from "./intake-priority.ts";
 
-export type { InputMethod } from "./intake";
+export type { InputMethod } from "./intake.ts";
 export type TapAnswers = Partial<
   Pick<
     IntakeFields,

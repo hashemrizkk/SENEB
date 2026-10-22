@@ -2,9 +2,9 @@ import Link from "next/link";
 import { after } from "next/server";
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import db, {
+import {
+  default as db,
   getAfterWorkRatingForNote,
-  getFollowupPlanDraft,
   getPatientRecord,
   type PatientIntakeRecord,
 } from "@/lib/db";
@@ -13,7 +13,7 @@ import { formatCairoDateTime } from "@/lib/date-time";
 import { flagLabel, followupQuestions, questionLabel } from "@/lib/questions";
 import { intakeFieldsSchema } from "@/lib/intake";
 import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
-import NewFollowupForm from "./NewFollowupForm";
+import RecordFollowupForm from "./RecordFollowupForm";
 import ReviewEditForm from "./ReviewEditForm";
 import { generateSummarySafely, summaryIsMissingOrStale } from "@/lib/summary-background";
 import { priorityForIntake } from "@/lib/intake-priority";
@@ -104,9 +104,6 @@ export default async function DoctorIntakePage({
     after(() => generateSummarySafely(patientId));
   }
   const intake = selectedIntake(record.intakes, intakeId);
-  const followupDraftAvailable = intake
-    ? getFollowupPlanDraft(db, intake.id) !== null
-    : false;
   const currentNote = intake?.doctorNotes[intake.doctorNotes.length - 1]?.note_text ?? "";
   const storedNoteRating = intake
     ? getAfterWorkRatingForNote(db, patientId, intake.id, currentNote)
@@ -228,7 +225,6 @@ export default async function DoctorIntakePage({
             key={`${intake.id}:${intake.version}`}
             intake={intake}
             patient={record.patient}
-            followupDraftAvailable={followupDraftAvailable}
             initialNoteRating={noteRatingDisplay}
           />
           <section>
@@ -283,7 +279,7 @@ export default async function DoctorIntakePage({
           ) : null}
         </>
       ) : null}
-      <NewFollowupForm patientId={patientId} />
+      <RecordFollowupForm patient={record.patient} />
     </main>
   );
 }

@@ -10,13 +10,14 @@ import {
   listDoctorQueue,
   migrateDoctorReview,
   savePatientIntake,
-  saveClinicianEdit,
   type ReviewFilter,
   type ReviewIntake,
 } from "./doctor-review.ts";
 import type { FollowupPlan } from "./followup-plan.ts";
 import { buildFacts } from "./case-facts.ts";
 import type { AfterWorkRating, AfterWorkRatingInput } from "./summary-types.ts";
+import { redFlags } from "./rules.ts";
+import type { IntakeFields } from "./intake.ts";
 
 // ----- Connection (singleton for dev hot-reload) -----
 
@@ -95,6 +96,9 @@ db.transaction(() => {
   if (!intakeColumnNamesBeforeMigrations.has("meta_json")) {
     db.exec("ALTER TABLE intakes ADD COLUMN meta_json TEXT");
   }
+  if (!intakeColumnNamesBeforeMigrations.has("followup_request_id")) {
+    db.exec("ALTER TABLE intakes ADD COLUMN followup_request_id TEXT");
+  }
 
   for (const [columnName, sql] of patientMigrations) {
     if (!patientColumnNames.has(columnName)) db.exec(sql);
@@ -107,6 +111,9 @@ db.transaction(() => {
   );
   db.exec(
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_request_id ON patients(request_id)",
+  );
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_intakes_followup_request_id ON intakes(followup_request_id) WHERE followup_request_id IS NOT NULL",
   );
 })();
 
@@ -148,20 +155,6 @@ db.transaction(() => {
     CREATE INDEX IF NOT EXISTS idx_followups_intake ON followups(intake_id, confirmed_at);
   `);
 })();
-
-export function migrateFollowupPlanDrafts(database: Database.Database): void {
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS followup_plan_drafts (
-      intake_id INTEGER PRIMARY KEY REFERENCES intakes(id) ON DELETE CASCADE,
-      note_hash TEXT NOT NULL,
-      plan_json TEXT NOT NULL,
-      generation_mode TEXT NOT NULL CHECK (generation_mode IN ('mock', 'llm')),
-      created_at TEXT NOT NULL
-    )
-  `);
-}
-
-migrateFollowupPlanDrafts(db);
 
 export function migrateAfterWorkRatings(database: Database.Database): void {
   const tableExists = database.prepare<[string], { name: string }>(
@@ -259,13 +252,6 @@ export type PatientRecord = {
   };
   intakes: PatientIntakeRecord[];
   latestIntake: PatientIntakeRecord | null;
-};
-
-export type StoredFollowupPlanDraft = {
-  intake_id: number;
-  plan_json: string;
-  generation_mode: "mock" | "llm";
-  created_at: string;
 };
 
 export type StoredAfterWorkRating = {
@@ -418,46 +404,6 @@ export function getLatestClinicianNote(database: Database.Database, intakeId: nu
 
 function noteHash(note: string): string {
   return createHash("sha256").update(note).digest("hex");
-}
-
-export function getFollowupPlanDraft(
-  database: Database.Database,
-  intakeId: number,
-  expectedNote?: string,
-): StoredFollowupPlanDraft | null {
-  const currentNote = getLatestClinicianNote(database, intakeId);
-  if (!currentNote || (expectedNote !== undefined && currentNote !== expectedNote)) return null;
-  const draft = database.prepare<[number], StoredFollowupPlanDraft & { note_hash: string }>(
-    `SELECT intake_id, note_hash, plan_json, generation_mode, created_at
-     FROM followup_plan_drafts WHERE intake_id = ?`,
-  ).get(intakeId);
-  return draft?.note_hash === noteHash(currentNote) ? draft : null;
-}
-
-export function saveFollowupPlanDraft(
-  database: Database.Database,
-  intakeId: number,
-  note: string,
-  plan: FollowupPlan,
-  generationMode: "mock" | "llm",
-  now = new Date(),
-): boolean {
-  if (!note.trim() || getLatestClinicianNote(database, intakeId) !== note) return false;
-  database.prepare(
-    `INSERT INTO followup_plan_drafts (
-       intake_id, note_hash, plan_json, generation_mode, created_at
-     ) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(intake_id) DO UPDATE SET
-       note_hash = excluded.note_hash,
-       plan_json = excluded.plan_json,
-       generation_mode = excluded.generation_mode,
-       created_at = excluded.created_at`,
-  ).run(intakeId, noteHash(note), JSON.stringify(plan), generationMode, now.toISOString());
-  return true;
-}
-
-export function deleteFollowupPlanDraft(database: Database.Database, intakeId: number): void {
-  database.prepare("DELETE FROM followup_plan_drafts WHERE intake_id = ?").run(intakeId);
 }
 
 export type QueueFilter = ReviewFilter;
@@ -676,8 +622,9 @@ export type StoredOutboxMessage = {
 
 export function enqueueOutboxMessage(
   message: Omit<StoredOutboxMessage, "id" | "attempts" | "provider_ref" | "error" | "phone">,
+  database: Database.Database = db,
 ): number {
-  const result = db.prepare(
+  const result = database.prepare(
     `INSERT INTO messages (patient_id, kind, body, status, scheduled_at, sent_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
   ).run(
@@ -689,6 +636,173 @@ export function enqueueOutboxMessage(
     message.sent_at,
   );
   return Number(result.lastInsertRowid);
+}
+
+export function saveRecordedFollowup(
+  database: Database.Database,
+  input: {
+    patientId: number;
+    requestId: string;
+    staffName: string;
+    note: string;
+    fields: IntakeFields;
+    plan: FollowupPlan;
+    recapBody: string | null;
+    recapScheduledAt: string | null;
+    reminderBody: string | null;
+    reminderScheduledAt: string | null;
+    now?: Date;
+  },
+): {
+  intakeId: number;
+  duplicate: boolean;
+  noteMatches: boolean;
+  recapQueued: boolean;
+  reminderQueued: boolean;
+} {
+  const now = input.now ?? new Date();
+  return database.transaction(() => {
+    const existing = database.prepare<
+      [string],
+      { id: number; patient_id: number }
+    >(
+      "SELECT id, patient_id FROM intakes WHERE followup_request_id = ?",
+    ).get(input.requestId);
+    if (existing) {
+      if (existing.patient_id !== input.patientId) {
+        throw new Error("The request ID is already assigned to another patient.");
+      }
+      const savedNote = database.prepare<
+        [number, number],
+        { note_text: string | null }
+      >(
+        `SELECT note_text FROM notes
+         WHERE patient_id = ? AND check_result_json = 'intake:' || ?
+           AND edited_by IS NOT NULL
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+      ).get(input.patientId, existing.id)?.note_text ?? "";
+      return {
+        intakeId: existing.id,
+        duplicate: true,
+        noteMatches: savedNote === input.note.trim(),
+        recapQueued: false,
+        reminderQueued: false,
+      };
+    }
+
+    const record = getDoctorPatientRecord(database, input.patientId);
+    if (!record) throw new Error("Patient not found.");
+    const timestamp = now.toISOString();
+    const note = input.note.trim();
+    const flags = redFlags(input.fields);
+    const intakeId = savePatientIntake(
+      database,
+      {
+        patient_id: input.patientId,
+        input_method: note ? "typed" : "tap",
+        raw_text: note || null,
+        structured_json: JSON.stringify(input.fields),
+        red_flags_json: JSON.stringify(flags),
+        meta_json: null,
+      },
+      timestamp,
+      {
+        source: "clinician",
+        editedBy: input.staffName,
+        reason: "Clinic follow-up.",
+      },
+    );
+    database.prepare(
+      "UPDATE intakes SET followup_request_id = ? WHERE id = ?",
+    ).run(input.requestId, intakeId);
+    if (note) {
+      database.prepare(
+        `INSERT INTO notes (
+           patient_id, note_text, check_result_json, override_reason,
+           edited_by, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.patientId,
+        note,
+        `intake:${intakeId}`,
+        "Clinic follow-up.",
+        input.staffName,
+        timestamp,
+      );
+    }
+
+    database.prepare(
+      `INSERT INTO followups (
+         patient_id, intake_id, plan_json, next_visit_date,
+         confirmed_by, confirmed_at, message, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed')`,
+    ).run(
+      input.patientId,
+      intakeId,
+      JSON.stringify(input.plan),
+      input.plan.next_visit_date,
+      input.staffName,
+      timestamp,
+      null,
+    );
+    database.prepare("UPDATE patients SET next_visit_date = ? WHERE id = ?")
+      .run(input.plan.next_visit_date, input.patientId);
+    if (record.patient.next_visit_date !== input.plan.next_visit_date) {
+      database.prepare(
+        "UPDATE messages SET status = 'canceled' WHERE patient_id = ? AND kind = 'reminder' AND status = 'queued'",
+      ).run(input.patientId);
+    }
+
+    const contact = database.prepare<
+      [number],
+      { phone: string | null; consent_at: string | null }
+    >("SELECT phone, consent_at FROM patients WHERE id = ?").get(input.patientId);
+    let recapQueued = false;
+    let reminderQueued = false;
+    if (input.recapBody && input.recapScheduledAt && contact?.phone && contact.consent_at) {
+      enqueueOutboxMessage({
+        patient_id: input.patientId,
+        kind: "recap",
+        body: input.recapBody,
+        status: "queued",
+        scheduled_at: input.recapScheduledAt,
+        sent_at: null,
+      }, database);
+      recapQueued = true;
+    }
+    const reminderAlreadyExists = input.reminderBody
+      ? database.prepare<[number, string], { count: number }>(
+          `SELECT COUNT(*) AS count FROM messages
+           WHERE patient_id = ? AND kind = 'reminder' AND body = ?
+             AND status IN ('queued', 'sent')`,
+        ).get(input.patientId, input.reminderBody)?.count ?? 0
+      : 0;
+    if (
+      input.plan.next_visit_date &&
+      input.reminderBody &&
+      input.reminderScheduledAt &&
+      contact?.phone &&
+      contact.consent_at &&
+      reminderAlreadyExists === 0
+    ) {
+      enqueueOutboxMessage({
+        patient_id: input.patientId,
+        kind: "reminder",
+        body: input.reminderBody,
+        status: "queued",
+        scheduled_at: input.reminderScheduledAt,
+        sent_at: null,
+      }, database);
+      reminderQueued = true;
+    }
+    return {
+      intakeId,
+      duplicate: false,
+      noteMatches: true,
+      recapQueued,
+      reminderQueued,
+    };
+  })();
 }
 
 export function dueMessages(now: string): StoredOutboxMessage[] {
@@ -727,112 +841,6 @@ export function latestMessages(limit = 50): StoredOutboxMessage[] {
      FROM messages m JOIN patients p ON p.id = m.patient_id
      ORDER BY m.id DESC LIMIT ?`,
   ).all(limit);
-}
-
-export function saveEncounterClose(input: {
-  intakeId: number;
-  version: number;
-  staffName: string;
-  note: string;
-  plan: FollowupPlan;
-  recapBody: string | null;
-  recapScheduledAt: string;
-  reminderBody: string | null;
-  reminderScheduledAt: string | null;
-  now?: Date;
-}): { ok: true; recapQueued: boolean; recapMessageId: number | null; reminderQueued: boolean } | { ok: false; conflict: true } {
-  const now = input.now ?? new Date();
-  return db.transaction(() => {
-    const record = getDoctorPatientRecord(db, Number(
-      db.prepare<[number], { patient_id: number }>("SELECT patient_id FROM intakes WHERE id = ?")
-        .get(input.intakeId)?.patient_id,
-    ));
-    const intake = record?.intakes.find((item) => item.id === input.intakeId);
-    if (!record || !intake) throw new Error("Intake not found.");
-    const saveResult = saveClinicianEdit(db, input.intakeId, input.staffName, {
-      version: input.version,
-      patient: {
-        name: record.patient.name,
-        phone: record.patient.phone ?? "",
-        email: record.patient.email ?? "",
-        self_description: record.patient.self_description ?? "",
-      },
-      fields: intake.fields,
-      raw_text: intake.raw_text,
-      priority: intake.priority,
-      status: intake.status,
-      note: input.note,
-      reason: "Encounter closed; follow-up plan confirmed.",
-    }, getLatestClinicianNote(db, input.intakeId), now);
-    if (!saveResult.ok) return { ok: false as const, conflict: true as const };
-    deleteFollowupPlanDraft(db, input.intakeId);
-
-    const timestamp = now.toISOString();
-    db.prepare(
-      `INSERT INTO followups (
-         patient_id, intake_id, plan_json, next_visit_date,
-         confirmed_by, confirmed_at, message, status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed')`,
-    ).run(
-      record.patient.id,
-      input.intakeId,
-      JSON.stringify(input.plan),
-      input.plan.next_visit_date,
-      input.staffName,
-      timestamp,
-      null,
-    );
-    db.prepare("UPDATE patients SET next_visit_date = ? WHERE id = ?")
-      .run(input.plan.next_visit_date, record.patient.id);
-    const visitDateChanged = record.patient.next_visit_date !== input.plan.next_visit_date;
-    if (visitDateChanged) {
-      db.prepare(
-        "UPDATE messages SET status = 'canceled' WHERE patient_id = ? AND kind = 'reminder' AND status = 'queued'",
-      ).run(record.patient.id);
-    }
-
-    const patientInfo = db.prepare<[number], { consent_at: string | null; phone: string | null }>(
-      "SELECT consent_at, phone FROM patients WHERE id = ?",
-    ).get(record.patient.id);
-    let recapMessageId: number | null = null;
-    if (input.recapBody && patientInfo?.consent_at && patientInfo.phone) {
-      recapMessageId = enqueueOutboxMessage({
-        patient_id: record.patient.id,
-        kind: "recap",
-        body: input.recapBody,
-        status: "queued",
-        scheduled_at: input.recapScheduledAt,
-        sent_at: null,
-      });
-    }
-    let reminderQueued = false;
-    const reminderAlreadyExists = input.reminderBody
-      ? db.prepare<[number, string], { count: number }>(
-          `SELECT COUNT(*) AS count FROM messages
-           WHERE patient_id = ? AND kind = 'reminder' AND body = ?
-             AND status IN ('queued', 'sent')`,
-        ).get(record.patient.id, input.reminderBody)?.count ?? 0
-      : 0;
-    if (
-      input.plan.next_visit_date &&
-      input.reminderBody &&
-      input.reminderScheduledAt &&
-      patientInfo?.consent_at &&
-      patientInfo.phone &&
-      reminderAlreadyExists === 0
-    ) {
-      enqueueOutboxMessage({
-        patient_id: record.patient.id,
-        kind: "reminder",
-        body: input.reminderBody,
-        status: "queued",
-        scheduled_at: input.reminderScheduledAt,
-        sent_at: null,
-      });
-      reminderQueued = true;
-    }
-    return { ok: true as const, recapQueued: recapMessageId !== null, recapMessageId, reminderQueued };
-  })();
 }
 
 export function cancelQueuedRecap(patientId: number, messageId: number): boolean {
