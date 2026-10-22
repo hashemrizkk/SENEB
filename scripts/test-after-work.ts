@@ -123,6 +123,10 @@ const completeProfileInputs = input(completeNote);
 const footExam = await generateAfterWorkRating(completeProfileInputs, mockGenerate);
 assert.equal(footExam?.output.profile_rating, "yellow");
 assert.equal(completeProfileInputs.patient_profile.care_items[1].days_since, 400);
+assert.equal(
+  footExam?.output.profile_gaps.some((gap) => gap.field === "Foot exam"),
+  true,
+);
 
 mockOutput = output("green", "red", {
   profile_gaps: [{
@@ -132,7 +136,7 @@ mockOutput = output("green", "red", {
   }],
 });
 const noPhoneInput = input(completeNote);
-noPhoneInput.patient_profile.phone = null;
+noPhoneInput.patient_profile.phone = "";
 const noPhone = await generateAfterWorkRating(noPhoneInput, mockGenerate);
 assert.equal(noPhone?.output.profile_rating, "red");
 

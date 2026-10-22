@@ -250,7 +250,7 @@ function profileCompleteness(input: AfterWorkRatingInput): Pick<
   const gaps: AfterWorkRating["profile_gaps"] = [];
   let requiredMissing = false;
   let importantMissing = false;
-  if (input.patient_profile.phone === null || input.patient_profile.messaging_consent !== true) {
+  if (!input.patient_profile.phone?.trim() || input.patient_profile.messaging_consent !== true) {
     gaps.push({
       field: "phone and messaging consent",
       importance: "required",
@@ -258,7 +258,7 @@ function profileCompleteness(input: AfterWorkRatingInput): Pick<
     });
     requiredMissing = true;
   }
-  if (input.patient_profile.next_visit_date === null) {
+  if (!input.patient_profile.next_visit_date?.trim()) {
     gaps.push({
       field: "next visit date or interval",
       importance: "required",
@@ -271,18 +271,18 @@ function profileCompleteness(input: AfterWorkRatingInput): Pick<
     importantMissing = true;
   }
   for (const item of input.patient_profile.care_items) {
-    if (item.date === null || item.overdue) {
+    if (!item.date?.trim() || item.overdue) {
       gaps.push({
         field: item.item,
         importance: "important",
-        reason: item.date === null
+        reason: !item.date?.trim()
           ? `No date is recorded for ${item.item}.`
           : `${item.item} is past its recorded threshold.`,
       });
       importantMissing = true;
     }
   }
-  if (input.patient_profile.diabetes_type === null) {
+  if (!input.patient_profile.diabetes_type?.trim()) {
     gaps.push({
       field: "diabetes type",
       importance: "optional",
