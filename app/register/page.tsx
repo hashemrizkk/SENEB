@@ -363,17 +363,35 @@ export default function RegisterPage() {
         .reg-consent { display: flex; gap: 0.6rem; align-items: flex-start; margin: 1.4rem 0; }
         .reg-consent input { width: 24px; height: 24px; margin-top: 0.25rem; }
         .reg-success {
-          max-width: 32rem; margin: 0 auto; padding: 2rem 1rem;
+          box-sizing: border-box; width: 100%; max-width: 34rem; min-width: 0;
+          margin: clamp(1rem, 5vh, 3rem) auto; padding: clamp(1.25rem, 5vw, 2.5rem);
           text-align: center; font-size: 18px; color: var(--text);
+          border: 1px solid var(--card-border); border-radius: var(--radius-card);
+          background: var(--surface); box-shadow: var(--shadow-soft);
         }
-        .reg-success-title { font-size: 1.4rem; }
-        .reg-success-label { color: var(--text-secondary); margin-bottom: 0.2rem; }
+        .reg-success-mark {
+          display: grid; place-items: center; width: 3.5rem; height: 3.5rem;
+          margin: 0 auto 1rem; border-radius: 50%; background: var(--success-bg);
+          color: var(--success-text); font-size: 2rem; font-weight: 700;
+        }
+        .reg-success-title { margin: 0 0 1.5rem; font-size: clamp(1.45rem, 5vw, 2rem); line-height: 1.35; overflow-wrap: anywhere; }
+        .reg-success-reference {
+          margin: 0 auto 1.25rem; padding: 1rem; border: 1px solid var(--card-border);
+          border-radius: var(--radius-control); background: var(--surface-sunken);
+        }
+        .reg-success-label { color: var(--text-secondary); margin: 0 0 0.4rem; }
         .reg-success-code {
-          font-size: 2.6rem; letter-spacing: 0.2em; font-weight: 700;
-          color: var(--primary-strong); margin: 0.2rem 0 1.5rem; direction: ltr;
+          display: block; max-width: 100%; font-size: clamp(1.5rem, 8vw, 2.4rem);
+          letter-spacing: 0.12em; font-weight: 700; color: var(--primary-strong);
+          overflow-wrap: anywhere; unicode-bidi: isolate;
         }
-        .reg-success-note { color: var(--text-secondary); }
-        .reg-success-emergency { font-weight: 700; color: var(--urgent-text); }
+        .reg-success-note, .reg-success-emergency {
+          display: flex; align-items: flex-start; gap: 0.65rem; padding: 0.8rem 1rem;
+          border-radius: var(--radius-control); text-align: start; overflow-wrap: anywhere;
+        }
+        .reg-success-note { color: var(--text-secondary); background: var(--surface-sunken); }
+        .reg-success-emergency { font-weight: 700; color: var(--urgent-text); background: var(--urgent-bg); border: 1px solid var(--urgent-border); }
+        .reg-success-note span, .reg-success-emergency span { flex: none; }
       `}</style>
 
       <p className="reg-sr-only" aria-live="polite">

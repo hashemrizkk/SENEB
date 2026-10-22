@@ -8,14 +8,15 @@ import symptoms from "@/data/screening/symptom-modifier.json";
 
 export const dynamic = "force-dynamic";
 
-export default async function ScreeningSummaryPage() {
+export default async function ScreeningSummaryPage({ searchParams }: { searchParams: Promise<{ lang?: string }> }) {
+  const params = await searchParams;
   const jar=await cookies();
   const token=jar.get(SCREENING_COOKIE)?.value;
   const session=token?getAnonymousScreeningSession(hashToken(token)):undefined;
   const summary=session?getScreeningSummary(String(session.id)):undefined;
   const contact=session?screeningContact(String(session.id)):undefined;
   const responses=session?getScreeningResponses(String(session.id)):[];
-  const locale=session?.locale==="ar"?"ar":"en";
+  const locale=params.lang==="ar"?"ar":params.lang==="en"?"en":session?.locale==="ar"?"ar":"en";
   if(!summary)return <main className="screening-page" lang={locale} dir={locale==="ar"?"rtl":"ltr"}><h1>{locale==="ar"?"الملخص غير متاح":"Summary unavailable"}</h1><p>{locale==="ar"?"أكمل الفحص أولًا لعرض الملخص.":"Complete the screening first to view a summary."}</p><Link href="/screening">{locale==="ar"?"بدء الفحص":"Start screening"}</Link></main>;
   const band=String(summary.band);
   let contentKeys:string[]=[];try{contentKeys=JSON.parse(String(summary.content_block_keys_json)) as string[];}catch{}

@@ -29,14 +29,7 @@ export default async function HomePage({
     <main dir={isArabic ? "rtl" : "ltr"} lang={locale} className="home-page">
       <p className="home-demo-banner">{copy.demoBanner}</p>
       <header className="home-header" dir="ltr">
-        <Link
-          href={isArabic ? "/?lang=en" : "/?lang=ar"}
-          className="home-language-link"
-          lang={isArabic ? "en" : "ar"}
-          aria-label={isArabic ? ar.home.en.startInEnglish : ar.home.startInArabic}
-        >
-          {isArabic ? "English" : "العربية"}
-        </Link>
+        <span aria-hidden="true" />
         <Link href={isArabic ? "/" : "/?lang=en"} className="home-brand" dir={locale}>
           <span>{copy.title}</span>
           <HeartbeatMark />
@@ -68,7 +61,7 @@ export default async function HomePage({
           <Link href={isArabic ? "/screening" : "/screening?lang=en"} className="home-start-link">
             <strong>{copy.startScreening}</strong>
           </Link>
-          <Link href="/register" className="home-register-link">
+          <Link href={isArabic ? "/register?lang=ar" : "/register?lang=en"} className="home-register-link">
             {copy.alreadyDiagnosed}
           </Link>
         </nav>
