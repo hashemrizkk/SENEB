@@ -13,6 +13,7 @@ export type NewOutboxMessage = Omit<
   "id" | "attempts" | "provider_ref" | "error" | "phone"
 >;
 export const REMINDER_LEAD_DAYS = 3;
+const RECAP_TEMPLATE = "Your visit recap: {{1}}";
 
 export interface MessageOutbox {
   enqueue(message: NewOutboxMessage): number;
@@ -28,7 +29,7 @@ export function createRecapMessage(input: {
   recap: string;
 }): NewOutboxMessage | null {
   if (!input.consentAt || !input.phone) return null;
-  const body = `${ar.visitRecapPrefix} ${input.recap.trim()}\n${ar.emergencyNotice}\n${ar.clinicReviewNote}`;
+  const body = `${RECAP_TEMPLATE.replace("{{1}}", input.recap.trim())}\n${ar.emergencyNotice}\n${ar.clinicReviewNote}`;
   if (body.length > 600) throw new Error("The recap message exceeds 600 characters.");
   return {
     patient_id: input.patientId,
@@ -88,6 +89,7 @@ export async function processDueMessages(
     send: sendMessage,
   },
 ): Promise<{ sent: number; failed: number }> {
+  const retryDelaysMs = dependencies.retryDelaysMs ?? [60_000, 300_000];
   let sent = 0;
   let failed = 0;
   for (const message of dependencies.outbox.due(now)) {
@@ -97,7 +99,7 @@ export async function processDueMessages(
       dependencies.outbox.sent(message.id, providerRef, now);
       sent += 1;
     } catch {
-      const delay = dependencies.retryDelaysMs?.[attempts - 1];
+      const delay = retryDelaysMs[attempts - 1];
       const retryAt = delay === undefined
         ? null
         : new Date(Date.parse(now) + delay).toISOString();

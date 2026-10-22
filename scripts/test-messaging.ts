@@ -65,7 +65,7 @@ const recap = createRecapMessage({
   recap: "موعد المتابعة القادم يوم ١ نوفمبر.",
 });
 assert.ok(recap);
-assert.match(recap.body, /^ملخص زيارتك:/);
+assert.match(recap.body, /^Your visit recap: موعد المتابعة القادم يوم ١ نوفمبر\./);
 assert.match(recap.body, /إجاباتك بيراجعها فريق العيادة/);
 assert.match(recap.body, /🚨/);
 outbox.enqueue(recap);
@@ -127,4 +127,20 @@ await processDueMessages("2026-10-22T10:00:03.000Z", {
 });
 assert.equal(sends, 3);
 assert.equal(failedOutbox.messages[0]?.status, "failed");
+
+const defaultRetryOutbox = new MemoryOutbox();
+defaultRetryOutbox.enqueue({
+  patient_id: 13,
+  kind: "reminder",
+  body: "Reminder",
+  status: "queued",
+  scheduled_at: "2026-10-22T10:00:00.000Z",
+  sent_at: null,
+});
+await processDueMessages("2026-10-22T10:00:00.000Z", {
+  outbox: defaultRetryOutbox,
+  send: async () => { throw new Error("provider unavailable"); },
+});
+assert.equal(defaultRetryOutbox.messages[0]?.status, "queued");
+assert.equal(defaultRetryOutbox.messages[0]?.scheduled_at, "2026-10-22T10:01:00.000Z");
 console.log("PASS  consent gate, template recap, reminder date/cancel, and three-attempt backoff");

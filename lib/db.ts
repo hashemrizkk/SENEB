@@ -545,6 +545,8 @@ export function saveEncounterClose(input: {
       input.plan.next_visit_date &&
       input.reminderBody &&
       input.reminderScheduledAt &&
+      patientInfo?.consent_at &&
+      patientInfo.phone &&
       reminderAlreadyExists === 0
     ) {
       enqueueOutboxMessage({
