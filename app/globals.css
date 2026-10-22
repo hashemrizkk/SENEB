@@ -18,7 +18,7 @@ body {
 :where(button, input, select, textarea) { font: inherit; }
 :where(button, input, select) { min-block-size: 48px; }
 :where(button):not(:disabled) { cursor: pointer; }
-::selection { color: var(--text); background: #B9E3C7; }
+::selection { color: var(--text); background: var(--accent); }
 
 .doctor-app,
 .admin-app,

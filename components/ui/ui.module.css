@@ -19,9 +19,9 @@
 .button_primary { background: var(--primary-strong); color: white; }
 .button_primary:hover:not(:disabled) { background: var(--primary-hover); }
 .button_secondary { border-color: var(--control-border); background: var(--surface); color: var(--text); }
-.button_secondary:hover:not(:disabled) { background: #F1F3F3; }
+.button_secondary:hover:not(:disabled) { background: var(--secondary); }
 .button_quiet { background: transparent; color: var(--primary-hover); }
-.button_quiet:hover:not(:disabled) { background: #EAF4ED; }
+.button_quiet:hover:not(:disabled) { background: var(--accent); }
 .button_danger { border-color: var(--urgent-border); background: var(--urgent-bg); color: var(--urgent-text); }
 .iconButton { display: inline-grid; inline-size: 48px; min-inline-size: 48px; min-block-size: 48px; place-items: center; padding: var(--space-2); border: 0; border-radius: 50%; }
 .iconButton svg { inline-size: 22px; block-size: 22px; }

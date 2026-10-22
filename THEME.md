@@ -1,15 +1,15 @@
 # SolveThe17 UI theme
 
-Phase 1 foundation for the friendly clinic redesign. Patient surfaces use Arabic and RTL by default; doctor, nurse, staff, and admin surfaces use English and LTR. This document is a usage guide, not a claim that later page phases have been completed.
+Phase 1 foundation for the friendly clinic redesign, guided by the `survey-frontend` on the `ali_1` reference branch. The visual direction is warm cream, dark ink, deep coral actions, beige dividers, and rounded surfaces. Patient surfaces use Arabic and RTL by default; doctor, nurse, staff, and admin surfaces use English and LTR. This document is a usage guide, not a claim that later page phases have been completed.
 
 ## Foundations
 
 - Tokens live in `components/ui/tokens.css`; TypeScript references live in `components/ui/tokens.ts`.
-- Cairo is used for Arabic because the installed Next.js font registry contains its Arabic and Latin subsets and it is designed for Arabic legibility. Inter is used for English staff interfaces. Next 16.4.2 self-hosts imported Google fonts at build time via `next/font`, so visitors do not fetch font files from Google.
+- Cairo is used for Arabic because the installed Next.js font registry contains its Arabic and Latin subsets and it is designed for Arabic legibility. Inter is used for English staff interfaces; the reference uses Hanken Grotesk, which is not available in this installed Next.js font registry. Next 16.4.2 self-hosts imported Google fonts at build time via `next/font`, so visitors do not fetch font files from Google.
 - Use CSS Modules for new component styles. Keep spacing on the 4px scale and use logical properties such as `padding-inline`, `margin-block`, and `inset-inline` so layout can follow text direction.
 - Patient base text is 18px with generous line height. Staff scopes are 16px and LTR. Arabic user text inside staff interfaces should use `UserText` or `<bdi dir="auto">`; `:lang(ar)` selects Cairo.
-- Do not use `--primary-bright` for text, controls, borders, focus, or selected states. It is decoration only. Normal priority is neutral slate, never green. Color never communicates a status by itself: use visible text and an icon together.
-- Every interactive control receives the shared `:focus-visible` treatment. It uses a blue outer ring and a white inner gap so the focus treatment remains distinct around both dark green controls and light surfaces.
+- `--primary-strong` is the reference's deep coral; `--primary-bright` is decoration only and must not be used for text, controls, borders, focus, or selected states. Normal priority is neutral slate, never green or coral. Color never communicates a status by itself: use visible text and an icon together.
+- Every interactive control receives the shared `:focus-visible` treatment. It uses a high-contrast coral outer ring and a white inner gap so focus remains distinct around controls and light surfaces.
 - Under `prefers-reduced-motion: reduce`, animation, transitions, transforms, shimmer, and pulse are removed; status text remains.
 
 ## Components and use

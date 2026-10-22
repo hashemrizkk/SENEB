@@ -1,16 +1,19 @@
 :root {
   color-scheme: light;
-  --primary-strong: #2E7D4F;
-  --primary-hover: #23663E;
-  --primary-bright: #4CAF6E;
-  --bg: #FAFAF7;
+  --primary-strong: #C8462D;
+  --primary-hover: #A83825;
+  --primary-bright: #E98D72;
+  --bg: #FAF9F6;
   --surface: #FFFFFF;
-  --card-border: #E8E6DF;
-  --control-border: #626B75;
-  --text: #1F2937;
-  --text-secondary: #59636F;
-  --focus-ring: #075985;
+  --card-border: #E6DFD3;
+  --control-border: #766B5D;
+  --text: #1B1916;
+  --text-secondary: #6B6359;
+  --focus-ring: #C8462D;
   --focus-gap: #FFFFFF;
+  --accent: #FBE7E0;
+  --accent-foreground: #A83825;
+  --secondary: #EFEAE0;
   --urgent-bg: #FEE2E2;
   --urgent-text: #7F1D1D;
   --urgent-border: #B91C1C;
@@ -41,7 +44,7 @@
   --space-12: 48px;
   --clinical: var(--primary-strong);
   --clinical-dark: var(--primary-hover);
-  --surface-soft: #F1F3F3;
+  --surface-soft: var(--secondary);
   --border: var(--card-border);
   --card-radius: var(--radius-card);
 }
