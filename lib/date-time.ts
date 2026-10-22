@@ -18,3 +18,9 @@ export function formatCairoDateTime(value: string): string {
     timeZone: "Africa/Cairo",
   }).format(date);
 }
+
+export function formatTimeSinceSubmission(value: string | null): string {
+  if (!value) return "Unknown time";
+  const hours = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 3_600_000));
+  return hours < 1 ? "<1h ago" : hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
+}

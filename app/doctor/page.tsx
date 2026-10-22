@@ -1,12 +1,15 @@
 import Link from "next/link";
+import { Fragment } from "react";
 import { requireDoctorSession } from "@/lib/doctor-review";
-import db, { latestAfterWorkRating, listQueue, type QueueFilter } from "@/lib/db";
+import db, { getDemoWeekMetrics, latestAfterWorkRating, listQueue, type QueueFilter } from "@/lib/db";
 import { flagLabel } from "@/lib/questions";
 import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
 import DoctorQueueRefresh from "./DoctorQueueRefresh";
 import { ar } from "@/lib/strings.ar";
 import RatingCircle from "@/components/RatingCircle";
 import { afterWorkRatingSchema } from "@/lib/summary-types";
+import { surveyEmailReady } from "@/lib/survey-email";
+import { formatTimeSinceSubmission } from "@/lib/date-time";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +26,14 @@ export default async function DoctorPage({
   const { filter: rawFilter } = await searchParams;
   const filter = selectedFilter(rawFilter);
   const records = listQueue(filter);
+  const anyRecords = filter === "all" ? records.length > 0 : listQueue("all").length > 0;
+  const metrics = getDemoWeekMetrics();
+  const configuredLlm = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
+    ? "Gemini" : process.env.GROQ_API_KEY && process.env.GROQ_MODEL ? "Groq" : "mock";
+  const groups = [
+    ["urgent", "Urgent", "▲"], ["important", "Important", "●"],
+    ["normal", "Normal", "○"], ["unknown", "Not enough information", "○"],
+  ] as const;
   const profileRatings = new Map(records.map((record) => {
     const stored = latestAfterWorkRating(db, record.patient_id);
     const rating = stored
@@ -39,8 +50,8 @@ export default async function DoctorPage({
       : null] as const;
   }));
   return (
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+    <><a className="skip-link" href="#doctor-content">Skip to content</a><main className="doctor-shell" id="doctor-content" tabIndex={-1}>
+      <header className="doctor-header">
         <div>
           <h1>Doctor review queue</h1>
           <p>Signed in as {session.name}. Review flags are decision support, not a diagnosis.</p>
@@ -50,7 +61,8 @@ export default async function DoctorPage({
         </form>
       </header>
       <DoctorQueueRefresh />
-      <nav aria-label="Queue filters" style={{ display: "flex", gap: 12, marginBlock: 16 }}>
+      <p className="demo-metric">Demo metrics (last 7 days): {metrics.autoStructured} intakes auto-structured · {metrics.notesAutoRated} notes auto-rated</p>
+      <nav className="doctor-nav" aria-label="Queue filters">
         {(["new", "triaged", "all"] as const).map((value) => (
           <Link
             key={value}
@@ -62,23 +74,27 @@ export default async function DoctorPage({
         ))}
         <Link href="/admin/intakes">Recent intake details</Link>
       </nav>
-      {records.length === 0 ? <p>No intakes in this queue.</p> : null}
+      {records.length === 0 ? <p>{anyRecords ? "No intakes match this filter." : <>No intakes yet — share the registration link <Link href="/register">/register</Link>.</>}</p> : null}
       <div style={{ overflowX: "auto" }}>
         <table>
+          <caption>Patient intakes awaiting clinic review, grouped by staff priority</caption>
           <thead>
             <tr>
-              <th>Patient / reference</th>
-              <th>Submitted</th>
-              <th>Input method</th>
-              <th>Queue state</th>
-              <th>Priority</th>
-              <th>Review flags</th>
-              <th>Answers missing</th>
-              <th>Record</th>
+              <th scope="col">Patient / reference</th>
+              <th scope="col">Submitted</th>
+              <th scope="col">Input method</th>
+              <th scope="col">Queue state</th>
+              <th scope="col">Priority</th>
+              <th scope="col">Review flags</th>
+              <th scope="col">Answers missing</th>
+              <th scope="col">Record</th>
             </tr>
           </thead>
           <tbody>
-            {records.map((record) => {
+            {groups.map(([priority, title, icon]) => {
+              const groupRecords = records.filter((record) => (record.priority ?? "unknown") === priority);
+              if (!groupRecords.length) return null;
+              return <Fragment key={priority}><tr><th colSpan={8} scope="rowgroup">{icon} {title} ({groupRecords.length})</th></tr>{groupRecords.map((record) => {
               const profileRating = profileRatings.get(record.patient_id);
               return (
               <tr key={record.id}>
@@ -112,7 +128,7 @@ export default async function DoctorPage({
                     />
                   ) : null}
                 </td>
-                <td>{record.created_at ?? "Unknown"}</td>
+                <td>{record.created_at ?? "Unknown"}<br/><small>{formatTimeSinceSubmission(record.created_at)}</small></td>
                 <td>
                   {inputMethodLabel(record.input_method)}
                   {inputMethodNote(record.input_method) ? (
@@ -120,7 +136,7 @@ export default async function DoctorPage({
                   ) : null}
                 </td>
                 <td>{record.status}</td>
-                <td>{record.priority ?? "Not assigned"}</td>
+                <td>{icon} {title}</td>
                 <td>
                   {record.flags.flags.length
                     ? record.flags.flags.map(flagLabel).join(", ")
@@ -135,10 +151,12 @@ export default async function DoctorPage({
                 </td>
               </tr>
               );
+            })}</Fragment>;
             })}
           </tbody>
         </table>
       </div>
-    </main>
+      <footer className="demo-health">Status: DB ok · LLM provider {configuredLlm} · Email {surveyEmailReady() ? "ready" : "not configured"}</footer>
+    </main></>
   );
 }

@@ -21,3 +21,30 @@ body {
 .rule-highlight.ai-highlight {
   background: linear-gradient(90deg, #fef08a 0 50%, #bfdbfe 50% 100%);
 }
+:root {
+  --clinical: #0f6f5c;
+  --clinical-dark: #0b5144;
+  --surface: #ffffff;
+  --surface-soft: #f4f8f7;
+  --border: #d2dfdc;
+  --space-1: 0.5rem;
+  --space-2: 1rem;
+  --space-3: 1.5rem;
+  --card-radius: 0.75rem;
+}
+
+.skip-link { position: absolute; inset-inline-start: -9999px; top: 0; z-index: 10; padding: var(--space-1); background: white; color: var(--clinical-dark); }
+.skip-link:focus { inset-inline-start: var(--space-2); }
+.demo-metric, .demo-health { padding: var(--space-1) var(--space-2); background: var(--surface-soft); border: 1px solid var(--border); border-radius: var(--card-radius); }
+.demo-health { margin-top: var(--space-3); }
+.doctor-shell { max-width: 1100px; margin: 0 auto; padding: var(--space-3); font-family: system-ui, sans-serif; }
+.doctor-header { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
+.doctor-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-2); }
+.doctor-card { padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--card-radius); background: var(--surface); }
+button { min-height: 44px; }
+button:not(:disabled) { cursor: pointer; }
+button[aria-pressed="true"] { border-color: var(--clinical); color: var(--clinical-dark); }
+table { border-collapse: collapse; width: 100%; }
+caption { text-align: start; padding: var(--space-1); }
+th, td { border-bottom: 1px solid var(--border); padding: var(--space-1); text-align: start; vertical-align: top; }
+thead th, [scope="rowgroup"] { background: var(--surface-soft); }

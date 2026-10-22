@@ -11,11 +11,13 @@ export default function RatingCircle({
   label,
   details,
   mode,
+  prompt,
 }: {
   rating: "green" | "yellow" | "red";
   label: string;
   details: string[];
   mode: "llm" | "mock" | "fallback";
+  prompt?: string | null;
 }) {
   const presentation = ratingPresentation[rating];
   return (
@@ -23,6 +25,7 @@ export default function RatingCircle({
       <span aria-label={`${label}: ${presentation.text}`}>
         {presentation.symbol} {label}: {presentation.text}
       </span>
+      {rating !== "green" && prompt ? <p>{prompt}</p> : null}
       {mode !== "llm" ? (
         <small style={{ display: "block" }}>Not a real AI rating ({mode}).</small>
       ) : null}
