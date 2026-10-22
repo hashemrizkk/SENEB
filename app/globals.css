@@ -152,8 +152,8 @@ a { color: var(--accent-foreground); text-underline-offset: .18em; }
 .home-demo-banner { margin: 0 -24px; padding: 8px 16px; background: #FBF3DE; color: #8B4B17; text-align: center; font-size: 15px; line-height: 1.7; }
 .home-header { display: grid; width: calc(100% + 48px); min-height: 78px; grid-template-columns: 1fr auto 1fr; align-items: center; margin-inline: -24px; padding-inline: max(24px, calc((100vw - 600px) / 2)); border-block-end: 1px solid #E8E1D5; }
 .home-header::before { content: ""; }
-.home-language-link { justify-self: start; min-height: 44px; display: inline-flex; align-items: center; padding-inline: 16px; border: 1px solid #E8E1D5; border-radius: 999px; color: #211D19; font-size: 14px; text-decoration: none; }
-.home-brand { display: inline-flex; align-items: center; justify-self: center; gap: 8px; color: #211D19; direction: rtl; font-size: 20px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.home-language-link { justify-self: start; min-height: 44px; display: inline-flex; align-items: center; padding-inline: 16px; border: 1px solid #E8E1D5; border-radius: 999px; background: #FBFAF7; color: #211D19; font-size: 14px; text-decoration: none; cursor: pointer; }
+.home-brand { display: inline-flex; align-items: center; justify-self: center; gap: 8px; color: #211D19; font-size: 20px; font-weight: 700; text-decoration: none; white-space: nowrap; }
 .home-brand .home-heart { width: 24px; height: 22px; }
 .home-content { width: min(100%, 600px); margin-inline: auto; }
 .home-hero { display: grid; justify-items: center; padding-block: 52px 30px; text-align: center; }
@@ -201,6 +201,7 @@ a { color: var(--accent-foreground); text-underline-offset: .18em; }
   :where(button:hover:not(:disabled)) { background: var(--primary-hover); border-color: var(--primary-hover); }
   .doctor-nav a:hover { background: var(--surface-sunken); }
   .home-start-link:hover { background: #A53C26; color: #fff; }
+  .home-header .home-language-link:hover { border-color: #D8CDBA; background: #F4EFE6; color: #211D19; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

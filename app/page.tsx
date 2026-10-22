@@ -1,11 +1,8 @@
-import Link from "next/link";
-import { ar } from "@/lib/strings.ar";
+"use client";
 
-const homeStats = [
-  { value: "١٩٫٨٪", label: ar.home.diabetesPrevalence },
-  { value: "١٣٫٢ مليون", label: ar.home.diabetesCount },
-  { value: "٦٢٪", label: ar.home.undiagnosedShare },
-];
+import Link from "next/link";
+import { useState } from "react";
+import { ar } from "@/lib/strings.ar";
 
 function HeartbeatMark() {
   return (
@@ -17,15 +14,31 @@ function HeartbeatMark() {
 }
 
 export default function HomePage() {
+  const [locale, setLocale] = useState<"ar" | "en">("ar");
+  const isArabic = locale === "ar";
+  const copy = isArabic ? ar.home : ar.home.en;
+  const languageToggleLabel = isArabic ? ar.home.en.startInEnglish : ar.home.startInArabic;
+  const homeStats = [
+    { value: isArabic ? "١٩٫٨٪" : "19.8%", label: copy.diabetesPrevalence },
+    { value: isArabic ? "١٣٫٢ مليون" : "13.2 million", label: copy.diabetesCount },
+    { value: isArabic ? "٦٢٪" : "62%", label: copy.undiagnosedShare },
+  ];
+
   return (
-    <main dir="rtl" lang="ar" className="home-page">
-      <p className="home-demo-banner">{ar.home.demoBanner}</p>
+    <main dir={isArabic ? "rtl" : "ltr"} lang={locale} className="home-page">
+      <p className="home-demo-banner">{copy.demoBanner}</p>
       <header className="home-header" dir="ltr">
-        <Link href="/screening?lang=en" className="home-language-link" lang="en" dir="ltr">
-          English
-        </Link>
-        <Link href="/" className="home-brand">
-          <span>{ar.home.title}</span>
+        <button
+          type="button"
+          className="home-language-link"
+          lang={isArabic ? "en" : "ar"}
+          aria-label={languageToggleLabel}
+          onClick={() => setLocale(isArabic ? "en" : "ar")}
+        >
+          {isArabic ? "English" : "العربية"}
+        </button>
+        <Link href="/" className="home-brand" dir={locale}>
+          <span>{copy.title}</span>
           <HeartbeatMark />
         </Link>
       </header>
@@ -33,11 +46,11 @@ export default function HomePage() {
       <div className="home-content">
         <section className="home-hero" aria-labelledby="home-title">
           <HeartbeatMark />
-          <h1 id="home-title">{ar.home.title}</h1>
-          <p>{ar.home.intro}</p>
+          <h1 id="home-title">{copy.title}</h1>
+          <p>{copy.intro}</p>
         </section>
 
-        <section className="home-stats" aria-label={ar.home.statisticsLabel}>
+        <section className="home-stats" aria-label={copy.statisticsLabel}>
           {homeStats.map((stat) => (
             <div className="home-stat" key={stat.value}>
               <strong>{stat.value}</strong>
@@ -46,17 +59,17 @@ export default function HomePage() {
           ))}
           <p className="home-stat-source">
             <a href="https://www.ncbi.nlm.nih.gov/books/NBK618739/table/wrap_table-mena/?report=objectonly" target="_blank" rel="noreferrer">
-              {ar.home.statisticsSource}
+              {copy.statisticsSource}
             </a>
           </p>
         </section>
 
-        <nav className="home-actions" aria-label={ar.appTitle}>
-          <Link href="/screening" className="home-start-link">
-            <strong>{ar.home.startScreening}</strong>
+        <nav className="home-actions" aria-label={isArabic ? ar.appTitle : copy.actionsLabel}>
+          <Link href={isArabic ? "/screening" : "/screening?lang=en"} className="home-start-link">
+            <strong>{copy.startScreening}</strong>
           </Link>
           <Link href="/register" className="home-register-link">
-            {ar.home.alreadyDiagnosed}
+            {copy.alreadyDiagnosed}
           </Link>
         </nav>
       </div>
