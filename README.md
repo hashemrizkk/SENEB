@@ -124,7 +124,6 @@ synthetic phrase, allow microphone access, speak, press **إيقاف وإرسا�
 and compare the editable transcript with the reference. This sends the
 recording to Gemini and may use API quota. Also confirm the typing fallback
 works and that no form is submitted automatically. Test `/register` and
-`/intake` separately to confirm that **أضف إلى الحقل** appends reviewed text
 without replacing existing typed text. Automated tests do not exercise a live
 microphone or Gemini request.
 
@@ -156,7 +155,6 @@ need to preserve local data.
 
 - `/register` - patient registration and first follow-up
 - `/survey` - standalone Arabic AUSDRISK diabetes-screening questionnaire; optionally submit answers with an email address and explicit email consent for nurse review; it is not an ER triage tool
-- `/intake` and `/intake/[id]` - follow-up for a seeded patient
 - `/voice-demo` - browser voice-input demo with synthetic phrases and approximate CER
 - `/api/register` and `/api/intake` - validated, same-origin POST endpoints
 - `/api/voice/transcribe` - same-origin, size-limited Gemini audio transcription endpoint
