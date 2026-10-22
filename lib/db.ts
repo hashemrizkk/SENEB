@@ -39,6 +39,255 @@ db.pragma("foreign_keys = ON");
 db.pragma("journal_mode = WAL");
 db.exec(readFileSync(schemaPath, "utf8"));
 
+export function migrateVisitNotes(database: Database.Database): void {
+  const columns = new Set(database
+    .prepare<[], { name: string }>("SELECT name FROM pragma_table_info('notes')")
+    .all().map((column) => column.name));
+  const additions: [string, string][] = [
+    ["input_method", "TEXT CHECK (input_method IN ('typed', 'voice', 'mixed'))"],
+    ["author_role", "TEXT"], ["author_name", "TEXT"],
+    ["intake_id", "INTEGER REFERENCES intakes(id)"],
+    ["check_mode", "TEXT CHECK (check_mode IN ('llm', 'mock', 'fallback'))"],
+    ["check_model", "TEXT"], ["light", "TEXT CHECK (light IN ('green', 'yellow', 'red'))"],
+    ["rules_version", "TEXT"],
+    ["override_light", "TEXT CHECK (override_light IN ('green', 'yellow', 'red'))"],
+    ["override_by_role", "TEXT"], ["override_by_name", "TEXT"], ["overridden_at", "TEXT"],
+    ["fallback_reason", "TEXT"], ["fallback_detail", "TEXT"],
+  ];
+  database.transaction(() => {
+    for (const [column, declaration] of additions) {
+      if (columns.has(column)) continue;
+      database.exec(`ALTER TABLE notes ADD COLUMN ${column} ${declaration}`);
+      columns.add(column);
+    }
+    database.exec(`CREATE TABLE IF NOT EXISTS note_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      note_id INTEGER NOT NULL REFERENCES notes(id),
+      action TEXT NOT NULL CHECK (action = 'light_overridden'),
+      old_value TEXT,
+      new_value TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      actor_role TEXT NOT NULL,
+      actor_name TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )`);
+    database.exec("CREATE INDEX IF NOT EXISTS idx_note_audit_note ON note_audit(note_id, created_at DESC)");
+  })();
+}
+
+migrateVisitNotes(db);
+
+// Placeholder session categories and workflow states require clinician review.
+// Audio is deliberately never represented in these tables.
+export function migrateVisitSessions(database: Database.Database): void {
+  const tables = new Set(database.prepare<[], { name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table'",
+  ).all().map((row) => row.name));
+  database.transaction(() => {
+    if (!tables.has("visit_sessions")) database.exec(`CREATE TABLE visit_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL REFERENCES patients(id),
+      intake_id INTEGER REFERENCES intakes(id),
+      status TEXT NOT NULL CHECK(status IN ('recording','review_roles','summarizing','draft','approved','discarded')),
+      consent_confirmed_by_role TEXT NOT NULL,
+      consent_confirmed_by_name TEXT NOT NULL,
+      consent_at TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      duration_seconds INTEGER,
+      created_by_role TEXT NOT NULL,
+      created_by_name TEXT NOT NULL,
+      input_method TEXT NOT NULL DEFAULT 'voice' CHECK(input_method IN ('voice','pasted')),
+      roles_confirmed_at TEXT,
+      transcript_deleted_at TEXT,
+      discarded_at TEXT,
+      created_at TEXT NOT NULL
+    )`);
+    if (!tables.has("session_utterances")) database.exec(`CREATE TABLE session_utterances (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL REFERENCES visit_sessions(id),
+      segment_no INTEGER NOT NULL,
+      idx INTEGER NOT NULL,
+      speaker_label TEXT NOT NULL,
+      suggested_role TEXT NOT NULL CHECK(suggested_role IN ('doctor','patient','other','unknown')),
+      suggested_confidence TEXT NOT NULL CHECK(suggested_confidence IN ('high','medium','low')),
+      confirmed_role TEXT CHECK(confirmed_role IN ('doctor','patient','other','unattributed')),
+      text TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(session_id, segment_no, idx)
+    )`);
+    if (!tables.has("session_summaries")) database.exec(`CREATE TABLE session_summaries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL REFERENCES visit_sessions(id),
+      version INTEGER NOT NULL,
+      mode TEXT NOT NULL CHECK(mode IN ('llm','mock','fallback','manual')),
+      model TEXT, prompt_version TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('draft','approved','superseded')),
+      overview_text TEXT, points_json TEXT NOT NULL, key_terms_json TEXT NOT NULL,
+      key_values_json TEXT NOT NULL, unclear_json TEXT NOT NULL, inconsistencies_json TEXT NOT NULL,
+      final_points_json TEXT, dropped_items INTEGER NOT NULL DEFAULT 0,
+      fallback_reason TEXT, fallback_detail TEXT,
+      approved_by_role TEXT, approved_by_name TEXT, approved_at TEXT, created_at TEXT NOT NULL,
+      UNIQUE(session_id, version)
+    )`);
+    if (!tables.has("session_audit")) database.exec(`CREATE TABLE session_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL REFERENCES visit_sessions(id),
+      action TEXT NOT NULL,
+      detail TEXT NOT NULL DEFAULT '',
+      actor_role TEXT NOT NULL, actor_name TEXT NOT NULL, created_at TEXT NOT NULL
+    )`);
+    database.exec("CREATE INDEX IF NOT EXISTS idx_visit_sessions_patient ON visit_sessions(patient_id, created_at DESC)");
+    database.exec("CREATE INDEX IF NOT EXISTS idx_session_utterances_session ON session_utterances(session_id, segment_no, idx)");
+    database.exec("CREATE INDEX IF NOT EXISTS idx_session_summaries_session ON session_summaries(session_id, version DESC)");
+  })();
+}
+
+migrateVisitSessions(db);
+
+export type SessionRole = "doctor" | "patient" | "other" | "unattributed";
+export function createVisitSession(input: { patientId: number; actorRole: string; actorName: string; method?: "voice" | "pasted"; consent: boolean }, database: Database.Database = db): number {
+  if (!input.consent) throw new Error("Consent is required.");
+  const now = new Date().toISOString();
+  const latest = database.prepare("SELECT id FROM intakes WHERE patient_id = ? ORDER BY id DESC LIMIT 1").get(input.patientId) as { id: number } | undefined;
+  const result = database.prepare(`INSERT INTO visit_sessions
+    (patient_id,intake_id,status,consent_confirmed_by_role,consent_confirmed_by_name,consent_at,started_at,created_by_role,created_by_name,input_method,created_at)
+    VALUES (?,?,'recording',?,?,?,?,?,?,?,?)`).run(input.patientId, latest?.id ?? null, input.actorRole, input.actorName, now, now, input.actorRole, input.actorName, input.method ?? "voice", now);
+  const id = Number(result.lastInsertRowid);
+  auditSession(database, id, "created", input.actorRole, input.actorName);
+  auditSession(database, id, "consent_confirmed", input.actorRole, input.actorName);
+  return id;
+}
+function auditSession(database: Database.Database, id: number, action: string, role: string, name: string, detail = ""): void {
+  database.prepare("INSERT INTO session_audit(session_id,action,detail,actor_role,actor_name,created_at) VALUES (?,?,?,?,?,?)").run(id, action, detail.slice(0, 120), role, name, new Date().toISOString());
+}
+export function addSessionUtterances(id: number, segment: number, items: { speaker: string; role: string; confidence: string; text: string }[], actor: { role: string; name: string }, database: Database.Database = db): void {
+  if (database.prepare("SELECT 1 FROM session_utterances WHERE session_id=? AND segment_no=? LIMIT 1").get(id, segment)) return;
+  const insert = database.prepare(`INSERT INTO session_utterances(session_id,segment_no,idx,speaker_label,suggested_role,suggested_confidence,text,created_at) VALUES (?,?,?,?,?,?,?,?)`);
+  database.transaction(() => {
+    items.forEach((item, idx) => insert.run(id, segment, idx, item.speaker, item.role, item.confidence, item.text, new Date().toISOString()));
+    auditSession(database, id, "segment_transcribed", actor.role, actor.name, `segment ${segment}`);
+  })();
+}
+export function sessionSegmentExists(id: number, segment: number, database: Database.Database = db): boolean {
+  return Boolean(database.prepare("SELECT 1 FROM session_utterances WHERE session_id=? AND segment_no=? LIMIT 1").get(id, segment));
+}
+export function insertPastedSession(patientId: number, text: string, actorRole: string, actorName: string, database: Database.Database = db): number {
+  const id = createVisitSession({ patientId, actorRole, actorName, method: "pasted", consent: true }, database);
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const items = lines.map((line) => {
+    const match = line.match(/^(Doctor|Patient|Other|الدكتور|دكتور|المريض|مريض)\s*:\s*(.*)$/i);
+    const label = match?.[1] ?? "Unknown";
+    const role = /^(doctor|الدكتور|دكتور)$/i.test(label) ? "doctor" : /^(patient|المريض|مريض)$/i.test(label) ? "patient" : /^other$/i.test(label) ? "other" : "unknown";
+    return { speaker: label, role, confidence: role === "unknown" ? "low" : "high", text: match?.[2] || line };
+  });
+  const insert = database.prepare("INSERT INTO session_utterances(session_id,segment_no,idx,speaker_label,suggested_role,suggested_confidence,text,created_at) VALUES (?,?,?,?,?,?,?,?)");
+  database.transaction(() => items.forEach((item, idx) => insert.run(id, 1, idx, item.speaker, item.role, item.confidence, item.text, new Date().toISOString())))();
+  return id;
+}
+export function getVisitSessions(patientId: number, database: Database.Database = db): Record<string, unknown>[] {
+  return database.prepare("SELECT s.*, (SELECT COUNT(*) FROM session_utterances u WHERE u.session_id=s.id) utterance_count FROM visit_sessions s WHERE patient_id=? ORDER BY created_at DESC").all(patientId) as Record<string, unknown>[];
+}
+export function getSessionRecordList(patientId: number, database: Database.Database = db): Record<string, unknown>[] {
+  return database.prepare(`SELECT s.*, CASE WHEN s.status='recording' AND julianday('now')-julianday(s.started_at)>0.25 THEN 1 ELSE 0 END abandoned, u.utterance_count, ss.id summary_id, ss.mode summary_mode, ss.version summary_version, ss.final_points_json, ss.key_terms_json, ss.key_values_json, ss.unclear_json, ss.inconsistencies_json, ss.overview_text, ss.approved_at, ss.status summary_status
+    FROM visit_sessions s LEFT JOIN (SELECT session_id,COUNT(*) utterance_count FROM session_utterances GROUP BY session_id) u ON u.session_id=s.id
+    LEFT JOIN session_summaries ss ON ss.session_id=s.id AND ss.status IN ('approved','draft','superseded')
+    WHERE s.patient_id=? ORDER BY s.created_at DESC,ss.version DESC`).all(patientId) as Record<string, unknown>[];
+}
+export function getLatestSessionAdminRows(database: Database.Database = db): Record<string, unknown>[] {
+  return database.prepare(`SELECT s.id,s.patient_id,p.name patient,s.status,s.duration_seconds,s.input_method,s.created_at,
+    (SELECT COUNT(*) FROM session_utterances u WHERE u.session_id=s.id) utterances,
+    (SELECT COUNT(DISTINCT segment_no) FROM session_utterances u WHERE u.session_id=s.id) segments,
+    (SELECT COUNT(*) FROM session_audit a WHERE a.session_id=s.id AND a.action='role_changed') role_changes,
+    ss.mode,ss.dropped_items,ss.fallback_reason,ss.approved_by_name approved_by
+    FROM visit_sessions s JOIN patients p ON p.id=s.patient_id
+    LEFT JOIN session_summaries ss ON ss.id=(SELECT MAX(id) FROM session_summaries WHERE session_id=s.id)
+    ORDER BY s.created_at DESC LIMIT 20`).all() as Record<string, unknown>[];
+}
+export function getVisitSessionTableColumns(database: Database.Database = db): { table: string; column: string }[] {
+  const tables = database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND (name='visit_sessions' OR name LIKE 'session_%')").all() as { name: string }[];
+  return tables.flatMap(({ name }) => (database.prepare("SELECT name FROM pragma_table_info(?)").all(name) as { name: string }[]).map(({ name: column }) => ({ table: name, column })));
+}
+export function getVisitSession(id: number, database: Database.Database = db): Record<string, unknown> | undefined {
+  return database.prepare("SELECT * FROM visit_sessions WHERE id=?").get(id) as Record<string, unknown> | undefined;
+}
+export function getSessionUtterances(id: number, database: Database.Database = db): Record<string, unknown>[] {
+  return database.prepare("SELECT * FROM session_utterances WHERE session_id=? ORDER BY segment_no,idx").all(id) as Record<string, unknown>[];
+}
+export function confirmSessionRoles(id: number, assignments: { utterance_id: number; confirmed_role: SessionRole }[], actorRole: string, actorName: string, database: Database.Database = db): void {
+  const update = database.prepare("UPDATE session_utterances SET confirmed_role=? WHERE id=? AND session_id=?");
+  database.transaction(() => {
+    for (const assignment of assignments) {
+      const before = database.prepare("SELECT suggested_role FROM session_utterances WHERE id=? AND session_id=?").get(assignment.utterance_id, id) as { suggested_role: string } | undefined;
+      if (!before) throw new Error("Utterance not found.");
+      update.run(assignment.confirmed_role, assignment.utterance_id, id);
+      if (before.suggested_role !== assignment.confirmed_role) auditSession(database, id, "role_changed", actorRole, actorName, `utterance ${assignment.utterance_id}`);
+    }
+    const count = database.prepare("SELECT COUNT(*) n FROM session_utterances WHERE session_id=? AND confirmed_role IS NULL").get(id) as { n: number };
+    if (count.n) throw new Error("Confirm a role for every utterance.");
+    database.prepare("UPDATE visit_sessions SET roles_confirmed_at=?, status='draft' WHERE id=?").run(new Date().toISOString(), id);
+    auditSession(database, id, "roles_confirmed", actorRole, actorName);
+  })();
+}
+export function saveSessionSummary(input: { sessionId: number; mode: string; model?: string | null; output: Record<string, unknown>; dropped: number; fallbackReason?: string | null; actorRole: string; actorName: string }, database: Database.Database = db): number {
+  const version = database.prepare("SELECT COALESCE(MAX(version),0)+1 v FROM session_summaries WHERE session_id=?").get(input.sessionId) as { v: number };
+  const result = database.prepare(`INSERT INTO session_summaries(session_id,version,mode,model,prompt_version,status,overview_text,points_json,key_terms_json,key_values_json,unclear_json,inconsistencies_json,dropped_items,fallback_reason,created_at)
+    VALUES (?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?)`).run(input.sessionId, version.v, input.mode, input.model ?? null, "session-v1", (input.output.overview as string | null) ?? null, JSON.stringify(input.output.points ?? []), JSON.stringify(input.output.key_terms ?? []), JSON.stringify(input.output.key_values ?? []), JSON.stringify(input.output.unclear_segments ?? []), JSON.stringify(input.output.inconsistencies ?? []), input.dropped, input.fallbackReason ?? null, new Date().toISOString());
+  database.prepare("UPDATE visit_sessions SET status='draft' WHERE id=?").run(input.sessionId);
+  auditSession(database, input.sessionId, "summary_generated", input.actorRole, input.actorName, input.mode);
+  return Number(result.lastInsertRowid);
+}
+export function getSessionSummary(id: number, database: Database.Database = db): Record<string, unknown> | undefined {
+  return database.prepare("SELECT * FROM session_summaries WHERE id=?").get(id) as Record<string, unknown> | undefined;
+}
+export function endVisitSession(id: number, actorRole: string, actorName: string, database: Database.Database = db): void {
+  const session = database.prepare("SELECT started_at,status FROM visit_sessions WHERE id=?").get(id) as { started_at: string; status: string } | undefined;
+  if (!session || session.status !== "recording") throw new Error("Session is not recording.");
+  const ended = new Date();
+  const duration = Math.max(0, Math.round((ended.getTime() - new Date(session.started_at).getTime()) / 1000));
+  database.prepare("UPDATE visit_sessions SET ended_at=?,duration_seconds=?,status='review_roles' WHERE id=?").run(ended.toISOString(), duration, id);
+  auditSession(database, id, "ended", actorRole, actorName);
+}
+export function approveSessionSummary(id: number, summaryId: number, points: unknown, actorRole: string, actorName: string, database: Database.Database = db): void {
+  database.transaction(() => {
+    const session = database.prepare("SELECT roles_confirmed_at,status FROM visit_sessions WHERE id=?").get(id) as { roles_confirmed_at: string | null; status: string } | undefined;
+    if (!session?.roles_confirmed_at) throw new Error("Roles must be confirmed before approval.");
+    const summary = database.prepare("SELECT status,points_json FROM session_summaries WHERE id=? AND session_id=?").get(summaryId, id) as { status: string; points_json: string } | undefined;
+    if (!summary || summary.status !== "draft") throw new Error("Only draft summaries can be approved.");
+    const originalPoints = JSON.parse(summary.points_json) as { text?: string }[];
+    const finalPoints = Array.isArray(points) ? points as { text?: string; origin?: string }[] : [];
+    const added = finalPoints.filter((point) => point.origin === "manual").length;
+    const edited = finalPoints.filter((point) => point.origin === "edited").length;
+    const removed = Math.max(0, originalPoints.length - finalPoints.filter((point) => point.origin !== "manual").length);
+    if (added) auditSession(database, id, "point_added", actorRole, actorName, `${added} manual point(s)`);
+    if (edited) auditSession(database, id, "point_edited", actorRole, actorName, `${edited} edited point(s)`);
+    if (removed) auditSession(database, id, "point_removed", actorRole, actorName, `${removed} point(s)`);
+    database.prepare("UPDATE session_summaries SET status='superseded' WHERE session_id=? AND status='approved'").run(id);
+    database.prepare("UPDATE session_summaries SET status='approved',final_points_json=?,approved_by_role=?,approved_by_name=?,approved_at=? WHERE id=?").run(JSON.stringify(points), actorRole, actorName, new Date().toISOString(), summaryId);
+    database.prepare("UPDATE visit_sessions SET status='approved' WHERE id=?").run(id);
+    auditSession(database, id, "approved", actorRole, actorName, `summary ${summaryId}`);
+  })();
+}
+export function deleteSessionTranscript(id: number, actorRole: string, actorName: string, database: Database.Database = db): void {
+  const approved = database.prepare("SELECT 1 FROM session_summaries WHERE session_id=? AND status='approved'").get(id);
+  if (!approved) throw new Error("Only approved transcripts can be deleted.");
+  database.transaction(() => {
+    database.prepare("DELETE FROM session_utterances WHERE session_id=?").run(id);
+    database.prepare("UPDATE visit_sessions SET transcript_deleted_at=? WHERE id=?").run(new Date().toISOString(), id);
+    auditSession(database, id, "transcript_deleted", actorRole, actorName);
+  })();
+}
+export function discardVisitSession(id: number, actorRole: string, actorName: string, database: Database.Database = db): void {
+  const exists = database.prepare("SELECT 1 FROM session_summaries WHERE session_id=? AND status='approved'").get(id);
+  if (exists) throw new Error("Approved sessions cannot be discarded.");
+  database.transaction(() => {
+    database.prepare("DELETE FROM session_utterances WHERE session_id=?").run(id);
+    database.prepare("DELETE FROM session_summaries WHERE session_id=? AND status!='approved'").run(id);
+    database.prepare("UPDATE visit_sessions SET status='discarded',discarded_at=? WHERE id=?").run(new Date().toISOString(), id);
+    auditSession(database, id, "discarded", actorRole, actorName);
+  })();
+}
+
 // ----- Auto-seed -----
 
 const patientCount = db
@@ -531,6 +780,117 @@ export function getLatestClinicianNote(database: Database.Database, intakeId: nu
   return note?.note_text ?? null;
 }
 
+export type StoredVisitNote = {
+  id: number; patient_id: number; note_text: string | null; check_result_json: string | null;
+  override_reason: string | null; edited_by: string | null; created_at: string | null;
+  input_method: "typed" | "voice" | "mixed" | null; author_role: string | null; author_name: string | null;
+  intake_id: number | null; check_mode: "llm" | "mock" | "fallback" | null; check_model: string | null;
+  light: "green" | "yellow" | "red" | null; rules_version: string | null; override_light: "green" | "yellow" | "red" | null;
+  override_by_role: string | null; override_by_name: string | null; overridden_at: string | null;
+  fallback_reason: string | null; fallback_detail: string | null;
+};
+
+export function insertVisitNote(database: Database.Database, input: {
+  patientId: number; noteText: string; inputMethod: "typed" | "voice" | "mixed";
+  authorRole: "nurse" | "doctor"; authorName: string; now: Date;
+}): number {
+  return database.transaction(() => {
+    const last = database.prepare<[number], { created_at: string }>(
+      "SELECT created_at FROM notes WHERE patient_id = ? AND input_method IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1",
+    ).get(input.patientId);
+    if (last) {
+      const elapsed = input.now.getTime() - Date.parse(last.created_at);
+      if (elapsed >= 0 && elapsed < 3_000) throw new Error("NOTE_RATE_LIMIT");
+    }
+    const result = database.prepare(`INSERT INTO notes (
+      patient_id, note_text, check_result_json, override_reason, edited_by, created_at,
+      input_method, author_role, author_name
+    ) VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?)`).run(
+      input.patientId, input.noteText, input.authorName, input.now.toISOString(),
+      input.inputMethod, input.authorRole, input.authorName,
+    );
+    return Number(result.lastInsertRowid);
+  })();
+}
+
+export function completeVisitNoteCheck(database: Database.Database, input: {
+  noteId: number; checkResultJson: string; light: "green" | "yellow" | "red" | null;
+  mode: "llm" | "mock" | "fallback"; model: string | null; rulesVersion: string;
+  intakeId: number | null; fallbackReason: string | null; fallbackDetail: string | null;
+}): boolean {
+  const result = database.prepare(`UPDATE notes SET check_result_json = ?, light = ?, check_mode = ?,
+    check_model = ?, rules_version = ?, intake_id = ?, fallback_reason = ?, fallback_detail = ?
+    WHERE id = ? AND check_result_json IS NULL AND check_mode IS NULL`).run(
+    input.checkResultJson, input.light, input.mode, input.model, input.rulesVersion,
+    input.intakeId, input.fallbackReason, input.fallbackDetail, input.noteId,
+  );
+  return result.changes === 1;
+}
+
+export function getVisitNotes(database: Database.Database, patientId: number, limit = 5): StoredVisitNote[] {
+  return database.prepare<[number, number], StoredVisitNote>(`SELECT id, patient_id, note_text,
+    check_result_json, override_reason, edited_by, created_at, input_method, author_role, author_name,
+    intake_id, check_mode, check_model, light, rules_version, override_light,
+    override_by_role, override_by_name, overridden_at, fallback_reason, fallback_detail
+    FROM notes WHERE patient_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`).all(patientId, limit);
+}
+
+export function getVisitNote(database: Database.Database, noteId: number): StoredVisitNote | undefined {
+  return database.prepare<[number], StoredVisitNote>(`SELECT id, patient_id, note_text,
+    check_result_json, override_reason, edited_by, created_at, input_method, author_role, author_name,
+    intake_id, check_mode, check_model, light, rules_version, override_light,
+    override_by_role, override_by_name, overridden_at, fallback_reason, fallback_detail
+    FROM notes WHERE id = ?`).get(noteId);
+}
+
+export function overrideVisitNote(database: Database.Database, input: {
+  noteId: number; newLight: "green" | "yellow" | "red"; reason: string;
+  actorRole: "nurse" | "doctor"; actorName: string; now: Date;
+}): { ok: true; oldLight: "green" | "yellow" | "red" | null } | { ok: false; reason: "not_found" | "already_overridden" } {
+  return database.transaction(() => {
+    const note = database.prepare<[number], { light: "green" | "yellow" | "red" | null; overridden_at: string | null }>(
+      "SELECT light, overridden_at FROM notes WHERE id = ?",
+    ).get(input.noteId);
+    if (!note) return { ok: false as const, reason: "not_found" as const };
+    if (note.overridden_at !== null) return { ok: false as const, reason: "already_overridden" as const };
+    const at = input.now.toISOString();
+    const changed = database.prepare(`UPDATE notes SET override_light = ?, override_by_role = ?,
+      override_by_name = ?, overridden_at = ?, override_reason = ? WHERE id = ? AND overridden_at IS NULL`).run(
+      input.newLight, input.actorRole, input.actorName, at, input.reason, input.noteId,
+    );
+    if (changed.changes !== 1) return { ok: false as const, reason: "already_overridden" as const };
+    database.prepare(`INSERT INTO note_audit
+      (note_id, action, old_value, new_value, reason, actor_role, actor_name, created_at)
+      VALUES (?, 'light_overridden', ?, ?, ?, ?, ?, ?)`).run(
+      input.noteId, note.light, input.newLight, input.reason, input.actorRole, input.actorName, at,
+    );
+    return { ok: true as const, oldLight: note.light };
+  })();
+}
+
+export type AdminNoteSummary = {
+  id: number; patient_name: string; author_role: string | null; author_name: string | null;
+  input_method: string | null; check_mode: string | null; light: string | null;
+  override_light: string | null; unverified_items: number | null; fallback_reason: string | null; created_at: string;
+};
+
+export function listAdminNoteSummaries(database: Database.Database, limit = 20): AdminNoteSummary[] {
+  const rows = database.prepare<[number], Omit<AdminNoteSummary, "unverified_items"> & { check_result_json: string | null }>(`SELECT n.id, p.name AS patient_name,
+    n.author_role, n.author_name, n.input_method, n.check_mode, n.light, n.override_light,
+    n.check_result_json, n.fallback_reason, n.created_at FROM notes n JOIN patients p ON p.id = n.patient_id
+    ORDER BY n.created_at DESC, n.id DESC LIMIT ?`).all(limit);
+  return rows.map(({ check_result_json, ...row }) => {
+    let unverifiedItems: number | null = null;
+    if (check_result_json) {
+      try {
+        const parsed: unknown = JSON.parse(check_result_json);
+        if (parsed && typeof parsed === "object" && "unverified_items" in parsed && typeof parsed.unverified_items === "number") unverifiedItems = parsed.unverified_items;
+      } catch { /* legacy rows do not contain checklist JSON */ }
+    }
+    return { ...row, unverified_items: unverifiedItems };
+  });
+}
+
 export function deleteFollowupPlanDraft(database: Database.Database, intakeId: number): void {
   database.prepare(
     "DELETE FROM followup_plan_drafts WHERE intake_id = ?",
@@ -564,8 +924,8 @@ export function getDemoWeekMetrics(): { autoStructured: number; notesAutoRated: 
 
 // ----- Query functions -----
 
-export function getPatient(id: number): Patient | undefined {
-  return db
+export function getPatient(id: number, database: Database.Database = db): Patient | undefined {
+  return database
     .prepare<[number], Patient>(
       `SELECT id, name, age, phone, diabetes_type, last_hba1c_date,
               last_kidney_labs_date, last_foot_exam_date, last_eye_exam_date,
@@ -621,8 +981,9 @@ export function latestIntakes(limit: number): IntakeRow[] {
 
 export function latestIntakeForPatient(
   patientId: number,
+  database: Database.Database = db,
 ): IntakeRow | undefined {
-  return db
+  return database
     .prepare<[number], IntakeRow>(
       `SELECT i.id, i.patient_id, p.name AS patient_name,
               i.input_method, i.raw_text, i.structured_json, i.red_flags_json,

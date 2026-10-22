@@ -13,6 +13,10 @@ type VoiceInputProps = {
   onTranscriptChange: (value: string) => void;
   onAppend?: (value: string, speechPieces: readonly string[]) => void;
   direction?: "rtl" | "ltr";
+  context?: "patient" | "doctor_note";
+  geminiAvailable?: boolean;
+  autoAppend?: boolean;
+  showTranscript?: boolean;
 };
 
 const LANGUAGES = [
@@ -20,8 +24,10 @@ const LANGUAGES = [
   { code: "ar", label: ar.voice.languages.arabic },
   { code: "en-US", label: ar.voice.languages.english },
 ];
-const MAX_RECORDING_MS = 30_000;
-const MAX_WAV_BYTES = 1024 * 1024;
+const PATIENT_MAX_RECORDING_MS = 30_000;
+const PATIENT_MAX_WAV_BYTES = 1024 * 1024;
+const DOCTOR_MAX_RECORDING_MS = 180_000;
+const DOCTOR_MAX_WAV_BYTES = 8 * 1024 * 1024;
 
 function isSupported(): boolean {
   return (
@@ -131,7 +137,13 @@ export default function VoiceInput({
   onTranscriptChange,
   onAppend,
   direction = "rtl",
+  context = "patient",
+  geminiAvailable = true,
+  autoAppend = false,
+  showTranscript = true,
 }: VoiceInputProps) {
+  const maxRecordingMs = context === "doctor_note" ? DOCTOR_MAX_RECORDING_MS : PATIENT_MAX_RECORDING_MS;
+  const maxWavBytes = context === "doctor_note" ? DOCTOR_MAX_WAV_BYTES : PATIENT_MAX_WAV_BYTES;
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderErrorRef = useRef(false);
@@ -211,7 +223,7 @@ export default function VoiceInput({
       } finally {
         wavConversionMsRef.current = Math.round(performance.now() - conversionStartedAt);
       }
-      if (wavAudio.size > MAX_WAV_BYTES) {
+      if (wavAudio.size > maxWavBytes) {
         setStatus(errorMessage("audio-too-large"));
         return;
       }
@@ -220,6 +232,8 @@ export default function VoiceInput({
       const form = new FormData();
       form.append("audio", wavAudio, "voice.wav");
       form.append("language", language);
+      form.append("context", context);
+      if (context === "doctor_note") form.append("mode", "dictation");
       abortRef.current = controller;
       const requestTimeout = setTimeout(() => controller.abort(), 255_000);
 
@@ -285,7 +299,12 @@ export default function VoiceInput({
         speechPiecesRef.current = [...speechPiecesRef.current, cleanTranscript];
         pendingRenderAtRef.current = performance.now();
         onTranscriptChange(finalTranscriptRef.current);
-        setStatus(ar.voice.completeStatus);
+        if (autoAppend && onAppend) {
+          onAppend(cleanTranscript, [cleanTranscript]);
+          setStatus("Dictated text appended to the note.");
+        } else {
+          setStatus(ar.voice.completeStatus);
+        }
       } finally {
         clearTimeout(requestTimeout);
         abortRef.current = null;
@@ -440,7 +459,7 @@ export default function VoiceInput({
       setStatus(ar.voice.recordingStatus);
       timeoutRef.current = setTimeout(() => {
         if (recorder.state === "recording") recorder.stop();
-      }, MAX_RECORDING_MS);
+      }, maxRecordingMs);
     } catch {
       releaseStream(streamRef.current);
       streamRef.current = null;
@@ -492,6 +511,7 @@ export default function VoiceInput({
         background: "#f8fafc",
       }}
     >
+      {showTranscript ? <>
       <label
         htmlFor={`${id}-language`}
         style={{ display: "block", fontWeight: 600, marginBottom: "0.4rem" }}
@@ -529,7 +549,8 @@ export default function VoiceInput({
           resize: "vertical",
         }}
       />
-      <p style={hintStyle}>{ar.voice.characterCount(transcript.length, maxChars)}</p>
+      </> : null}
+      {showTranscript ? <p style={hintStyle}>{ar.voice.characterCount(transcript.length, maxChars)}</p> : null}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
         <select
           id={`${id}-language`}
@@ -553,9 +574,7 @@ export default function VoiceInput({
           <button
             type="button"
             onClick={() => void startRecording()}
-            disabled={
-              !supported || !secureContext || isRequestingMic || isTranscribing
-            }
+            disabled={!supported || !secureContext || isRequestingMic || isTranscribing || (context === "doctor_note" && !geminiAvailable)}
             style={buttonStyle}
           >
             {isRequestingMic
@@ -565,7 +584,7 @@ export default function VoiceInput({
                 : ar.voice.recordButton}
           </button>
         )}
-        <button
+        {showTranscript ? <button
           type="button"
           onClick={clearTranscript}
           disabled={
@@ -574,8 +593,8 @@ export default function VoiceInput({
           style={buttonStyle}
         >
           {ar.voice.clearButton}
-        </button>
-        {onAppend ? (
+        </button> : null}
+        {onAppend && !autoAppend && showTranscript ? (
           <button
             type="button"
             onClick={appendToForm}

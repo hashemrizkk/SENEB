@@ -1,0 +1,10 @@
+"use client";
+import { useState } from "react";
+import { findAllOccurrences, highlightSegments } from "@/lib/text-normalize";
+export default function SessionTranscriptToggle({ sessionId, canDelete }: { sessionId: number; canDelete: boolean }) {
+  const [open, setOpen] = useState(false); const [lines, setLines] = useState<string[]>([]); const [terms, setTerms] = useState<string[]>([]); const [deleted, setDeleted] = useState(false); const [error, setError] = useState("");
+  const toggle = async () => { if (!open && !lines.length && !deleted) { const response = await fetch(`/api/sessions/${sessionId}`); const data = await response.json(); if (response.ok) { setLines((data.utterances as { text: string }[]).map((row) => row.text)); const summary = (data.summaries as { status: string; key_terms_json: string; key_values_json: string }[]).find((item) => item.status === "approved"); if (summary) setTerms([...JSON.parse(summary.key_terms_json).map((item: { quote: string }) => item.quote), ...JSON.parse(summary.key_values_json).map((item: { quote: string }) => item.quote)]); } else setError(data.error); } setOpen(!open); };
+  const remove = async () => { if (!window.confirm("Delete this session transcript? The approved summary will remain.")) return; const response = await fetch(`/api/sessions/${sessionId}/transcript/delete`, { method: "POST" }); if (response.ok) { setLines([]); setDeleted(true); setOpen(false); } else setError("Transcript could not be deleted."); };
+  if (deleted) return <p>Transcript deleted.</p>;
+  return <div><button onClick={toggle}>{open ? "Hide transcript" : "View transcript"}</button>{canDelete && <button onClick={remove}>Delete transcript</button>}{error && <p role="alert">{error}</p>}{open && <div>{lines.map((line, index) => <p key={index} dir="auto">{highlightSegments(line, terms.flatMap((term) => findAllOccurrences(line, term).map((match) => ({ ...match, kind: "ai" })))).map((segment, i) => segment.highlighted ? <mark key={i} className="ai-highlight">{segment.text}</mark> : <span key={i}>{segment.text}</span>)}</p>)}</div>}</div>;
+}

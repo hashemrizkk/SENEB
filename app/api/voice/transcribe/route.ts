@@ -5,6 +5,7 @@ import {
 } from "@/lib/requestGuards";
 import {
   classifySttFailure,
+  DEFAULT_GEMINI_STT_MODEL,
   getSttTimeoutMs,
   isVoiceLanguage,
   isSupportedAudioType,
@@ -20,8 +21,9 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 260;
 
 const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
-const MAX_REQUEST_BYTES = MAX_AUDIO_BYTES + 32 * 1024;
-const GEMINI_MODEL = process.env.STT_GEMINI_MODEL || "gemini-3.8-flash";
+const MAX_DOCTOR_AUDIO_BYTES = 8 * 1024 * 1024;
+const MAX_REQUEST_BYTES = MAX_DOCTOR_AUDIO_BYTES + 32 * 1024;
+const GEMINI_MODEL = process.env.STT_GEMINI_MODEL || DEFAULT_GEMINI_STT_MODEL;
 const DEFAULT_MAX_OUTPUT_TOKENS = 1024;
 
 function geminiGenerationConfig(): Record<string, unknown> {
@@ -101,16 +103,20 @@ export async function POST(request: Request): Promise<Response> {
   let audio = form.get("audio");
   const language = form.get("language");
   const modeField = form.get("mode");
+  const contextField = form.get("context");
   const sequenceField = form.get("sequence");
   const totalField = form.get("total");
   if (
     (modeField !== null && typeof modeField !== "string") ||
+    (contextField !== null && typeof contextField !== "string") ||
     (sequenceField !== null && typeof sequenceField !== "string") ||
     (totalField !== null && typeof totalField !== "string")
   ) {
     return errorResponse("bad-audio", 400);
   }
   const mode = modeField === "dictation" ? "dictation" : "transcription";
+  const context = contextField === "doctor_note" ? "doctor_note" : "patient";
+  if (contextField !== null && contextField !== "doctor_note" && contextField !== "patient") return errorResponse("bad-audio", 400);
   if (modeField !== null && modeField !== "dictation" && modeField !== "transcription") {
     return errorResponse("bad-audio", 400);
   }
@@ -126,28 +132,24 @@ export async function POST(request: Request): Promise<Response> {
     }
     throw error;
   }
-  if (
-    !(audio instanceof File) ||
-    audio.size === 0 ||
-    audio.size > MAX_AUDIO_BYTES ||
-    !isSupportedAudioType(audio.type) ||
-    typeof language !== "string" ||
-    !isVoiceLanguage(language)
-  ) {
+  if (!(audio instanceof File) || audio.size === 0 || typeof language !== "string" || !isVoiceLanguage(language)) {
+    return errorResponse("bad-audio", 400);
+  }
+  if (!isSupportedAudioType(audio.type)) return errorResponse("unsupported-audio", 415);
+  const maxAudioBytes = context === "doctor_note" ? MAX_DOCTOR_AUDIO_BYTES : MAX_AUDIO_BYTES;
+  if (audio.size > maxAudioBytes) {
     return errorResponse(
-      audio instanceof File && audio.size > MAX_AUDIO_BYTES
-        ? "audio-too-large"
-        : "bad-audio",
-      audio instanceof File && audio.size > MAX_AUDIO_BYTES ? 413 : 400,
+      "audio-too-large", 413,
     );
   }
+  if (context === "doctor_note" && !geminiApiKey) return errorResponse("gemini-not-configured", 503);
 
   const validatedAudio = audio;
   try {
     return await withValidatedGeminiWav(
       validatedAudio,
       validatedAudio.type,
-      MAX_AUDIO_BYTES,
+      maxAudioBytes,
       async () => {
         if (!geminiApiKey && !groqApiKey) {
           return NextResponse.json({
@@ -163,10 +165,13 @@ export async function POST(request: Request): Promise<Response> {
           audio: validatedAudio,
           language,
           mode,
+          context,
           geminiApiKey,
-          groqApiKey,
+          groqApiKey: context === "doctor_note" ? undefined : groqApiKey,
           model: GEMINI_MODEL,
-          generationConfig: GEMINI_GENERATION_CONFIG,
+          generationConfig: context === "doctor_note"
+            ? { ...GEMINI_GENERATION_CONFIG, temperature: 0 }
+            : GEMINI_GENERATION_CONFIG,
           timeoutMs,
         });
         const providerMs = Math.round(performance.now() - providerStartedAt);
@@ -190,12 +195,13 @@ export async function POST(request: Request): Promise<Response> {
           ...(process.env.NODE_ENV === "development" ? { timings: { providerMs } } : {}),
         });
       },
+      context === "doctor_note" ? 180_000 : Number.POSITIVE_INFINITY,
     );
   } catch (error: unknown) {
     if (error instanceof VoiceAudioValidationError) {
       return errorResponse(
         error.code,
-        error.code === "audio-too-large" ? 413 : 422,
+        error.code === "audio-too-large" ? 413 : error.code === "audio-too-long" ? 413 : 422,
       );
     }
     const failure = classifySttFailure(error);

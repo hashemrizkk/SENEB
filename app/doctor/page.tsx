@@ -73,6 +73,7 @@ export default async function DoctorPage({
           </Link>
         ))}
         <Link href="/admin/intakes">Recent intake details</Link>
+        <Link href="/admin/notes">Recent visit note checks</Link>
       </nav>
       {records.length === 0 ? <p>{anyRecords ? "No intakes match this filter." : <>No intakes yet — share the registration link <Link href="/register">/register</Link>.</>}</p> : null}
       <div style={{ overflowX: "auto" }}>

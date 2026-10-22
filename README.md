@@ -291,6 +291,12 @@ marked mock text; a provider failure is recorded as a code-only fallback.
 
 ### Known limitations
 
+- In-visit session recording is a demo feature. Before any real use, the clinic
+  must check recording laws, consent rules, and local clinic policy. Spoken names
+  cannot be reliably removed from audio or transcripts. Use fake data only.
+- Session recording requires `STT_GEMINI_MODEL` to be configured. Audio is not
+  stored by the application; session transcript text is stored after processing.
+
 - Rules, tiers, and thresholds are placeholders and must be reviewed by a
   clinician before any real use.
 - The starter keyword list has not been clinically reviewed.

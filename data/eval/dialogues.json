@@ -1,0 +1,12 @@
+[
+  {"id":"fake-01","label_review":"unreviewed","utterances":[{"text":"صباح الخير، عندك دوخة؟","gold":"doctor"},{"text":"آه بقالي يومين","gold":"patient"},{"text":"بتاخد metformin كل يوم؟","gold":"doctor"},{"text":"أيوه","gold":"patient"}]},
+  {"id":"fake-02","label_review":"unreviewed","utterances":[{"text":"السكر كان كام النهارده؟","gold":"doctor"},{"text":"كان 180 بعد الفطار","gold":"patient"},{"text":"تمام، نقيسه تاني في الزيارة الجاية","gold":"doctor"}]},
+  {"id":"fake-03","label_review":"unreviewed","utterances":[{"text":"والدتي مش قادرة تيجي، أنا بنتها","gold":"other"},{"text":"هي نسيت الجرعة امبارح","gold":"other"},{"text":"هل هي عندها رعشة؟","gold":"doctor"},{"text":"لأ","gold":"other"}]},
+  {"id":"fake-04","label_review":"unreviewed","utterances":[{"text":"فيه ألم في رجلك؟","gold":"doctor"},{"text":"مفيش ألم","gold":"patient"},{"text":"ولا تنميل؟","gold":"doctor"},{"text":"مش عارف","gold":"patient"}]},
+  {"id":"fake-05","label_review":"unreviewed","utterances":[{"text":"خدت insulin الساعة 8","gold":"patient"},{"text":"قبل الأكل ولا بعده؟","gold":"doctor"},{"text":"بعده","gold":"patient"},{"text":"حاضر","gold":"patient"}]},
+  {"id":"fake-06","label_review":"unreviewed","utterances":[{"text":"إيه أخبار النظر؟","gold":"doctor"},{"text":"بشوف مشوش بالليل","gold":"patient"},{"text":"من امتى؟","gold":"doctor"},{"text":"من أسبوع","gold":"patient"}]},
+  {"id":"fake-07","label_review":"unreviewed","utterances":[{"text":"ضغطك 130 على 80","gold":"doctor"},{"text":"ماشي","gold":"patient"},{"text":"فيه صداع؟","gold":"doctor"},{"text":"أحياناً","gold":"patient"}]},
+  {"id":"fake-08","label_review":"unreviewed","utterances":[{"text":"أنا باخد metformin مرتين","gold":"patient"},{"text":"هنراجع الجرعة في الزيارة القادمة","gold":"doctor"},{"text":"تمام","gold":"patient"}]},
+  {"id":"fake-09","label_review":"unreviewed","utterances":[{"text":"عندك عرق بالليل؟","gold":"doctor"},{"text":"آه","gold":"patient"},{"text":"والدوخة؟","gold":"doctor"},{"text":"مش فاكر","gold":"patient"}]},
+  {"id":"fake-10","label_review":"unreviewed","utterances":[{"text":"السكر 240","gold":"patient"},{"text":"ده بعد الأكل؟","gold":"doctor"},{"text":"أيوه، بس أنا كمان...","gold":"patient"},{"text":"...استنى، قيست قبل الغدا","gold":"doctor"},{"text":"صح، قبل الغدا","gold":"patient"}]}
+]

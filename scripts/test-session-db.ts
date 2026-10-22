@@ -1,0 +1,56 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import Database from "better-sqlite3";
+import { seedPatients } from "../lib/seed.ts";
+
+const tempDir = mkdtempSync(path.join(tmpdir(), "session-db-test-"));
+process.env.HACKATHON_DB_PATH = path.join(tempDir, `${randomUUID()}.db`);
+const app = await import("../lib/db.ts");
+const memory = new Database(":memory:");
+memory.pragma("foreign_keys = ON");
+memory.exec(readFileSync(path.join(process.cwd(), "lib", "schema.sql"), "utf8"));
+app.migrateVisitSessions(memory);
+seedPatients(memory);
+const actor = { actorRole: "doctor", actorName: "Synthetic staff" };
+try {
+  assert.throws(() => app.createVisitSession({ patientId: 1, ...actor, consent: false }, memory), /Consent/);
+  const id = app.createVisitSession({ patientId: 1, ...actor, consent: true }, memory);
+  const session = app.getVisitSession(id, memory) as Record<string, unknown>;
+  assert.equal(session.consent_confirmed_by_name, actor.actorName);
+  assert.equal(session.consent_at, session.started_at);
+  const utterance = { speaker: "S1", role: "unknown", confidence: "low", text: "عندي دوخة و السكر 240" };
+  app.addSessionUtterances(id, 1, [utterance], { role: "doctor", name: actor.actorName }, memory);
+  assert.throws(() => app.confirmSessionRoles(id, [], "doctor", actor.actorName, memory), /every utterance/i);
+  app.addSessionUtterances(id, 1, [utterance], { role: "doctor", name: actor.actorName }, memory);
+  assert.equal(app.getSessionUtterances(id, memory).length, 1, "same segment is idempotent");
+  app.confirmSessionRoles(id, [{ utterance_id: Number(app.getSessionUtterances(id, memory)[0].id), confirmed_role: "patient" }], "doctor", actor.actorName, memory);
+  const output = { schema_version: 1, points: [{ text: "Patient said dizziness", category: "patient_symptom", speaker_role: "patient", utterance_ids: [1], quotes: ["دوخة"], assertion: "present" }], key_terms: [], key_values: [], unclear_segments: [], inconsistencies: [], overview: null };
+  const first = app.saveSessionSummary({ sessionId: id, mode: "llm", output, dropped: 0, actorRole: "doctor", actorName: actor.actorName }, memory);
+  app.approveSessionSummary(id, first, [{ text: "Patient said dizziness", origin: "ai" }], "doctor", actor.actorName, memory);
+  assert.throws(() => app.approveSessionSummary(id, first, [], "doctor", actor.actorName, memory), /draft/i);
+  const second = app.saveSessionSummary({ sessionId: id, mode: "manual", output: { ...output, points: [] }, dropped: 0, actorRole: "doctor", actorName: actor.actorName }, memory);
+  app.approveSessionSummary(id, second, [{ text: "Staff reviewed the transcript", origin: "manual" }], "doctor", actor.actorName, memory);
+  assert.equal(app.getSessionSummary(first, memory)?.status, "superseded");
+  app.deleteSessionTranscript(id, "doctor", actor.actorName, memory);
+  assert.equal(app.getSessionUtterances(id, memory).length, 0);
+  assert.equal(app.getSessionSummary(second, memory)?.status, "approved");
+  const discardId = app.createVisitSession({ patientId: 1, ...actor, consent: true }, memory);
+  app.addSessionUtterances(discardId, 1, [utterance], { role: "doctor", name: actor.actorName }, memory);
+  app.discardVisitSession(discardId, "doctor", actor.actorName, memory);
+  assert.equal((app.getVisitSession(discardId, memory) as Record<string, unknown>).status, "discarded");
+  assert.equal(app.getSessionUtterances(discardId, memory).length, 0);
+  const columns = app.getVisitSessionTableColumns(memory);
+  assert.ok(columns.length > 0);
+  assert.ok(!columns.some((column) => /audio|blob/i.test(column.column)), "session tables have no audio/blob columns");
+  console.log("session database tests passed: consent, idempotency, role gate, approval immutability, superseding, deletion, discard, and no audio/blob columns");
+} finally {
+  memory.close();
+  app.default.close();
+  const target = path.resolve(tempDir);
+  if (!target.startsWith(path.resolve(tmpdir()))) throw new Error("Refusing to clean a non-temporary path.");
+  rmSync(target, { recursive: true, force: true });
+}

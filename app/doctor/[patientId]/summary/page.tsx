@@ -5,7 +5,9 @@ import {
   caseSummaryHistory,
   getIntakeById,
   getPatientRecord,
+  getVisitNotes,
   latestCaseSummary,
+  default as db,
 } from "@/lib/db";
 import { caseFactsSchema, buildFacts } from "@/lib/case-facts";
 import { intakeFieldsSchema, intakeMetaSchema, type IntakeFields } from "@/lib/intake";
@@ -14,6 +16,8 @@ import { cairoDate, formatCairoDateTime } from "@/lib/date-time";
 import { findAllOccurrences, highlightSegments } from "@/lib/text-normalize";
 import SummaryGenerateButton from "../SummaryGenerateButton";
 import CaseSummaryNote from "./CaseSummaryNote";
+import VisitNoteSection from "@/components/VisitNoteSection";
+import SessionSummarySection from "@/components/SessionSummarySection";
 
 export const dynamic = "force-dynamic";
 
@@ -102,6 +106,7 @@ export default async function DoctorCasePage({
   if (!doctorRecord) return <main><p>patient not found</p></main>;
   const patient = doctorRecord.patient;
   const intake = doctorRecord.latestIntake;
+  const visitNotes = getVisitNotes(db, patientId, 5);
   const summary = latestCaseSummary(patientId);
   const summaryIntake = summary ? getIntakeById(summary.intake_id) : undefined;
   const parsedFields = intake
@@ -219,8 +224,9 @@ export default async function DoctorCasePage({
   return (
     <main style={{ maxWidth: 1000, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
       <header>
-        <p><Link href={`/doctor/${patient.id}`}>← Intake review</Link> · <Link href="/doctor">Queue</Link></p>
+        <p><Link href={`/doctor/${patient.id}`}>← Intake review</Link> · <Link href="/doctor">Queue</Link> · <Link href="#visit-note">Visit note</Link> · <Link href="#session-summary">Session summary</Link></p>
         <h1>Case summary: {patient.name}</h1>
+        <p><Link href={`/doctor/${patient.id}/session`} style={{ display: "inline-block", padding: "12px 16px", borderRadius: 8, background: "#173f35", color: "white" }}>Begin session</Link></p>
         <p>
           Age: {patient.age ?? "Not recorded"} · Diabetes type:{" "}
           {patient.diabetes_type ?? "Not recorded"}
@@ -256,6 +262,8 @@ export default async function DoctorCasePage({
           A newer intake exists. Regenerate.
         </p>
       ) : null}
+
+      <SessionSummarySection patientId={patientId} />
 
       <section style={sectionStyle}>
         <h2>Suggested priority (fixed rules, not a medical decision)</h2>
@@ -338,6 +346,7 @@ export default async function DoctorCasePage({
       <section style={sectionStyle}>
         <h2>Patient&apos;s original text</h2>
         <p><mark className="rule-highlight">Rule-matched</mark>{" "}<mark className="ai-highlight">AI-highlighted</mark></p>
+        {displayedText.includes("[غير واضح]") ? <p role="status"><strong>Possibly misheard:</strong> the transcript contains [غير واضح]. Check the original audio with the patient before relying on that part.</p> : null}
         {displayedText ? (
           <pre dir="auto" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
             {segments.map((segment, index) =>
@@ -373,6 +382,14 @@ export default async function DoctorCasePage({
       {intake ? (
         <CaseSummaryNote patient={doctorRecord.patient} intake={intake} />
       ) : null}
+
+      <VisitNoteSection
+        key={`${patientId}:${visitNotes[0]?.id ?? "empty"}`}
+        patientId={patientId}
+        initialNotes={visitNotes}
+        geminiAvailable={Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY)}
+        queueContext={intake ? { status: intake.status, priority: intake.priority } : null}
+      />
 
       <section style={sectionStyle}>
         <h2>Summary history</h2>

@@ -152,18 +152,42 @@ async function callStructuredProvider<T>(
   prompt: string,
   payload: unknown,
   schema: z.ZodType<T>,
+  maxOutputTokens?: number,
 ): Promise<{ output: T; model: string }> {
   const result = await generateText({
     model: providerModel(provider),
     output: Output.object({ schema }),
     temperature: 0,
     maxRetries: 0,
+    ...(maxOutputTokens ? { maxOutputTokens } : {}),
     instructions: prompt,
     messages: [{ role: "user", content: JSON.stringify(payload) }],
     abortSignal: AbortSignal.timeout(20_000),
   });
   if (!result.output) throw new InvalidProviderOutputError();
   return { output: result.output, model: providerModelId(provider) };
+}
+
+export function hasGroqCheckProviderConfigured(): boolean {
+  return Boolean(process.env.GROQ_API_KEY && process.env.GROQ_MODEL);
+}
+
+export function groqNoteCheckPayload(input: {
+  note_text: string;
+  items: { id: string; label: string }[];
+}): { note_text: string; items: { id: string; label: string }[] } {
+  return { note_text: input.note_text, items: input.items.map(({ id, label }) => ({ id, label })) };
+}
+
+export async function runGroqNoteCheck<T>(input: {
+  note_text: string;
+  items: { id: string; label: string }[];
+  prompt: string;
+  schema: z.ZodType<T>;
+}): Promise<{ output: T; model: string }> {
+  if (!hasGroqCheckProviderConfigured()) throw new Error("NOTE_PROVIDER_NOT_CONFIGURED");
+  const payload = groqNoteCheckPayload(input);
+  return callStructuredProvider("Groq", input.prompt, payload, input.schema);
 }
 
 async function structuredProvider<T>(
@@ -190,6 +214,16 @@ async function structuredProvider<T>(
   );
   if (!result) throw new Error("Structured generation failed for all configured providers.");
   return result.value;
+}
+
+export async function runGroqSessionSummary<T>(input: { prompt: string; payload: unknown; schema: z.ZodType<T> }): Promise<{ output: T; model: string }> {
+  if (!hasGroqCheckProviderConfigured()) throw new Error("SESSION_PROVIDER_NOT_CONFIGURED");
+  return callStructuredProvider("Groq", input.prompt, input.payload, input.schema, 4096);
+}
+
+export async function runGroqSessionRoleInference(input: { payload: unknown; schema: z.ZodType<{ utterances: { role: "doctor" | "patient" | "other" | "unknown"; confidence: "high" | "medium" | "low" }[] }> }): Promise<{ output: { utterances: { role: "doctor" | "patient" | "other" | "unknown"; confidence: "high" | "medium" | "low" }[] }; model: string }> {
+  if (!hasGroqCheckProviderConfigured()) throw new Error("ROLE_EVAL_PROVIDER_NOT_CONFIGURED");
+  return callStructuredProvider("Groq", "Classify each utterance speaker role using only the supplied conversational text and position. Return one role and confidence per utterance. Do not infer from outside information. Short yes/okay replies should be unknown or low confidence unless context is clear.", input.payload, input.schema);
 }
 
 export type AfterWorkRatingGenerator = (
