@@ -10,14 +10,21 @@ import {
   suggestPriority,
 } from "../lib/priority-rules.ts";
 import { redFlags } from "../lib/rules.ts";
-import { generateCaseSummary } from "../lib/summary.ts";
+import {
+  generateCaseSummary,
+  verifySummaryOutput,
+} from "../lib/summary.ts";
 import {
   findAllOccurrences,
   highlightSegments,
   normalizeWithMap,
   verifyQuote,
 } from "../lib/text-normalize.ts";
-import type { SummaryLlmInput, SummaryLlmOutput } from "../lib/summary-types.ts";
+import {
+  summaryLlmOutputSchema,
+  type SummaryLlmInput,
+  type SummaryLlmOutput,
+} from "../lib/summary-types.ts";
 
 const schema = readFileSync(path.join(process.cwd(), "lib", "schema.sql"), "utf8");
 const fixedTime = new Date("2026-10-21T12:00:00.000Z");
@@ -87,6 +94,15 @@ const validLlmOutput: SummaryLlmOutput = {
   values: [],
   inconsistencies: [],
 };
+
+report(
+  "summary output requires at least two sentences",
+  !summaryLlmOutputSchema.safeParse({
+    ...validLlmOutput,
+    summary: "The patient reported dizziness.",
+  }).success &&
+    summaryLlmOutputSchema.safeParse(validLlmOutput).success,
+);
 
 function dependencies(
   db: Database.Database,
@@ -371,7 +387,8 @@ async function main(): Promise<void> {
   report(
     "invented AI highlight is dropped and counted",
     verificationRow?.dropped_ai_items === 1 &&
-      verifiedHighlights.length === 2,
+      verifiedHighlights.length === 3 &&
+      verifiedHighlights.some((item) => item.quote === "نظري"),
   );
   verificationDb.close();
 
@@ -413,6 +430,62 @@ async function main(): Promise<void> {
       storedInconsistencies.some((item) => item.description === "Verified item"),
   );
   displayOnlyDb.close();
+
+  const arabicText =
+    "السكر كان ١٨٠ الصبح وحاسس بدوخة بسيطة.";
+  const hybridDb = fixture({ fields: allNegative, text: arabicText });
+  const expectedPriority = assessIntake({
+    fields: allNegative,
+    rawText: arabicText,
+    hasIntake: true,
+    needsReview: false,
+  }).suggestion.priority;
+  await generateCaseSummary(
+    1,
+    dependencies(hybridDb, {
+      summarize: async () => ({
+        output: validLlmOutput,
+        model: "fake-model",
+      }),
+    }),
+  );
+  const hybridRow = storedSummary(hybridDb);
+  const hybridHighlights = JSON.parse(
+    hybridRow?.ai_flags_json ?? "[]",
+  ) as { quote: string; category: string }[];
+  const hybridValues = JSON.parse(
+    hybridRow?.values_json ?? "[]",
+  ) as { quote: string; meaning: string }[];
+  report(
+    "Arabic lexicon evidence and numeric values are stored without changing rule priority",
+    hybridHighlights.some(
+      (item) => item.quote === "دوخة" && item.category === "hypoglycemia",
+    ) &&
+      hybridValues.some(
+        (item) =>
+          item.quote === "١٨٠" && item.meaning === "Patient-stated number",
+      ) &&
+      hybridRow?.suggested_priority === expectedPriority,
+  );
+  hybridDb.close();
+
+  const singleDigitEvidence = verifySummaryOutput(
+    {
+      ...validLlmOutput,
+      highlights: [],
+      values: [],
+    },
+    "A1c ٨",
+  );
+  report(
+    "single-digit values are retained without extracting digits from field names",
+    singleDigitEvidence.values.length === 1 &&
+      singleDigitEvidence.values[0].quote === "٨" &&
+      summaryLlmOutputSchema.safeParse({
+        ...validLlmOutput,
+        values: [{ quote: "٨", meaning: "Patient-stated number" }],
+      }).success,
+  );
 
   const bannedDb = fixture({ fields: allNegative });
   let bannedAttempts = 0;
@@ -552,7 +625,10 @@ async function main(): Promise<void> {
   );
   report(
     "regenerate within five seconds is rejected",
-    firstCall.ok && !secondCall.ok && secondCall.status === 429,
+    firstCall.ok &&
+      !secondCall.ok &&
+      secondCall.status === 429 &&
+      secondCall.retryAfterSeconds === 1,
   );
   rateLimitDb.close();
 

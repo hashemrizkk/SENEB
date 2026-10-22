@@ -306,14 +306,14 @@ export default async function DoctorCasePage({
             ))}
           </ul>
         ) : <p>No rule-matched keywords.</p>}
-        <h3>AI-highlighted (display only, not used for priority)</h3>
+        <h3>Verified highlights (display only, not used for priority)</h3>
         {aiFlags.length ? (
           <p>{aiFlags.map((flag, index) => (
             <span key={`${flag.quote}-${index}`} style={chipStyle}>
               {flag.quote} ({flag.category})
             </span>
           ))}</p>
-        ) : <p>No verified AI highlights.</p>}
+        ) : <p>No verified highlights.</p>}
       </section>
 
       <section style={sectionStyle}>

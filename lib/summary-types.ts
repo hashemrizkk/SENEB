@@ -47,7 +47,7 @@ export const summaryLlmOutputSchema = z.object({
   ),
   values: z.array(
     z.object({
-      quote: z.string().min(2),
+      quote: z.string().min(1),
       meaning: z.string().min(1).max(120),
     }),
   ),

@@ -18,8 +18,27 @@ const requestSchema = z
   .object({ patient_id: z.number().int().positive() })
   .strict();
 
-function errorResponse(error: string, status: number): Response {
-  return NextResponse.json({ ok: false, error }, { status });
+function errorResponse(
+  error: string,
+  status: number,
+  retryAfterSeconds?: number,
+): Response {
+  return NextResponse.json(
+    {
+      ok: false,
+      error,
+      ...(retryAfterSeconds === undefined
+        ? {}
+        : { retry_after_seconds: retryAfterSeconds }),
+    },
+    {
+      status,
+      headers:
+        retryAfterSeconds === undefined
+          ? undefined
+          : { "Retry-After": String(retryAfterSeconds) },
+    },
+  );
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -54,7 +73,11 @@ export async function POST(request: Request): Promise<Response> {
       hasProvider: hasSummaryProviderConfigured,
     });
     if (!result.ok) {
-      return errorResponse(result.error ?? "The summary could not be generated.", result.status ?? 500);
+      return errorResponse(
+        result.error ?? "The summary could not be generated.",
+        result.status ?? 500,
+        result.retryAfterSeconds,
+      );
     }
     return NextResponse.json({ ok: true, summary_id: result.summary_id });
   } catch (error: unknown) {

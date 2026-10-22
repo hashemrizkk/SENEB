@@ -14,6 +14,7 @@
     "test:register": "node --experimental-strip-types scripts/test-register.ts",
     "test:survey": "node --experimental-strip-types scripts/test-survey.ts && node --experimental-strip-types scripts/test-survey-register.ts",
     "test:summary": "node --experimental-strip-types scripts/test-summary.ts",
+    "eval:extraction": "node --experimental-strip-types scripts/eval-extraction.ts",
     "test:providers": "node --experimental-strip-types scripts/test-provider-fallback.ts",
     "test:voice": "node --experimental-strip-types scripts/test-voice-utils.ts",
     "test:voice-api": "node --experimental-strip-types scripts/test-gemini-audio.ts && node --experimental-strip-types scripts/test-recorder-chunks.ts",

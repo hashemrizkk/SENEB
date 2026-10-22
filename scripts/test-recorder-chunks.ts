@@ -4,6 +4,7 @@ import {
   insertDictationAtCursor,
   inaudibleSegment,
   orderTranscriptChunks,
+  replaceInaudibleSegment,
 } from "../lib/recorder-chunks.ts";
 
 class FakeScheduler {
@@ -138,6 +139,14 @@ async function run(): Promise<void> {
     assert.equal(inserted.cursor, inserted.value.length);
   }
   assert.equal(inaudibleSegment(3), "[inaudible segment 4]");
+  assert.deepEqual(
+    replaceInaudibleSegment("before [inaudible segment 1] after", 0, "spoken words"),
+    { value: "before spoken words after", cursor: 19 },
+  );
+  assert.equal(
+    replaceInaudibleSegment("no placeholder", 0, "spoken words"),
+    null,
+  );
 
   console.log("PASS  chunk ordering and cursor insertion preserve existing text across editable draft fields");
 }
