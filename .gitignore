@@ -12,3 +12,4 @@ hackathon.db-wal
 *.tsbuildinfo
 next-env.d.ts
 npm-debug.log*
+.agents/
