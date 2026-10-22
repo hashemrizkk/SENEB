@@ -9,6 +9,7 @@ import {
   getDoctorPatientRecord,
   listDoctorQueue,
   migrateDoctorReview,
+  saveClinicianEdit,
   savePatientIntake,
   type ReviewFilter,
   type ReviewIntake,
@@ -226,6 +227,22 @@ if (!surveyDecisionHistoryColumns.has("assessment_confirmed_at")) {
 }
 
 export function migrateFollowupPlanDrafts(database: Database.Database): void {
+  const tableExists = database.prepare<[string], { name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+  ).get("followup_plan_drafts");
+  if (!tableExists) {
+    database.exec(`
+      CREATE TABLE followup_plan_drafts (
+        intake_id INTEGER PRIMARY KEY REFERENCES intakes(id) ON DELETE CASCADE,
+        note_hash TEXT NOT NULL,
+        plan_json TEXT NOT NULL,
+        generation_mode TEXT NOT NULL CHECK (generation_mode IN ('mock', 'llm')),
+        created_at TEXT NOT NULL
+      )
+    `);
+  }
+}
+
 export function migrateAfterWorkRatings(database: Database.Database): void {
   const tableExists = database.prepare<[string], { name: string }>(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -254,6 +271,7 @@ export function migrateAfterWorkRatings(database: Database.Database): void {
   `);
 }
 
+migrateFollowupPlanDrafts(db);
 migrateAfterWorkRatings(db);
 
 // ----- Types -----
@@ -470,6 +488,12 @@ export function getLatestClinicianNote(database: Database.Database, intakeId: nu
      ORDER BY n.created_at DESC, n.id DESC LIMIT 1`,
   ).get(intakeId);
   return note?.note_text ?? null;
+}
+
+export function deleteFollowupPlanDraft(database: Database.Database, intakeId: number): void {
+  database.prepare(
+    "DELETE FROM followup_plan_drafts WHERE intake_id = ?",
+  ).run(intakeId);
 }
 
 function noteHash(note: string): string {

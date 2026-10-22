@@ -39,6 +39,13 @@ try {
       whatsapp_provider_ref TEXT,
       whatsapp_error TEXT
     );
+    CREATE TABLE followup_plan_drafts (
+      intake_id INTEGER PRIMARY KEY REFERENCES intakes(id) ON DELETE CASCADE,
+      note_hash TEXT NOT NULL,
+      plan_json TEXT NOT NULL,
+      generation_mode TEXT NOT NULL CHECK (generation_mode IN ('mock', 'llm')),
+      created_at TEXT NOT NULL
+    );
     INSERT INTO survey_submissions (
       request_id, full_name, phone, answers_json, metadata_json,
       whatsapp_consent_at, created_at
@@ -131,6 +138,13 @@ try {
   );
 
   const store = await import("../lib/db.ts");
+  assert.deepEqual(
+    store.default.prepare<[], { name: string }>(
+      "SELECT name FROM pragma_table_info('followup_plan_drafts') ORDER BY cid",
+    ).all().map((column) => column.name),
+    ["intake_id", "note_hash", "plan_json", "generation_mode", "created_at"],
+    "existing follow-up draft schema should remain compatible during survey startup",
+  );
   const migratedLegacy = store.getSurveySubmission(1);
   assert.equal(migratedLegacy?.full_name, "Legacy Synthetic Patient");
   assert.equal(migratedLegacy?.email, null, "legacy records should not gain an email address");
