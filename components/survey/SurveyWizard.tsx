@@ -1,269 +1,81 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import VoiceInput from "@/components/VoiceInput";
+import { useState } from "react";
 import { ar } from "@/lib/strings.ar";
-import { appendTranscript } from "@/lib/voice-utils";
 import {
-  scoreFindrisc,
-  type FindriscAnswers,
-  type FindriscBand,
-  type FindriscItem,
-} from "@/lib/survey/findrisc";
-import {
-  surveyRedFlags,
-  type SurveySymptoms,
-} from "@/lib/survey/redflags";
-import { setSurveyHandoff } from "@/lib/survey/handoff";
-import type { SurveyPhrase } from "@/lib/survey/phrasing";
+  type AusdriskAnswers,
+  type AusdriskItem,
+} from "@/lib/survey/ausdrisk";
+import { toWesternDigits } from "@/lib/registration";
 
-type Screen = "intro" | "symptoms" | "urgent" | "questions" | "result";
-type QuestionKey =
-  | "age"
-  | "bmi"
-  | "waist"
-  | "activity"
-  | "fruit_veg"
-  | "antihypertensive"
-  | "high_glucose"
-  | "family_history";
-
-const QUESTION_KEYS: readonly QuestionKey[] = [
+const QUESTION_KEYS: readonly AusdriskItem[] = [
   "age",
-  "bmi",
-  "waist",
-  "activity",
-  "fruit_veg",
-  "antihypertensive",
-  "high_glucose",
+  "sex",
   "family_history",
+  "high_glucose",
+  "antihypertensive",
+  "daily_smoking",
+  "daily_fruit_veg",
+  "activity_150_minutes",
+  "waist_cm",
 ];
 
-const EMPTY_ANSWERS: FindriscAnswers = {
+const EMPTY_ANSWERS: AusdriskAnswers = {
   age: null,
   sex: null,
-  height_cm: null,
-  weight_kg: null,
-  waist_cm: null,
-  activity: null,
-  fruit_veg: null,
-  antihypertensive: null,
-  high_glucose: null,
   family_history: null,
+  high_glucose: null,
+  antihypertensive: null,
+  daily_smoking: null,
+  daily_fruit_veg: null,
+  activity_150_minutes: null,
+  waist_cm: null,
 };
-
-const EMPTY_SYMPTOMS: SurveySymptoms = {
-  extreme_thirst: null,
-  rapid_weight_loss: null,
-  blurred_vision: null,
-  vomiting: null,
-  confusion: null,
-};
-
-const FALLBACK_PHRASES: SurveyPhrase[] = ar.survey.questions.map((question) => ({
-  key: question.item,
-  question: question.question,
-  options: [...question.options],
-}));
-
-const SYMPTOM_KEYS = [
-  "extreme_thirst",
-  "rapid_weight_loss",
-  "blurred_vision",
-  "vomiting",
-  "confusion",
-] as const;
-
-function readPhraseReply(value: unknown): {
-  phrases: SurveyPhrase[];
-  mode: "llm" | "mock";
-} | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as { phrases?: unknown; mode?: unknown };
-  if (!Array.isArray(record.phrases)) return null;
-  if (record.mode !== "llm" && record.mode !== "mock") return null;
-  const phrases = record.phrases.filter(
-    (phrase): phrase is SurveyPhrase =>
-      Boolean(phrase) &&
-      typeof phrase === "object" &&
-      typeof (phrase as SurveyPhrase).key === "string" &&
-      typeof (phrase as SurveyPhrase).question === "string" &&
-      Array.isArray((phrase as SurveyPhrase).options) &&
-      (phrase as SurveyPhrase).options.every((option) => typeof option === "string"),
-  );
-  if (phrases.length !== FALLBACK_PHRASES.length) return null;
-  if (phrases.some((phrase, index) =>
-    phrase.key !== FALLBACK_PHRASES[index]?.key ||
-    phrase.options.length !== FALLBACK_PHRASES[index]?.options.length
-  )) return null;
-  return { phrases, mode: record.mode };
-}
 
 function parseNumber(value: string): number | null {
   if (!value.trim()) return null;
-  const parsed = Number(value);
+  const parsed = Number(toWesternDigits(value));
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function fieldError(key: QuestionKey, answers: FindriscAnswers): string | null {
+function fieldError(key: AusdriskItem, answers: AusdriskAnswers): string | null {
   if (key === "age") {
     return Number.isInteger(answers.age) && answers.age !== null &&
       answers.age >= 18 && answers.age <= 120
       ? null
       : ar.survey.ageInvalid;
   }
-  if (key === "bmi") {
-    if (
-      answers.height_cm === null || answers.height_cm < 100 || answers.height_cm > 250
-    ) return ar.survey.heightInvalid;
-    if (
-      answers.weight_kg === null || answers.weight_kg < 25 || answers.weight_kg > 300
-    ) return ar.survey.weightInvalid;
-    return null;
+  if (key === "sex") {
+    return answers.sex === null ? ar.survey.required : null;
   }
-  if (key === "waist") {
-    if (answers.sex === null) return ar.survey.required;
-    return answers.waist_cm !== null && answers.waist_cm >= 40 && answers.waist_cm <= 200
+  if (key === "waist_cm") {
+    return answers.waist_cm !== null &&
+      answers.waist_cm >= 40 && answers.waist_cm <= 200
       ? null
       : ar.survey.waistInvalid;
-  }
-  if (key === "activity" || key === "fruit_veg" || key === "antihypertensive") {
-    return null;
-  }
-  if (key === "high_glucose") {
-    return answers.high_glucose === null ? ar.survey.required : null;
   }
   return null;
 }
 
-function bandName(band: FindriscBand): string {
-  return ar.survey.bandNames[band];
-}
-
-function optionText(
-  phrase: SurveyPhrase | undefined,
-  index: number,
-  fallback: string,
-): string {
-  return phrase?.options[index] ?? fallback;
-}
-
-function itemName(item: FindriscItem): string {
-  return ar.survey.questions.find((question) => question.item === item)?.question ?? item;
-}
-
 export default function SurveyWizard() {
-  const router = useRouter();
-  const [screen, setScreen] = useState<Screen>("intro");
-  const [answers, setAnswers] = useState<FindriscAnswers>(EMPTY_ANSWERS);
-  const [symptoms, setSymptoms] = useState<SurveySymptoms>(EMPTY_SYMPTOMS);
+  const [screen, setScreen] = useState<"intro" | "questions" | "result">("intro");
+  const [answers, setAnswers] = useState<AusdriskAnswers>(EMPTY_ANSWERS);
   const [questionIndex, setQuestionIndex] = useState(0);
-  const [phrases, setPhrases] = useState(FALLBACK_PHRASES);
-  const [phrasingMode, setPhrasingMode] = useState<"llm" | "mock">("mock");
-  const [clarification, setClarification] = useState("");
-  const [clarificationTranscript, setClarificationTranscript] = useState("");
-  const [explanation, setExplanation] = useState<string>(ar.survey.explanationFallback);
-  const [explanationMode, setExplanationMode] =
-    useState<"llm" | "mock" | "fallback">("fallback");
   const [error, setError] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [emailConsent, setEmailConsent] = useState(false);
+  const [requestId, setRequestId] = useState("");
+  const [submitError, setSubmitError] = useState("");
+  const [website, setWebsite] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
-  const result = useMemo(() => scoreFindrisc(answers), [answers]);
-  const redFlags = useMemo(() => surveyRedFlags(symptoms), [symptoms]);
   const activeQuestion = QUESTION_KEYS[questionIndex];
-  const activePhrase = phrases.find((phrase) => phrase.key === activeQuestion);
+  const question = ar.survey.questions.find((item) => item.item === activeQuestion);
+  const hasUnknownAnswers = Object.values(answers).some((answer) => answer === null);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/survey/phrasing", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        return readPhraseReply(await response.json());
-      })
-      .then((reply) => {
-        if (!reply || controller.signal.aborted) return;
-        setPhrases(reply.phrases);
-        setPhrasingMode(reply.mode);
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, []);
-
-  useEffect(() => {
-    if (screen !== "result") return;
-    const controller = new AbortController();
-    const payload = {
-      band: result.band,
-      unknownItems: result.unknownItems,
-      redFlagSymptoms: redFlags.symptoms,
-    };
-    fetch("/api/survey/explain", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    })
-      .then(async (response): Promise<{
-        text: string;
-        mode: "llm" | "mock" | "fallback";
-      } | null> => {
-        if (!response.ok) return null;
-        const value: unknown = await response.json();
-        if (!value || typeof value !== "object") return null;
-        const record = value as { text?: unknown; mode?: unknown };
-        if (
-          typeof record.text !== "string" ||
-          (record.mode !== "llm" && record.mode !== "mock" && record.mode !== "fallback")
-        ) return null;
-        const mode: "llm" | "mock" | "fallback" =
-          record.mode === "llm"
-            ? "llm"
-            : record.mode === "mock"
-              ? "mock"
-              : "fallback";
-        return {
-          text: record.text,
-          mode,
-        };
-      })
-      .then((reply) => {
-        if (!reply || controller.signal.aborted) return;
-        setExplanation(reply.text);
-        setExplanationMode(reply.mode);
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [screen, result.band, result.unknownItems, redFlags.symptoms]);
-
-  function beginSymptoms(): void {
-    setScreen("symptoms");
-    setError("");
-  }
-
-  function continueFromSymptoms(): void {
-    setError("");
-    if (redFlags.urgent) {
-      setScreen("urgent");
-      return;
-    }
-    setQuestionIndex(0);
-    setScreen("questions");
-  }
-
-  function continueAfterUrgent(): void {
-    setQuestionIndex(0);
-    setScreen("questions");
-  }
-
-  function updateBoolean(
-    key: "activity" | "fruit_veg" | "antihypertensive" | "high_glucose",
-    value: boolean | null,
-  ): void {
+  function updateAnswer(key: AusdriskItem, value: number | boolean | string | null): void {
     setAnswers((current) => ({ ...current, [key]: value }));
     setError("");
   }
@@ -289,22 +101,46 @@ export default function SurveyWizard() {
       setQuestionIndex((current) => current - 1);
       return;
     }
-    setScreen("symptoms");
+    setScreen("intro");
   }
 
-  function convertToRegistration(): void {
-    setSurveyHandoff({
-      survey: { answers, symptoms },
-      clarification: clarification.trim(),
-    });
-    router.push("/register");
+  async function submitForReview(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (submitting || submitted) return;
+    if (!emailConsent) {
+      setSubmitError(ar.survey.consentRequired);
+      return;
+    }
+    setSubmitting(true);
+    setSubmitError("");
+    const stableRequestId = requestId || crypto.randomUUID();
+    setRequestId(stableRequestId);
+    try {
+      const response = await fetch("/api/survey/submissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          full_name: fullName,
+          email,
+          consent: emailConsent,
+          request_id: stableRequestId,
+          survey: { answers },
+          website,
+        }),
+      });
+      if (!response.ok) throw new Error("Survey submission failed.");
+      setSubmitted(true);
+    } catch {
+      setSubmitError(ar.survey.submissionError);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   const currentStep =
     screen === "intro" ? 0
-      : screen === "symptoms" || screen === "urgent" ? 1
-        : screen === "questions" ? questionIndex + 2
-          : 9;
+      : screen === "questions" ? questionIndex + 1
+        : QUESTION_KEYS.length;
 
   return (
     <main dir="rtl" lang="ar" className="survey-page">
@@ -333,10 +169,9 @@ export default function SurveyWizard() {
           font: inherit; font-size: 18px;
         }
         .survey-input:focus-visible, .survey-option:focus-visible, .survey-button:focus-visible,
-        .survey-link:focus-visible, .survey-textarea:focus-visible {
+        .survey-link:focus-visible {
           outline: 3px solid #0f6f5c; outline-offset: 2px;
         }
-        .survey-hint { margin: .25rem 0 .7rem; color: #455563; }
         .survey-options { display: grid; gap: .65rem; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); }
         .survey-option, .survey-button {
           min-height: 50px; padding: .55rem .9rem; border: 1.5px solid #9eafbc;
@@ -348,29 +183,29 @@ export default function SurveyWizard() {
         .survey-button { flex: 1; border-color: #0f6f5c; color: #0f6f5c; font-weight: 700; }
         .survey-primary { background: #0f6f5c; color: #fff; }
         .survey-error { color: #a11d1d; font-weight: 700; }
-        .survey-urgent { padding: .8rem; border: 2px solid #b3261e; border-radius: 14px; background: #fff1f0; }
-        .survey-result-band { margin: .5rem 0; font-size: 2rem; line-height: 1.3; }
         .survey-result-card { padding: 1rem; border: 1px solid #cbd7df; border-radius: 16px; background: #f8fbfc; }
-        .survey-caveat { border-inline-start: 4px solid #ba7a00; padding-inline-start: .75rem; }
-        .survey-next-step { font-weight: 700; }
-        .survey-consent-note { padding: .85rem; border-radius: 12px; background: #f2f6f8; font-size: 16px; }
         .survey-small { font-size: 16px; color: #455563; }
-        .survey-link { display: inline-flex; align-items: center; min-height: 48px; color: #075e54; font-weight: 700; }
+        .survey-consent { display: flex; gap: .7rem; align-items: flex-start; margin-block: 1rem; }
+        .survey-checkbox { width: 24px; height: 24px; flex: 0 0 24px; margin-top: .3rem; }
+        .survey-honeypot { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
         @media (prefers-reduced-motion: reduce) { .survey-fill { transition: none; } }
       `}</style>
 
       <p className="survey-banner survey-warning" role="note">{ar.demoWarning}</p>
       <p className="survey-banner survey-emergency" role="note">{ar.emergencyNotice}</p>
+      <p className="survey-banner survey-disclaimer" role="note">{ar.clinicReviewNote}</p>
       <p className="survey-banner survey-disclaimer" role="note">{ar.survey.disclaimer}</p>
 
-      {redFlags.urgent && screen !== "urgent" ? (
-        <p className="survey-banner survey-urgent" role="alert">{ar.survey.urgentCareScreening}</p>
-      ) : null}
-
-      <div className="survey-progress" aria-label={ar.survey.progress(currentStep, 9)}>
-        <p className="survey-progress-label">{ar.survey.progress(currentStep, 9)}</p>
-        <div className="survey-track" role="progressbar" aria-valuemin={0} aria-valuemax={9} aria-valuenow={currentStep}>
-          <div className="survey-fill" style={{ width: `${(currentStep / 9) * 100}%` }} />
+      <div className="survey-progress" aria-label={ar.survey.progress(currentStep, QUESTION_KEYS.length)}>
+        <p className="survey-progress-label">{ar.survey.progress(currentStep, QUESTION_KEYS.length)}</p>
+        <div
+          className="survey-track"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={QUESTION_KEYS.length}
+          aria-valuenow={currentStep}
+        >
+          <div className="survey-fill" style={{ width: `${(currentStep / QUESTION_KEYS.length) * 100}%` }} />
         </div>
       </div>
 
@@ -379,160 +214,58 @@ export default function SurveyWizard() {
           <h1 className="survey-title">{ar.survey.title}</h1>
           <p className="survey-copy">{ar.survey.intro}</p>
           <p className="survey-copy">{ar.survey.privacy}</p>
-          <p className="survey-small">{phrasingMode === "mock" ? ar.survey.phrasingFallback : ""}</p>
-          <button className="survey-button survey-primary" type="button" onClick={beginSymptoms}>
+          <button
+            className="survey-button survey-primary"
+            type="button"
+            onClick={() => setScreen("questions")}
+          >
             {ar.survey.start}
           </button>
         </section>
       ) : null}
 
-      {screen === "symptoms" ? (
+      {screen === "questions" && activeQuestion && question ? (
         <section>
-          <h1 className="survey-title">{ar.survey.symptomTitle}</h1>
-          <p>{ar.survey.symptomHelp}</p>
-          {SYMPTOM_KEYS.map((key) => (
-            <fieldset className="survey-field" key={key} style={{ border: 0, padding: 0 }}>
-              <legend className="survey-label">{ar.survey.symptoms[key]}</legend>
-              <div className="survey-options">
-                {[true, false].map((value) => (
-                  <button
-                    key={String(value)}
-                    type="button"
-                    className="survey-option"
-                    aria-pressed={symptoms[key] === value}
-                    onClick={() => setSymptoms((current) => ({ ...current, [key]: value }))}
-                  >
-                    {value ? ar.survey.yes : ar.survey.no}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-          ))}
-          <div className="survey-field">
-            <label className="survey-label" htmlFor="symptom-clarification">{ar.survey.symptomClarification}</label>
-            <textarea
-              id="symptom-clarification"
-              className="survey-input survey-textarea"
-              maxLength={500}
-              rows={3}
-              value={clarification}
-              onChange={(event) => setClarification(event.target.value)}
-            />
-            <VoiceInput
-              id="survey-symptom-voice"
-              label={ar.survey.symptomClarification}
-              maxChars={500}
-              transcript={clarificationTranscript}
-              onTranscriptChange={setClarificationTranscript}
-              onAppend={(text) => setClarification((current) => appendTranscript(current, text, 500))}
-            />
-          </div>
-          <button className="survey-button survey-primary" type="button" onClick={continueFromSymptoms}>
-            {ar.survey.next}
-          </button>
-        </section>
-      ) : null}
-
-      {screen === "urgent" ? (
-        <section className="survey-urgent" role="alert">
-          <h1 className="survey-title">{ar.survey.urgentTitle}</h1>
-          <p>{ar.survey.urgentText}</p>
-          <p>{ar.emergencyNotice}</p>
-          <button className="survey-button survey-primary" type="button" onClick={continueAfterUrgent}>
-            {ar.survey.continueAfterUrgent}
-          </button>
-        </section>
-      ) : null}
-
-      {screen === "questions" && activeQuestion ? (
-        <section>
-          <h1 className="survey-title">
-            {activePhrase?.question ?? ar.survey.questions[questionIndex]?.question}
-          </h1>
-          {activeQuestion === "age" ? (
+          <h1 className="survey-title">{question.question}</h1>
+          {activeQuestion === "age" || activeQuestion === "waist_cm" ? (
             <div className="survey-field">
-              <label className="survey-label" htmlFor="survey-age">{ar.survey.age}</label>
+              <label className="survey-label" htmlFor={`survey-${activeQuestion}`}>
+                {activeQuestion === "age" ? ar.survey.age : ar.survey.waist}
+              </label>
+              {activeQuestion === "waist_cm" ? (
+                <p className="survey-small">{ar.survey.waistHint}</p>
+              ) : null}
               <input
-                id="survey-age"
+                id={`survey-${activeQuestion}`}
                 className="survey-input"
                 type="number"
-                inputMode="numeric"
-                min={18}
-                max={120}
-                value={answers.age ?? ""}
-                onChange={(event) => setAnswers((current) => ({ ...current, age: parseNumber(event.target.value) }))}
+                inputMode={activeQuestion === "age" ? "numeric" : "decimal"}
+                min={activeQuestion === "age" ? 18 : 40}
+                max={activeQuestion === "age" ? 120 : 200}
+                step={activeQuestion === "age" ? 1 : 0.1}
+                value={answers[activeQuestion] ?? ""}
+                onChange={(event) => updateAnswer(activeQuestion, parseNumber(event.target.value))}
               />
             </div>
           ) : null}
-          {activeQuestion === "bmi" ? (
-            <>
-              <p>{ar.survey.bmiHint ?? ""}</p>
-              <div className="survey-field">
-                <label className="survey-label" htmlFor="survey-height">{ar.survey.height}</label>
-                <input
-                  id="survey-height"
-                  className="survey-input"
-                  type="number"
-                  inputMode="decimal"
-                  min={100}
-                  max={250}
-                  step="0.1"
-                  value={answers.height_cm ?? ""}
-                  onChange={(event) => setAnswers((current) => ({ ...current, height_cm: parseNumber(event.target.value) }))}
-                />
-              </div>
-              <div className="survey-field">
-                <label className="survey-label" htmlFor="survey-weight">{ar.survey.weight}</label>
-                <input
-                  id="survey-weight"
-                  className="survey-input"
-                  type="number"
-                  inputMode="decimal"
-                  min={25}
-                  max={300}
-                  step="0.1"
-                  value={answers.weight_kg ?? ""}
-                  onChange={(event) => setAnswers((current) => ({ ...current, weight_kg: parseNumber(event.target.value) }))}
-                />
-              </div>
-            </>
+
+          {activeQuestion === "sex" ? (
+            <div className="survey-options">
+              {(["male", "female"] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className="survey-option"
+                  aria-pressed={answers.sex === value}
+                  onClick={() => updateAnswer("sex", value)}
+                >
+                  {value === "male" ? ar.survey.male : ar.survey.female}
+                </button>
+              ))}
+            </div>
           ) : null}
-          {activeQuestion === "waist" ? (
-            <>
-              <div className="survey-field">
-                <span className="survey-label">{ar.survey.sex}</span>
-                <div className="survey-options">
-                  {(["male", "female"] as const).map((sex) => (
-                    <button
-                      key={sex}
-                      type="button"
-                      className="survey-option"
-                      aria-pressed={answers.sex === sex}
-                      onClick={() => setAnswers((current) => ({ ...current, sex }))}
-                    >
-                      {sex === "male" ? ar.survey.male : ar.survey.female}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="survey-field">
-                <label className="survey-label" htmlFor="survey-waist">{ar.survey.waist}</label>
-                <p className="survey-hint">{ar.survey.waistHint}</p>
-                <input
-                  id="survey-waist"
-                  className="survey-input"
-                  type="number"
-                  inputMode="decimal"
-                  min={40}
-                  max={200}
-                  step="0.1"
-                  value={answers.waist_cm ?? ""}
-                  onChange={(event) => setAnswers((current) => ({ ...current, waist_cm: parseNumber(event.target.value) }))}
-                />
-              </div>
-            </>
-          ) : null}
-          {activeQuestion === "activity" || activeQuestion === "fruit_veg" || activeQuestion === "antihypertensive" ? (
+
+          {activeQuestion !== "age" && activeQuestion !== "sex" && activeQuestion !== "waist_cm" ? (
             <div className="survey-options">
               {[true, false, null].map((value) => (
                 <button
@@ -540,57 +273,23 @@ export default function SurveyWizard() {
                   type="button"
                   className="survey-option"
                   aria-pressed={answers[activeQuestion] === value}
-                  onClick={() => updateBoolean(activeQuestion, value)}
+                  onClick={() => updateAnswer(activeQuestion, value)}
                 >
                   {value === null
-                    ? optionText(activePhrase, 2, ar.survey.dontKnow)
+                    ? ar.survey.dontKnow
                     : value
-                      ? optionText(activePhrase, 0, ar.survey.yes)
-                      : optionText(activePhrase, 1, ar.survey.no)}
+                      ? ar.survey.yes
+                      : ar.survey.no}
                 </button>
               ))}
             </div>
           ) : null}
-          {activeQuestion === "high_glucose" ? (
-            <div className="survey-options">
-              {[true, false].map((value) => (
-                <button
-                  key={String(value)}
-                  type="button"
-                  className="survey-option"
-                  aria-pressed={answers.high_glucose === value}
-                  onClick={() => updateBoolean("high_glucose", value)}
-                >
-                  {value
-                    ? optionText(activePhrase, 0, ar.survey.yes)
-                    : optionText(activePhrase, 1, ar.survey.no)}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {activeQuestion === "family_history" ? (
-            <div className="survey-options">
-              {[
-                { value: "none" as const, label: ar.survey.noFamilyHistory },
-                { value: "second_degree" as const, label: ar.survey.extendedFamilyHistory },
-                { value: "first_degree" as const, label: ar.survey.closeFamilyHistory },
-                { value: null, label: ar.survey.dontKnow },
-              ].map(({ value, label }, index) => (
-                <button
-                  key={value ?? "unknown"}
-                  type="button"
-                  className="survey-option"
-                  aria-pressed={answers.family_history === value}
-                  onClick={() => setAnswers((current) => ({ ...current, family_history: value }))}
-                >
-                  {optionText(activePhrase, index, label)}
-                </button>
-              ))}
-            </div>
-          ) : null}
+
           {error ? <p className="survey-error" role="alert">{error}</p> : null}
           <div className="survey-actions">
-            <button className="survey-button" type="button" onClick={previousQuestion}>{ar.survey.back}</button>
+            <button className="survey-button" type="button" onClick={previousQuestion}>
+              {ar.survey.back}
+            </button>
             <button className="survey-button survey-primary" type="button" onClick={nextQuestion}>
               {questionIndex === QUESTION_KEYS.length - 1 ? ar.survey.finish : ar.survey.next}
             </button>
@@ -602,28 +301,84 @@ export default function SurveyWizard() {
         <section>
           <h1 className="survey-title">{ar.survey.resultTitle}</h1>
           <div className="survey-result-card">
-            <p className="survey-small">{ar.survey.resultBandLabel}</p>
-            <p className="survey-result-band">{bandName(result.band)}</p>
-            <p>{ar.survey.bandMeanings[result.band]}</p>
-            <p>{explanation}</p>
-            {explanationMode === "fallback" ? (
-              <p className="survey-small">{ar.survey.phrasingFallback}</p>
+            <p>{ar.survey.resultMessage}</p>
+            {hasUnknownAnswers ? (
+              <p className="survey-small">{ar.survey.incompleteResult}</p>
             ) : null}
-            {result.unknownItems.length ? (
-              <p className="survey-caveat">
-                {ar.survey.unknownCaveat}
-                <span className="survey-small"> {result.unknownItems.map(itemName).join("، ")}</span>
-              </p>
-            ) : null}
-            <p className="survey-next-step">{ar.survey.nextSteps[result.band]}</p>
+            <p className="survey-small">{ar.survey.disclaimer}</p>
           </div>
-          {redFlags.urgent ? (
-            <p className="survey-banner survey-urgent" role="alert">{ar.survey.urgentText}</p>
-          ) : null}
-          <p className="survey-banner survey-disclaimer">{ar.survey.disclaimer}</p>
+          {submitted ? (
+            <p className="survey-result-card" role="status">{ar.survey.submissionSuccess}</p>
+          ) : (
+            <form onSubmit={submitForReview}>
+              <div className="survey-honeypot" aria-hidden="true">
+                <label htmlFor="survey-website">Website</label>
+                <input
+                  id="survey-website"
+                  name="website"
+                  autoComplete="off"
+                  tabIndex={-1}
+                  value={website}
+                  onChange={(event) => setWebsite(event.target.value)}
+                />
+              </div>
+              <h2 className="survey-title">{ar.survey.contactTitle}</h2>
+              <div className="survey-field">
+                <label className="survey-label" htmlFor="survey-full-name">{ar.survey.fullName}</label>
+                <input
+                  id="survey-full-name"
+                  className="survey-input"
+                  autoComplete="name"
+                  required
+                  minLength={2}
+                  maxLength={100}
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                />
+              </div>
+              <div className="survey-field">
+                <label className="survey-label" htmlFor="survey-email">{ar.survey.email}</label>
+                <input
+                  id="survey-email"
+                  className="survey-input"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  dir="ltr"
+                  required
+                  maxLength={254}
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+                <p className="survey-small">{ar.survey.emailHint}</p>
+              </div>
+              <label className="survey-consent">
+                <input
+                  className="survey-checkbox"
+                  type="checkbox"
+                  required
+                  checked={emailConsent}
+                  onChange={(event) => setEmailConsent(event.target.checked)}
+                />
+                <span>{ar.survey.emailConsent}</span>
+              </label>
+              {submitError ? <p className="survey-error" role="alert">{submitError}</p> : null}
+              <button className="survey-button survey-primary" type="submit" disabled={submitting}>
+                {submitting ? ar.survey.submitting : ar.survey.submitForReview}
+              </button>
+            </form>
+          )}
           <div className="survey-actions">
-            <button className="survey-button survey-primary" type="button" onClick={convertToRegistration}>
-              {ar.survey.convert}
+            <button
+              className="survey-button survey-primary"
+              type="button"
+              onClick={() => {
+                setAnswers(EMPTY_ANSWERS);
+                setQuestionIndex(0);
+                setScreen("intro");
+              }}
+            >
+              {ar.survey.restart}
             </button>
           </div>
           <a

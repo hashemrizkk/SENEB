@@ -755,7 +755,7 @@ export function authenticateDoctor(name: string, password: string): boolean {
 
 export function createDoctorSession(name: string, now = Date.now()): string {
   const payload = Buffer.from(
-    JSON.stringify({ name, issuedAt: now, expiresAt: now + SESSION_SECONDS * 1000 }),
+    JSON.stringify({ role: "doctor", name, issuedAt: now, expiresAt: now + SESSION_SECONDS * 1000 }),
   ).toString("base64url");
   return `${payload}.${signature(payload).toString("base64url")}`;
 }
@@ -787,6 +787,8 @@ export function verifyDoctorSession(
     if (
       decoded === null ||
       typeof decoded !== "object" ||
+      !("role" in decoded) ||
+      decoded.role !== "doctor" ||
       !("name" in decoded) ||
       typeof decoded.name !== "string" ||
       !("expiresAt" in decoded) ||

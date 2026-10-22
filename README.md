@@ -33,11 +33,16 @@ Copy `.env.example` to `.env.local`.
   credentials. Both must be set to enable named sign-in.
 - `DOCTOR_PASSCODE` - optional legacy shared passcode, used only when neither
   named credential is configured.
+- `NURSE_NAME` and `NURSE_PASSWORD` - separate credentials for the nurse survey
+  queue at `/nurse`; nurse and doctor sessions use different signed roles.
 - `SESSION_SECRET` - signing key of at least 32 bytes. Generate one with
   `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`.
 - `NEXT_PUBLIC_SITE_URL` - canonical site origin used by same-origin checks.
 - `HACKATHON_DB_PATH` - optional SQLite path; useful for testing without
   changing the default `hackathon.db`.
+- `RESEND_API_KEY` and `RESEND_FROM_EMAIL` - optional server-only Resend
+  settings for nurse survey decision emails. Sending stays disabled unless
+  both are valid. Resend requires a verified sender domain.
 
 With no LLM keys, the app uses clearly marked mock extraction and flags it for
 clinic review. Gemini is attempted first, followed by Groq when configured.
@@ -140,7 +145,9 @@ npm run test:register
 `npm run test:register` uses fictional records and creates test rows in the
 local database. `npm run test:doctor` uses an isolated in-memory database to
 check migration repeatability, legacy queue import, revisions, edit conflicts,
-and signed sessions; it does not reset or write `hackathon.db`.
+and role-separated signed sessions; it does not reset or write `hackathon.db`.
+`npm run test:nurse` uses and removes a uniquely named temporary SQLite file
+to test survey submission idempotency, nurse decisions, and mocked email sending.
 `npm run db:check` prints database counts. `npm run db:reset` deletes and
 recreates the local database with 15 fictional patients; do not run it if you
 need to preserve local data.
@@ -148,6 +155,7 @@ need to preserve local data.
 ## Routes
 
 - `/register` - patient registration and first follow-up
+- `/survey` - standalone Arabic AUSDRISK diabetes-screening questionnaire; optionally submit answers with an email address and explicit email consent for nurse review; it is not an ER triage tool
 - `/intake` and `/intake/[id]` - follow-up for a seeded patient
 - `/voice-demo` - browser voice-input demo with synthetic phrases and approximate CER
 - `/api/register` and `/api/intake` - validated, same-origin POST endpoints
@@ -155,6 +163,8 @@ need to preserve local data.
 - `/api/health` - database availability check
 - `/doctor/login` - staff sign-in
 - `/doctor` - intake review queue with new, triaged, and all filters
+- `/nurse/login` - separate nurse sign-in
+- `/nurse` - private survey-review queue; nurses choose and audit a patient action
 - `/doctor/[patientId]?intakeId=<id>` - patient record, follow-up history,
   selected intake details, editable questionnaire, staff notes, status/priority,
   and revision history
@@ -164,6 +174,77 @@ need to preserve local data.
 
 The patient screens never show flags or medical interpretation. Red flags and
 unanswered questions are computed by plain code on the server.
+
+### Survey scoring and limits
+
+The standalone survey does not navigate to `/register` or prefill a form. It
+does not send or save answers unless the patient supplies contact details and
+explicitly consents to clinic review and email contact. Submitted surveys
+appear in the separate nurse queue; they are not sent to the doctor queue. The
+LLM does not score, interpret, or triage survey answers.
+The 2023 community study reported a cutoff
+of 9 or more for screening abnormal glycemia and 13 or more for screening
+undiagnosed diabetes. These are research screening thresholds, not diagnoses
+or emergency-department criteria. Incomplete answers remain `null` and make
+the clinician-side result incomplete; the patient never sees a score or
+classification. The clinic team reviews submitted answers and makes care
+decisions. Existing stored FINDRISC records remain readable as legacy data.
+
+- Farag et al., *Arabic version of the Australian type 2 diabetes risk
+  assessment tool (AUSDRISK): translation and validation* (2022),
+  https://doi.org/10.1186/s13104-022-06200-2
+- Farag et al., *Prevalence and predictors of undiagnosed type 2 diabetes and
+  pre-diabetes among adult Egyptians: a community-based survey* (2023),
+  https://doi.org/10.1186/s12889-023-15819-0
+
+  In the 2023 study (719 adults), the ≥13 cutoff for undiagnosed diabetes had
+  86.11% sensitivity, 73.35% specificity, and AUC 0.887; the ≥9 cutoff for
+  abnormal glycemia had 80.73% sensitivity, 58.06% specificity, and AUC 0.767.
+  These study estimates are not guarantees for an individual or for every clinic
+  population. A score below a cutoff must not be used to reassure someone that
+  they do not have diabetes, and this tool must not be used to rule out an ER
+  visit. Unanswered items remain `null`; neither patients nor nurses receive an
+automated emergency classification.
+
+### Nurse survey review and email
+
+The nurse reviews the answers and records one of three human-selected actions:
+urgent ER referral, prompt clinical assessment, or no ER referral from this
+review. These are the nurse's recorded decisions, not an LLM result or a
+validated emergency triage protocol; in particular, no ER referral does not
+rule out an emergency. AUSDRISK contains no acute-symptom assessment, so the
+nurse must confirm a separate assessment using the clinic's approved process
+before recording an action. The prototype supplies no ER protocol. The patient
+always sees the static emergency contact notice, and the survey is never
+presented as an ER assessment tool.
+
+The patient must separately consent before survey and email details are stored.
+The result email is sent only after a nurse records it. Sending uses Resend's
+transactional email API; it stays disabled until `RESEND_API_KEY` and a verified
+`RESEND_FROM_EMAIL` are configured on the server. The email contains only the
+nurse's selected action and emergency safety wording, not survey answers or
+scores. Its subject is generic to avoid exposing health details in inbox
+previews. Provider acceptance does not confirm delivery. Never put the API key
+in browser code, source control, or this README.
+
+Resend currently lists a free transactional tier (3,000 emails/month, capped
+at 100/day); limits and eligibility may change. A verified domain is required
+for sending. Check the current [Resend pricing](https://resend.com/pricing) and
+[verified-domain docs](https://resend.com/docs/dashboard/domains/introduction).
+
+To exercise the workflow with synthetic data:
+
+1. Set `NURSE_NAME`, `NURSE_PASSWORD`, and `SESSION_SECRET` in `.env.local`.
+2. To enable email, also set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` using a
+   Resend API key and sender address on a verified domain. Keep the API key
+   secret and restart the server.
+3. Open `/survey`, use fictional details and an email you control, and check
+   the email-consent box before submitting.
+4. Sign in at `/nurse/login`, confirm the submission, choose an action, confirm
+   the separate assessment, then use **Save and email patient**. Without
+   Resend configuration, only **Save decision** is available.
+5. Use synthetic survey data only. Check the recipient inbox and provider
+   dashboard; provider acceptance is not proof the email arrived.
 
 ## Doctor review workflow
 

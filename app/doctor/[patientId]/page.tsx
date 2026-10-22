@@ -13,6 +13,12 @@ import ReviewEditForm from "./ReviewEditForm";
 import { generateSummarySafely, summaryIsMissingOrStale } from "@/lib/summary-background";
 import { priorityForIntake } from "@/lib/intake-priority";
 import { indexedKey } from "@/lib/react-keys";
+import {
+  AUSDRISK_ABNORMAL_GLYCEMIA_CUTOFF,
+  AUSDRISK_DIABETES_CUTOFF,
+  AUSDRISK_MAX_SCORE,
+  type AusdriskItem,
+} from "@/lib/survey/ausdrisk";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +54,28 @@ function displayAnswer(value: boolean | number | null): string {
 function displayFieldValue(value: boolean | number | string | null): string {
   if (typeof value === "string") return value || "Not recorded";
   return displayAnswer(value);
+}
+
+function ausdriskItemLabel(item: AusdriskItem): string {
+  const labels: Record<AusdriskItem, string> = {
+    age: "Age",
+    sex: "Sex category",
+    family_history: "Parent or sibling diagnosed with diabetes",
+    high_glucose: "Previous high blood glucose",
+    antihypertensive: "Currently taking blood-pressure medication",
+    daily_smoking: "Daily tobacco use",
+    daily_fruit_veg: "Vegetables or fruit every day",
+    activity_150_minutes: "At least 150 minutes of activity weekly",
+    waist_cm: "Waist circumference",
+  };
+  return labels[item];
+}
+
+function ausdriskResultLabel(result: string): string {
+  if (result === "below_cutoff") return "Below the published cutoffs (does not rule out diabetes)";
+  if (result === "abnormal_glycemia_cutoff") return "Meets the ≥9 abnormal-glycemia screening cutoff";
+  if (result === "diabetes_cutoff") return "Meets the ≥13 undiagnosed-diabetes screening cutoff";
+  return "Incomplete — do not interpret as a low result";
 }
 
 function displayTime(value: string | null): string {
@@ -167,6 +195,51 @@ export default async function DoctorIntakePage({
           ) : null}
           {intake.meta?.contradiction ? (
             <p role="status" style={{ background: "#fff7d6", padding: 12 }}>Potentially conflicting information was detected.</p>
+          ) : null}
+          {intake.meta?.survey ? (
+            <section aria-labelledby="survey-review-title">
+              <h2 id="survey-review-title">Diabetes-risk screening — clinician review only</h2>
+              {"tool" in intake.meta.survey ? (
+                <>
+                  <p>
+                    AUSDRISK Arabic score{intake.meta.survey.screeningResult === "incomplete" ? " (partial)" : ""}:{" "}
+                    {intake.meta.survey.total}/{AUSDRISK_MAX_SCORE} ·{" "}
+                    {intake.meta.survey.screeningResult === "incomplete"
+                      ? "Risk band unavailable due to unanswered answers"
+                      : `${intake.meta.survey.riskBand} band`} ·{" "}
+                    {ausdriskResultLabel(intake.meta.survey.screeningResult)}
+                  </p>
+                  <p>
+                    Research screening cutoffs only: ≥{AUSDRISK_ABNORMAL_GLYCEMIA_CUTOFF}
+                    {" "}for abnormal glycemia and ≥{AUSDRISK_DIABETES_CUTOFF}
+                    {" "}for undiagnosed diabetes. Not diagnostic and not for ER triage.
+                  </p>
+                  <dl>
+                    {intake.meta.survey.items.map((item, index) => (
+                      <div key={indexedKey(item.item, index)}>
+                        <dt>{ausdriskItemLabel(item.item)}</dt>
+                        <dd>{displayFieldValue(item.answer)} · {item.points} points</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {intake.meta.survey.unknownItems.length ? (
+                    <p>Unanswered: {intake.meta.survey.unknownItems.map(ausdriskItemLabel).join(", ")}</p>
+                  ) : null}
+                  <p>
+                    Sources:{" "}
+                    <a href="https://doi.org/10.1186/s13104-022-06200-2" target="_blank" rel="noreferrer">
+                      Arabic AUSDRISK validation
+                    </a>
+                    {" · "}
+                    <a href="https://doi.org/10.1186/s12889-023-15819-0" target="_blank" rel="noreferrer">
+                      Egyptian screening study
+                    </a>
+                  </p>
+                </>
+              ) : (
+                <p>Legacy FINDRISC record · {intake.meta.survey.total} points · {intake.meta.survey.band}</p>
+              )}
+            </section>
           ) : null}
           <section>
             <h2>Patient answers</h2>

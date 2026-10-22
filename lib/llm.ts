@@ -19,7 +19,6 @@ import {
   type ProviderAttempt,
 } from "./provider-fallback.ts";
 import { createFollowupPlanSchema } from "./followup-plan.ts";
-import { structuredPrompt } from "./llm-prompt.ts";
 
 const GEMINI_MODEL = "gemini-3.8-flash";
 const GROQ_MODEL = process.env.GROQ_MODEL;
@@ -138,21 +137,6 @@ const PATIENT_RECAP_SYSTEM_PROMPT = `Rephrase only the supplied doctor's note in
 - Do not include names or identifiers.
 - Return only a concise recap string.`;
 
-const SURVEY_PHRASING_PROMPT = `Rewrite each supplied screening question and option in simple spoken Egyptian Arabic.
-- Keep every supplied key and the exact number and order of options.
-- Preserve the precise meaning of every option; do not add, remove, or merge options.
-- Do not add medical facts, scoring, percentages, interpretation, or advice.
-- Return only the requested structured object.`;
-
-const SURVEY_EXPLANATION_PROMPT = `Polish a short patient-facing explanation in plain Arabic from the supplied structured screening result.
-- Write 2 or 3 short sentences only.
-- Say the questionnaire result is not a diagnosis and a blood test is needed to know.
-- If unknown items are listed, say they may change the result.
-- If symptoms are listed, advise immediate medical attention using only the static instruction supplied.
-- Do not diagnose, reassure, recommend treatment, mention scores, percentages, flags, priority, or add facts.
-- Never say or imply that the person has diabetes.
-- Return only the requested explanation string.`;
-
 async function callStructuredProvider<T>(
   provider: LlmProviderName,
   prompt: string,
@@ -196,31 +180,6 @@ async function structuredProvider<T>(
   );
   if (!result) throw new Error("Structured generation failed for all configured providers.");
   return result.value;
-}
-
-export async function generateSurveyPhrasing(payload: unknown) {
-  if (process.env.SURVEY_LLM_MODE === "mock") {
-    throw new Error("Survey LLM mock mode is enabled.");
-  }
-  const schema = z.object({
-    phrases: z.array(z.object({
-      key: z.string(),
-      question: z.string().trim().min(1).max(240),
-      options: z.array(z.string().trim().min(1).max(160)).max(8),
-    }).strict()).length(8),
-  }).strict();
-  return structuredProvider(SURVEY_PHRASING_PROMPT, payload, schema);
-}
-
-export async function generateSurveyExplanation(payload: unknown) {
-  if (process.env.SURVEY_LLM_MODE === "mock") {
-    throw new Error("Survey LLM mock mode is enabled.");
-  }
-  return structuredProvider(
-    SURVEY_EXPLANATION_PROMPT,
-    payload,
-    z.object({ explanation: z.string().trim().min(1).max(900) }).strict(),
-  );
 }
 
 export function draftFollowupPlan(

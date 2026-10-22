@@ -1,8 +1,9 @@
 // Optional API integration checks run when TEST_BASE_URL targets an isolated app.
-// Uses synthetic registrations only and checks that the anonymous survey APIs do not write rows.
+// Uses synthetic registrations only and checks the AUSDRISK registration path.
 import assert from "node:assert/strict";
 import path from "node:path";
 import Database from "better-sqlite3";
+import type { AusdriskAnswers } from "../lib/survey/ausdrisk.ts";
 
 const BASE_URL = process.env.TEST_BASE_URL;
 const ORIGIN = BASE_URL ? new URL(BASE_URL).origin : "";
@@ -15,52 +16,22 @@ function report(name: string, pass: boolean): void {
   assert.equal(pass, true, name);
 }
 
-async function post(pathname: string, body: unknown): Promise<Response> {
-  return fetch(new URL(pathname, BASE_URL), {
-    method: "POST",
-    headers: {
-      origin: ORIGIN,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-}
-
-function counts(database: Database.Database): { patients: number; intakes: number } {
+function answers(overrides: Partial<AusdriskAnswers> = {}): AusdriskAnswers {
   return {
-    patients:
-      database.prepare<[], { count: number }>(
-        "SELECT COUNT(*) AS count FROM patients",
-      ).get()?.count ?? 0,
-    intakes:
-      database.prepare<[], { count: number }>(
-        "SELECT COUNT(*) AS count FROM intakes",
-      ).get()?.count ?? 0,
-  };
-}
-
-function symptoms(overrides: Record<string, boolean | null> = {}) {
-  return {
-    extreme_thirst: false,
-    rapid_weight_loss: false,
-    blurred_vision: false,
-    vomiting: false,
-    confusion: false,
+    age: 45,
+    sex: "male",
+    family_history: false,
+    high_glucose: true,
+    antihypertensive: false,
+    daily_smoking: false,
+    daily_fruit_veg: true,
+    activity_150_minutes: true,
+    waist_cm: 90,
     ...overrides,
   };
 }
 
-function survey(
-  answers: Record<string, number | boolean | string | null>,
-  symptomAnswers = symptoms(),
-) {
-  return { answers, symptoms: symptomAnswers };
-}
-
-function registration(
-  requestId: string,
-  surveyData: ReturnType<typeof survey>,
-) {
+function registration(requestId: string, surveyAnswers: AusdriskAnswers) {
   return {
     full_name: "محمود تجريبي",
     phone: "01012345678",
@@ -77,13 +48,35 @@ function registration(
     consent: true,
     website: "",
     request_id: requestId,
-    survey: surveyData,
+    survey: { answers: surveyAnswers },
   };
+}
+
+async function postRegistration(body: unknown): Promise<Response> {
+  return fetch(new URL("/api/register", BASE_URL), {
+    method: "POST",
+    headers: {
+      origin: ORIGIN,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+async function postRetiredSurveyApi(pathname: string): Promise<Response> {
+  return fetch(new URL(pathname, BASE_URL), {
+    method: "POST",
+    headers: {
+      origin: ORIGIN,
+      "content-type": "application/json",
+    },
+    body: "{}",
+  });
 }
 
 async function main(): Promise<void> {
   if (!BASE_URL) {
-    console.log("SKIP survey-to-registration API checks; set TEST_BASE_URL for an isolated test server.");
+    console.log("SKIP survey registration API checks; set TEST_BASE_URL for an isolated test server.");
     return;
   }
   try {
@@ -94,128 +87,79 @@ async function main(): Promise<void> {
 
   const database = new Database(databasePath, { readonly: true });
   try {
-    const before = counts(database);
-
-    const phrases = await post("/api/survey/phrasing", {});
-    const explanation = await post("/api/survey/explain", {
-      band: "low",
-      unknownItems: [],
-      redFlagSymptoms: [],
-    });
+    const oldExplanation = await postRetiredSurveyApi("/api/survey/explain");
+    const oldPhrasing = await postRetiredSurveyApi("/api/survey/phrasing");
     report(
-      "anonymous survey language APIs return without saving patient or intake rows",
-      phrases.ok && explanation.ok &&
-        JSON.stringify(counts(database)) === JSON.stringify(before),
+      "retired survey LLM APIs reject requests instead of producing medical text",
+      oldExplanation.status === 410 && oldPhrasing.status === 410,
     );
 
-    const lowWithUrgentSymptom = registration(
-      crypto.randomUUID(),
-      survey({
-        age: 44,
-        sex: "male",
-        height_cm: 170,
-        weight_kg: 71.961,
-        waist_cm: 90,
-        activity: true,
-        fruit_veg: true,
-        antihypertensive: false,
-        high_glucose: false,
-        family_history: "none",
-      }, symptoms({ extreme_thirst: true })),
+    const thresholdAnswers = answers();
+    const thresholdRequest = crypto.randomUUID();
+    const thresholdResponse = await postRegistration(
+      registration(thresholdRequest, thresholdAnswers),
     );
-    const urgentResponse = await post("/api/register", lowWithUrgentSymptom);
-    const urgentId = lowWithUrgentSymptom.request_id;
-    const urgentRecord = database.prepare(
+    const thresholdRecord = database.prepare(
       `SELECT p.age, i.priority, i.meta_json, i.red_flags_json
        FROM patients p JOIN intakes i ON i.patient_id = p.id
        WHERE p.request_id = ?`,
-    ).get(urgentId) as {
+    ).get(thresholdRequest) as {
       age: number | null;
       priority: string | null;
       meta_json: string | null;
       red_flags_json: string | null;
     } | undefined;
-    const urgentMeta = urgentRecord?.meta_json
-      ? JSON.parse(urgentRecord.meta_json) as { survey?: { band?: string } }
+    const thresholdMeta = thresholdRecord?.meta_json
+      ? JSON.parse(thresholdRecord.meta_json) as {
+          survey?: { tool?: string; total?: number; screeningResult?: string };
+        }
       : {};
-    const urgentFlags = urgentRecord?.red_flags_json
-      ? JSON.parse(urgentRecord.red_flags_json) as { flags?: string[] }
+    const thresholdFlags = thresholdRecord?.red_flags_json
+      ? JSON.parse(thresholdRecord.red_flags_json) as { flags?: string[] }
       : {};
     report(
-      "conversion creates one patient and intake with survey audit data",
-      urgentResponse.ok && urgentRecord?.age === 44 &&
-        urgentMeta.survey?.band === "low" &&
-        urgentFlags.flags?.includes("survey_extreme_thirst") === true,
+      "registration stores a server-recomputed AUSDRISK screening result",
+      thresholdResponse.ok && thresholdRecord?.age === 45 &&
+        thresholdMeta.survey?.tool === "ausdrisk_ar_v1" &&
+        thresholdMeta.survey.total === 13 &&
+        thresholdMeta.survey.screeningResult === "diabetes_cutoff",
     );
     report(
-      "symptom urgency overrides low FINDRISC score",
-      urgentRecord?.priority === "urgent",
-    );
-
-    const highRequest = crypto.randomUUID();
-    const highResponse = await post("/api/register", registration(
-      highRequest,
-      survey({
-        age: 65,
-        sex: "male",
-        height_cm: 170,
-        weight_kg: 86.7,
-        waist_cm: 103,
-        activity: false,
-        fruit_veg: false,
-        antihypertensive: true,
-        high_glucose: false,
-        family_history: "none",
-      }),
-    ));
-    const highRecord = database.prepare(
-      `SELECT i.priority, i.meta_json
-       FROM patients p JOIN intakes i ON i.patient_id = p.id
-       WHERE p.request_id = ?`,
-    ).get(highRequest) as {
-      priority: string | null;
-      meta_json: string | null;
-    } | undefined;
-    const highMeta = highRecord?.meta_json
-      ? JSON.parse(highRecord.meta_json) as { survey?: { band?: string } }
-      : {};
-    report(
-      "high score without symptoms is tagged important",
-      highResponse.ok && highMeta.survey?.band === "high" &&
-        highRecord?.priority === "important",
+      "AUSDRISK never sets ER flags or automatic urgent priority",
+      thresholdRecord?.priority !== "urgent" &&
+        thresholdFlags.flags?.every((flag) => !flag.startsWith("survey_")) === true,
     );
 
-    const moderateRequest = crypto.randomUUID();
-    const moderateResponse = await post("/api/register", registration(
-      moderateRequest,
-      survey({
-        age: 55,
-        sex: "male",
-        height_cm: 170,
-        weight_kg: 70,
-        waist_cm: 103,
-        activity: true,
-        fruit_veg: true,
-        antihypertensive: false,
-        high_glucose: false,
-        family_history: "first_degree",
-      }),
-    ));
-    const moderateRecord = database.prepare(
-      `SELECT i.priority, i.meta_json
+    const incompleteAnswers = answers({ high_glucose: null });
+    const incompleteRequest = crypto.randomUUID();
+    const incompleteResponse = await postRegistration(
+      registration(incompleteRequest, incompleteAnswers),
+    );
+    const incompleteRecord = database.prepare(
+      `SELECT i.meta_json, i.priority
        FROM patients p JOIN intakes i ON i.patient_id = p.id
        WHERE p.request_id = ?`,
-    ).get(moderateRequest) as {
-      priority: string | null;
+    ).get(incompleteRequest) as {
       meta_json: string | null;
+      priority: string | null;
     } | undefined;
-    const moderateMeta = moderateRecord?.meta_json
-      ? JSON.parse(moderateRecord.meta_json) as { survey?: { band?: string } }
+    const incompleteMeta = incompleteRecord?.meta_json
+      ? JSON.parse(incompleteRecord.meta_json) as {
+          survey?: {
+            screeningResult?: string;
+            answers?: { high_glucose?: boolean | null };
+          };
+        }
       : {};
     report(
-      "moderate score keeps standard registration priority rules",
-      moderateResponse.ok && moderateMeta.survey?.band === "moderate" &&
-        moderateRecord?.priority === null,
+      "unanswered answers stay null and make screening result incomplete",
+      incompleteResponse.ok &&
+        incompleteMeta.survey?.answers?.high_glucose === null &&
+        incompleteMeta.survey.screeningResult === "incomplete",
+    );
+    report(
+      "incomplete screening is not turned into ER priority",
+      incompleteRecord?.priority !== "urgent",
     );
   } finally {
     database.close();

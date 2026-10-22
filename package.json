@@ -21,6 +21,7 @@
     "test:react-keys": "node --experimental-strip-types scripts/test-react-keys.ts",
     "test:audio-wav": "node --experimental-strip-types scripts/test-audio-wav.ts",
     "test:doctor": "node --experimental-strip-types scripts/test-doctor.ts",
+    "test:nurse": "node --experimental-strip-types scripts/test-nurse-survey.ts",
     "test:priority-auto": "node --experimental-strip-types scripts/test-priority-auto.ts",
     "test:followup-plan": "node --experimental-strip-types scripts/test-followup-plan.ts",
     "test:messaging": "node --experimental-strip-types scripts/test-messaging.ts",

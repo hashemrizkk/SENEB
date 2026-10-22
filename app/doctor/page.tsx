@@ -69,9 +69,19 @@ export default async function DoctorPage({
                   <small>{record.reference_code ?? "No reference code"}</small>
                   {record.meta?.survey ? (
                     <p>
-                      <span aria-label="FINDRISC screening band">
-                        FINDRISC · {ar.survey.bandNames[record.meta.survey.band]}
-                      </span>
+                      {"tool" in record.meta.survey
+                        ? record.meta.survey.screeningResult === "incomplete"
+                          ? `AUSDRISK Arabic · ${ar.survey.incomplete} (${record.meta.survey.total}/34)`
+                          : `AUSDRISK Arabic · ${record.meta.survey.total}/34 · ${
+                            ar.survey[record.meta.survey.riskBand]
+                          } · ${
+                            ar.survey[record.meta.survey.screeningResult === "below_cutoff"
+                              ? "belowCutoff"
+                              : record.meta.survey.screeningResult === "abnormal_glycemia_cutoff"
+                                ? "abnormalGlycemiaCutoff"
+                                : "diabetesCutoff"]
+                          }`
+                        : `Legacy FINDRISC · ${record.meta.survey.band}`}
                     </p>
                   ) : null}
                 </td>

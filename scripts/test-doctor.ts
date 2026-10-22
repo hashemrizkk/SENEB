@@ -17,6 +17,11 @@ import {
 } from "../lib/doctor-review.ts";
 import { intakeFieldsSchema } from "../lib/intake.ts";
 import { redFlags } from "../lib/rules.ts";
+import {
+  authenticateNurse,
+  createNurseSession,
+  verifyNurseSession,
+} from "../lib/nurse-auth.ts";
 
 function createLegacyDatabase(): Database.Database {
   const db = new Database(":memory:");
@@ -330,9 +335,13 @@ try {
   const doctorName = process.env.DOCTOR_NAME;
   const doctorPassword = process.env.DOCTOR_PASSWORD;
   const passcode = process.env.DOCTOR_PASSCODE;
+  const nurseName = process.env.NURSE_NAME;
+  const nursePassword = process.env.NURSE_PASSWORD;
   process.env.SESSION_SECRET = "test-session-secret-with-at-least-32-bytes";
   process.env.DOCTOR_NAME = "Dr Test";
   process.env.DOCTOR_PASSWORD = "test-clinician-password";
+  process.env.NURSE_NAME = "Nurse Test";
+  process.env.NURSE_PASSWORD = "test-nurse-password";
   delete process.env.DOCTOR_PASSCODE;
   try {
     assert.equal(authenticateDoctor("Dr Test", "test-clinician-password"), true);
@@ -350,6 +359,16 @@ try {
       /DOCTOR_NAME and DOCTOR_PASSWORD must both be configured/,
     );
     process.env.DOCTOR_PASSWORD = "test-clinician-password";
+    assert.equal(authenticateNurse("Nurse Test", "test-nurse-password"), true);
+    assert.equal(authenticateNurse("Dr Test", "test-nurse-password"), false);
+    assert.equal(authenticateNurse("Nurse Test", "wrong"), false);
+    const nurseToken = createNurseSession("Nurse Test", 1_000);
+    assert.deepEqual(verifyNurseSession(nurseToken, 1_001), {
+      name: "Nurse Test",
+      expiresAt: 14_401_000,
+    });
+    assert.equal(verifyDoctorSession(nurseToken, 1_001), null);
+    assert.equal(verifyNurseSession(createDoctorSession("Dr Test", 1_000), 1_001), null);
     const token = createDoctorSession("Dr Test", 1_000);
     assert.deepEqual(verifyDoctorSession(token, 1_001), {
       name: "Dr Test",
@@ -382,6 +401,10 @@ try {
     else process.env.DOCTOR_NAME = doctorName;
     if (doctorPassword === undefined) delete process.env.DOCTOR_PASSWORD;
     else process.env.DOCTOR_PASSWORD = doctorPassword;
+    if (nurseName === undefined) delete process.env.NURSE_NAME;
+    else process.env.NURSE_NAME = nurseName;
+    if (nursePassword === undefined) delete process.env.NURSE_PASSWORD;
+    else process.env.NURSE_PASSWORD = nursePassword;
     if (passcode === undefined) delete process.env.DOCTOR_PASSCODE;
     else process.env.DOCTOR_PASSCODE = passcode;
   }

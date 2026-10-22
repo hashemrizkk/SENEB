@@ -145,7 +145,76 @@ db.transaction(() => {
     CREATE INDEX IF NOT EXISTS idx_messages_due ON messages(status, scheduled_at);
     CREATE INDEX IF NOT EXISTS idx_followups_intake ON followups(intake_id, confirmed_at);
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS survey_submissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      request_id TEXT NOT NULL UNIQUE,
+      full_name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      answers_json TEXT NOT NULL,
+      metadata_json TEXT NOT NULL,
+      whatsapp_consent_at TEXT NOT NULL DEFAULT '',
+      email TEXT,
+      email_consent_at TEXT,
+      email_status TEXT NOT NULL DEFAULT 'not_sent'
+        CHECK (email_status IN ('not_sent', 'sending', 'accepted', 'failed')),
+      email_provider_ref TEXT,
+      email_error TEXT,
+      created_at TEXT NOT NULL,
+      nurse_decision TEXT CHECK (
+        nurse_decision IN ('urgent_er', 'prompt_assessment', 'no_er_referral')
+      ),
+      nurse_name TEXT,
+      nurse_decided_at TEXT,
+      whatsapp_status TEXT NOT NULL DEFAULT 'not_sent'
+        CHECK (whatsapp_status IN ('not_sent', 'sending', 'accepted', 'failed')),
+      whatsapp_provider_ref TEXT,
+      whatsapp_error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_survey_submissions_queue
+      ON survey_submissions(created_at DESC, nurse_decided_at);
+    CREATE TABLE IF NOT EXISTS survey_decision_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      submission_id INTEGER NOT NULL REFERENCES survey_submissions(id),
+      decision TEXT NOT NULL CHECK (
+        decision IN ('urgent_er', 'prompt_assessment', 'no_er_referral')
+      ),
+      nurse_name TEXT NOT NULL,
+      decided_at TEXT NOT NULL,
+      assessment_confirmed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_survey_decision_history_submission
+      ON survey_decision_history(submission_id, decided_at DESC, id DESC);
+  `);
 })();
+
+const surveySubmissionColumns = new Set(
+  db.prepare<[], { name: string }>(
+    "SELECT name FROM pragma_table_info('survey_submissions')",
+  ).all().map((column) => column.name),
+);
+for (const [column, declaration] of [
+  ["email", "TEXT"],
+  ["email_consent_at", "TEXT"],
+  ["email_status", "TEXT NOT NULL DEFAULT 'not_sent'"],
+  ["email_provider_ref", "TEXT"],
+  ["email_error", "TEXT"],
+] as const) {
+  if (!surveySubmissionColumns.has(column)) {
+    db.exec(`ALTER TABLE survey_submissions ADD COLUMN ${column} ${declaration}`);
+  }
+}
+
+const surveyDecisionHistoryColumns = new Set(
+  db.prepare<[], { name: string }>(
+    "SELECT name FROM pragma_table_info('survey_decision_history')",
+  ).all().map((column) => column.name),
+);
+if (!surveyDecisionHistoryColumns.has("assessment_confirmed_at")) {
+  db.exec(
+    "ALTER TABLE survey_decision_history ADD COLUMN assessment_confirmed_at TEXT",
+  );
+}
 
 export function migrateFollowupPlanDrafts(database: Database.Database): void {
   database.exec(`
@@ -558,6 +627,181 @@ export function latestMessages(limit = 50): StoredOutboxMessage[] {
      FROM messages m JOIN patients p ON p.id = m.patient_id
      ORDER BY m.id DESC LIMIT ?`,
   ).all(limit);
+}
+
+export type NurseSurveyDecision =
+  | "urgent_er"
+  | "prompt_assessment"
+  | "no_er_referral";
+
+export type SurveySubmissionRow = {
+  id: number;
+  request_id: string;
+  full_name: string;
+  email: string | null;
+  email_consent_at: string | null;
+  answers_json: string;
+  metadata_json: string;
+  whatsapp_consent_at: string;
+  created_at: string;
+  nurse_decision: NurseSurveyDecision | null;
+  nurse_name: string | null;
+  nurse_decided_at: string | null;
+  email_status: "not_sent" | "sending" | "accepted" | "failed";
+  email_provider_ref: string | null;
+  email_error: string | null;
+};
+
+export type SurveyDecisionHistoryRow = {
+  id: number;
+  submission_id: number;
+  decision: NurseSurveyDecision;
+  nurse_name: string;
+  decided_at: string;
+  assessment_confirmed_at: string | null;
+};
+
+export function insertSurveySubmission(input: {
+  request_id: string;
+  full_name: string;
+  email: string;
+  answers_json: string;
+  metadata_json: string;
+  email_consent_at: string;
+  created_at: string;
+}): boolean {
+  return db.transaction(() => {
+    const existing = db.prepare<[string], { id: number }>(
+      "SELECT id FROM survey_submissions WHERE request_id = ?",
+    ).get(input.request_id);
+    if (existing) return false;
+    db.prepare(
+      `INSERT INTO survey_submissions (
+         request_id, full_name, phone, email, answers_json, metadata_json,
+         whatsapp_consent_at, email_consent_at, created_at
+       ) VALUES (?, ?, '', ?, ?, ?, '', ?, ?)`,
+    ).run(
+      input.request_id,
+      input.full_name,
+      input.email,
+      input.answers_json,
+      input.metadata_json,
+      input.email_consent_at,
+      input.created_at,
+    );
+    return true;
+  })();
+}
+
+export function listSurveySubmissions(): SurveySubmissionRow[] {
+  return db.prepare<[], SurveySubmissionRow>(
+    `SELECT id, request_id, full_name, email, email_consent_at,
+            answers_json, metadata_json, whatsapp_consent_at, created_at,
+            nurse_decision, nurse_name, nurse_decided_at, email_status,
+            email_provider_ref, email_error
+     FROM survey_submissions
+     ORDER BY created_at DESC, id DESC LIMIT 200`,
+  ).all();
+}
+
+export function getSurveySubmission(id: number): SurveySubmissionRow | undefined {
+  return db.prepare<[number], SurveySubmissionRow>(
+    `SELECT id, request_id, full_name, email, email_consent_at,
+            answers_json, metadata_json, whatsapp_consent_at, created_at,
+            nurse_decision, nurse_name, nurse_decided_at, email_status,
+            email_provider_ref, email_error
+     FROM survey_submissions WHERE id = ?`,
+  ).get(id);
+}
+
+export function listSurveyDecisionHistory(): SurveyDecisionHistoryRow[] {
+  return db.prepare<[], SurveyDecisionHistoryRow>(
+    `SELECT h.id, h.submission_id, h.decision, h.nurse_name, h.decided_at,
+            h.assessment_confirmed_at
+     FROM survey_decision_history h
+     WHERE h.submission_id IN (
+       SELECT id FROM survey_submissions ORDER BY created_at DESC LIMIT 200
+     )
+     ORDER BY h.decided_at DESC, h.id DESC LIMIT 1000`,
+  ).all();
+}
+
+export function saveNurseSurveyDecision(input: {
+  id: number;
+  decision: NurseSurveyDecision;
+  nurseName: string;
+  now: string;
+  assessmentConfirmedAt: string;
+}): "saved" | "not_found" | "message_in_progress" | "already_sent" {
+  return db.transaction(() => {
+    const current = db.prepare<
+      [number],
+      Pick<SurveySubmissionRow, "nurse_decision" | "nurse_name" | "email_status">
+    >("SELECT nurse_decision, nurse_name, email_status FROM survey_submissions WHERE id = ?")
+      .get(input.id);
+    if (!current) return "not_found";
+    if (current.email_status === "sending") return "message_in_progress";
+    if (current.email_status === "accepted") return "already_sent";
+    if (current.nurse_decision !== input.decision || current.nurse_name !== input.nurseName) {
+      db.prepare(
+        `INSERT INTO survey_decision_history (
+           submission_id, decision, nurse_name, decided_at, assessment_confirmed_at
+         ) VALUES (?, ?, ?, ?, ?)`,
+      ).run(
+        input.id,
+        input.decision,
+        input.nurseName,
+        input.now,
+        input.assessmentConfirmedAt,
+      );
+    }
+    db.prepare(
+      `UPDATE survey_submissions
+       SET nurse_decision = ?, nurse_name = ?, nurse_decided_at = ?,
+           email_status = CASE
+             WHEN nurse_decision = ? THEN email_status ELSE 'not_sent' END,
+           email_provider_ref = CASE
+             WHEN nurse_decision = ? THEN email_provider_ref ELSE NULL END,
+           email_error = CASE
+             WHEN nurse_decision = ? THEN email_error ELSE NULL END
+       WHERE id = ?`,
+    ).run(
+      input.decision,
+      input.nurseName,
+      input.now,
+      input.decision,
+      input.decision,
+      input.decision,
+      input.id,
+    );
+    return "saved";
+  })();
+}
+
+export function claimSurveyEmailSend(id: number): boolean {
+  const result = db.prepare(
+    `UPDATE survey_submissions SET email_status = 'sending', email_error = NULL
+     WHERE id = ? AND nurse_decision IS NOT NULL
+       AND email IS NOT NULL AND email_consent_at IS NOT NULL
+       AND email_status IN ('not_sent', 'failed')`,
+  ).run(id);
+  return result.changes === 1;
+}
+
+export function markSurveyEmailAccepted(id: number, providerRef: string): void {
+  db.prepare(
+    `UPDATE survey_submissions
+     SET email_status = 'accepted', email_provider_ref = ?, email_error = NULL
+     WHERE id = ? AND email_status = 'sending'`,
+  ).run(providerRef, id);
+}
+
+export function markSurveyEmailFailed(id: number, error: string): void {
+  db.prepare(
+    `UPDATE survey_submissions
+     SET email_status = 'failed', email_error = ?
+     WHERE id = ? AND email_status = 'sending'`,
+  ).run(error, id);
 }
 
 export function saveEncounterClose(input: {

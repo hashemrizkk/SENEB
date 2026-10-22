@@ -2,14 +2,8 @@
 
 import { ar } from "@/lib/strings.ar";
 
-export default function SuccessScreen({
-  referenceCode,
-  screening = false,
-  urgent = false,
-}: {
+export default function SuccessScreen({ referenceCode }: {
   referenceCode: string | null;
-  screening?: boolean;
-  urgent?: boolean;
 }) {
   return (
     <main dir="rtl" lang="ar" className="reg-success" role="status">
@@ -23,14 +17,6 @@ export default function SuccessScreen({
       ) : null}
 
       <p className="reg-success-note">{ar.clinicReviewNote}</p>
-      {screening ? (
-        <p className="reg-success-note">{ar.survey.screeningNotice}</p>
-      ) : null}
-      {urgent ? (
-        <p className="reg-success-emergency" role="alert">
-          <strong>{ar.survey.urgentTitle}</strong> {ar.survey.urgentText}
-        </p>
-      ) : null}
       <p className="reg-success-emergency">{ar.emergencyNotice}</p>
     </main>
   );
