@@ -427,6 +427,7 @@ try {
     status: "seen" as const,
     note: "N".repeat(3_000),
     reason: "Test edit",
+    reasonType: "patient_clarified" as const,
   };
   const saved = saveClinicianEdit(
     db, 1, "Dr Test", edit, null, new Date("2025-01-02T10:00:00Z"),
@@ -441,6 +442,9 @@ try {
   assert.equal(saved.record.revisions[0]?.snapshot_json.includes('"input_method":"voice"'), true);
   assert.equal(saved.record.revisions[1]?.snapshot_json.includes('"input_method":"voice"'), true);
   assert.equal(saved.record.revisions.length, 2);
+  assert.equal(saved.record.revisions[1]?.reason_type, "patient_clarified", "quick-pick reason is persisted on the revision");
+  const originalSnapshot = JSON.parse(saved.record.revisions[0]!.snapshot_json) as { intake: { structured_json: string | null } };
+  assert.equal(JSON.parse(originalSnapshot.intake.structured_json ?? "{}").missed_doses, false, "original patient-submitted answer remains intact after clinician edit");
   const changedFields = JSON.parse(
     saved.record.revisions[1]!.changed_fields_json,
   ) as string[];

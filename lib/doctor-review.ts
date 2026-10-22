@@ -31,6 +31,7 @@ export const clinicianEditSchema = z.object({
   status: z.enum(["new", "triaged", "seen"]),
   note: z.string().trim().max(4_000).optional(),
   reason: z.string().trim().max(500),
+  reasonType: z.enum(["transcription_error", "patient_clarified", "typo_correction", "other"]).nullable().optional(),
 }).strict();
 
 export type ClinicianEdit = z.infer<typeof clinicianEditSchema>;
@@ -81,6 +82,7 @@ export type IntakeRevision = {
   edited_by: string | null;
   edited_at: string;
   reason: string | null;
+  reason_type: "transcription_error" | "patient_clarified" | "typo_correction" | "other" | null;
   snapshot_json: string;
   changed_fields_json: string;
   is_backfill: number;
@@ -203,6 +205,7 @@ function insertRevision(
     source: "patient" | "clinician";
     editedBy: string | null;
     reason: string | null;
+    reasonType?: "transcription_error" | "patient_clarified" | "typo_correction" | "other" | null;
     changedFields: string[];
     isBackfill: boolean;
     editedAt?: string;
@@ -229,9 +232,9 @@ function insertRevision(
   const maxRevision = Number.isInteger(nextRevision) ? nextRevision : 0;
   db.prepare(
     `INSERT INTO intake_revisions (
-       intake_id, revision, source, edited_by, edited_at, reason,
+       intake_id, revision, source, edited_by, edited_at, reason, reason_type,
        snapshot_json, changed_fields_json, is_backfill
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     intakeId,
     maxRevision + 1,
@@ -239,6 +242,7 @@ function insertRevision(
     options.editedBy,
     options.editedAt ?? new Date().toISOString(),
     options.reason,
+    options.reasonType ?? null,
     JSON.stringify(snapshotFor(patient, intake)),
     JSON.stringify(options.changedFields),
     options.isBackfill ? 1 : 0,
@@ -348,6 +352,7 @@ export function migrateDoctorReview(db: Database.Database): void {
         edited_by TEXT,
         edited_at TEXT NOT NULL,
         reason TEXT,
+        reason_type TEXT CHECK (reason_type IN ('transcription_error', 'patient_clarified', 'typo_correction', 'other')),
         snapshot_json TEXT NOT NULL,
         changed_fields_json TEXT NOT NULL,
         is_backfill INTEGER NOT NULL DEFAULT 0 CHECK (is_backfill IN (0, 1)),
@@ -358,6 +363,10 @@ export function migrateDoctorReview(db: Database.Database): void {
       CREATE INDEX IF NOT EXISTS idx_intakes_review_queue
         ON intakes(status, created_at, id);
     `);
+    const revisionColumns = tableColumns(db, "intake_revisions");
+    if (!revisionColumns.has("reason_type")) {
+      db.exec("ALTER TABLE intake_revisions ADD COLUMN reason_type TEXT");
+    }
     if (shouldImportLegacyQueue) importLegacyQueueState(db);
     backfillRevisions(db);
   })();
@@ -395,7 +404,7 @@ function reviewIntake(
   const meta = parseJson(row.meta_json, intakeMetaSchema, null);
   const revisions = db
     .prepare<[number], IntakeRevision>(
-      `SELECT id, intake_id, revision, source, edited_by, edited_at, reason,
+      `SELECT id, intake_id, revision, source, edited_by, edited_at, reason, reason_type,
               snapshot_json, changed_fields_json, is_backfill
        FROM intake_revisions WHERE intake_id = ? ORDER BY revision`,
     )
@@ -620,6 +629,7 @@ export function saveClinicianEdit(
       source: "clinician",
       editedBy: normalizedName,
       reason: revisionReason || null,
+      reasonType: data.reasonType ?? null,
       changedFields,
       isBackfill: false,
       editedAt: timestamp,

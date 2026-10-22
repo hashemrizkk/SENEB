@@ -156,11 +156,18 @@ export default async function DoctorIntakePage({
           ...noteRating.note_missing_important.map((item) => `Missing important: ${item}`),
           ...noteRating.note_suggestions.map((item) => `Suggestion: ${item}`),
         ],
+        prompt: (() => {
+          const suggestion = noteRating.note_missing_required[0] ?? noteRating.note_suggestions[0] ?? null;
+          if (noteRating.note_rating === "green" || !suggestion) return null;
+          return /\b(urgent|emergency|severe|critical|risk)\b/i.test(suggestion)
+            ? "Consider adding a clear description of the missing detail."
+            : suggestion;
+        })(),
       }
     : null;
 
   return (
-    <main style={{ maxWidth: 1000, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
+    <><a className="skip-link" href="#doctor-patient-content">Skip to content</a><main className="doctor-shell" id="doctor-patient-content" tabIndex={-1} style={{ maxWidth: 1000 }}>
       <p><Link href="/doctor">← Review queue</Link></p>
       <header>
         <h1>Review: {record.patient.name}</h1>
@@ -318,7 +325,7 @@ export default async function DoctorIntakePage({
                 return (
                   <li key={revision.id}>
                     <strong>Revision {revision.revision}</strong> · {revision.source} · {displayTime(revision.edited_at)} · {revision.edited_by ?? "Patient"}
-                    {revision.reason ? <p>Reason: {revision.reason}</p> : null}
+                    {revision.reason_type || revision.reason ? <p>Reason: {revision.reason_type ? ({ transcription_error: "Transcription error", patient_clarified: "Patient clarified", typo_correction: "Typo correction", other: "Other" } as const)[revision.reason_type] : ""}{revision.reason ? ` · ${revision.reason}` : ""}</p> : null}
                     {revision.is_backfill ? (
                       <p>This is a reconstructed current-state snapshot; it is not the original submission.</p>
                     ) : null}
@@ -363,6 +370,6 @@ export default async function DoctorIntakePage({
         patient={record.patient}
         savedClinicianNote={savedClinicianNote}
       />
-    </main>
+    </main></>
   );
 }

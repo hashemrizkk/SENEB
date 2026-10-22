@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS intake_revisions (
   edited_by TEXT,
   edited_at TEXT NOT NULL,
   reason TEXT,
+  reason_type TEXT CHECK (reason_type IN ('transcription_error', 'patient_clarified', 'typo_correction', 'other')),
   snapshot_json TEXT NOT NULL,
   changed_fields_json TEXT NOT NULL,
   is_backfill INTEGER NOT NULL DEFAULT 0 CHECK (is_backfill IN (0, 1)),

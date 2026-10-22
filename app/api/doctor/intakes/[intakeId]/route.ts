@@ -62,20 +62,34 @@ export async function PUT(
       });
     }
     const current = getPatientRecordForIntake(intakeId);
+    const latestPatient = current ? getPatientRecord(current.patient_id)?.patient : null;
     return NextResponse.json({
       ok: false,
       error: "This intake was updated by another clinician. Your edits were not saved.",
       latestVersion: current?.version ?? null,
       latestRecord: current ?? null,
+      latestPatient: latestPatient ? {
+        name: latestPatient.name,
+        phone: latestPatient.phone,
+        email: latestPatient.email,
+        self_description: latestPatient.self_description,
+      } : null,
     }, { status: 409 });
   } catch (error: unknown) {
     if (error instanceof Error && error.message === "The intake changed while saving.") {
       const current = getPatientRecordForIntake(intakeId);
+      const latestPatient = current ? getPatientRecord(current.patient_id)?.patient : null;
       return NextResponse.json({
         ok: false,
         error: "This intake was updated by another clinician. Your edits were not saved.",
         latestVersion: current?.version ?? null,
         latestRecord: current ?? null,
+        latestPatient: latestPatient ? {
+          name: latestPatient.name,
+          phone: latestPatient.phone,
+          email: latestPatient.email,
+          self_description: latestPatient.self_description,
+        } : null,
       }, { status: 409 });
     }
     const errorType = error instanceof Error ? error.constructor.name : "UnknownError";
