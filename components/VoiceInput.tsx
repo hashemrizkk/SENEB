@@ -665,7 +665,7 @@ const hintStyle: React.CSSProperties = {
 const consentStyle: React.CSSProperties = {
   marginTop: "0.65rem",
   padding: "0.75rem",
-  border: "1px solid #b45309",
-  borderRadius: 8,
-  background: "#fffbeb",
+  border: "1px solid var(--important-border)",
+  borderRadius: "var(--radius-control)",
+  background: "var(--important-bg)",
 };

@@ -461,7 +461,7 @@ export default function RecordFollowupForm({
               tabIndex={-1}
               role="alert"
               aria-live="assertive"
-              style={{ background: "#fef2f2", border: "1px solid #b91c1c", borderRadius: 8, color: "#7f1d1d", margin: "12px 0", padding: 12 }}
+              style={{ background: "var(--urgent-bg)", border: "1px solid var(--urgent-border)", borderRadius: "var(--radius-control)", color: "var(--urgent-text)", margin: "12px 0", padding: 12 }}
             >
               <p>{error}</p>
               {uncertain ? (

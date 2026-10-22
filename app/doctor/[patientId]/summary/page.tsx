@@ -413,20 +413,20 @@ export default async function DoctorCasePage({
 
 const sectionStyle = {
   border: "1px solid var(--card-border)",
-  borderRadius: 12,
+  borderRadius: "var(--radius-card)",
   marginBlock: 16,
   padding: 16,
 };
 const chipStyle = {
   display: "inline-block",
-  border: "1px solid #9ca3af",
-  borderRadius: 999,
+  border: "1px solid var(--control-border)",
+  borderRadius: "var(--radius-pill)",
   margin: 4,
   padding: "4px 10px",
 };
 const modeBadgeStyle = {
   display: "inline-block",
-  border: "1px solid #6b7280",
-  borderRadius: 999,
+  border: "1px solid var(--primary)",
+  borderRadius: "var(--radius-pill)",
   padding: "6px 12px",
 };

@@ -218,7 +218,7 @@ export default function ReviewEditForm({
   }
 
   return (
-    <section style={{ borderTop: "1px solid #ccc", marginTop: 24, paddingTop: 16 }}>
+    <section style={{ borderTop: "1px solid var(--card-border)", marginTop: 24, paddingTop: 16 }}>
       <h2>Edit intake and patient information</h2>
       <p>Saving creates a revision. Staff priority is a decision, not an automatic diagnosis.</p>
       <label>Patient name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} /></label>

@@ -66,8 +66,8 @@ export default async function AdminIntakesPage() {
             <li
               key={intake.id}
               style={{
-                border: "1px solid #d1d5db",
-                borderRadius: 12,
+                border: "1px solid var(--card-border)",
+                borderRadius: "var(--radius-card)",
                 marginBlock: 16,
                 padding: 16,
               }}

@@ -20,6 +20,8 @@ const ratio = (a, b) => {
 const checks = [
   ["Ink / limestone", "ink", "bg", 4.5],
   ["Ink / surface", "ink", "surface", 4.5],
+  ["Home muted text / limestone", "ink-muted", "bg", 4.5],
+  ["Demo banner text / background", "demo-ink", "demo-bg", 4.5],
   ["Secondary ink / limestone", "ink-secondary", "bg", 4.5],
   ["Secondary ink / surface", "ink-secondary", "surface", 4.5],
   ["Primary button / surface", "surface", "primary", 4.5],

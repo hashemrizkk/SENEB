@@ -1,7 +1,4 @@
-"use client";
-
 import Link from "next/link";
-import { useState } from "react";
 import { ar } from "@/lib/strings.ar";
 
 function HeartbeatMark() {
@@ -13,11 +10,15 @@ function HeartbeatMark() {
   );
 }
 
-export default function HomePage() {
-  const [locale, setLocale] = useState<"ar" | "en">("ar");
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ lang?: string }>;
+}) {
+  const { lang } = await searchParams;
+  const locale = lang === "en" ? "en" : "ar";
   const isArabic = locale === "ar";
   const copy = isArabic ? ar.home : ar.home.en;
-  const languageToggleLabel = isArabic ? ar.home.en.startInEnglish : ar.home.startInArabic;
   const homeStats = [
     { value: isArabic ? "١٩٫٨٪" : "19.8%", label: copy.diabetesPrevalence },
     { value: isArabic ? "١٣٫٢ مليون" : "13.2 million", label: copy.diabetesCount },
@@ -28,16 +29,15 @@ export default function HomePage() {
     <main dir={isArabic ? "rtl" : "ltr"} lang={locale} className="home-page">
       <p className="home-demo-banner">{copy.demoBanner}</p>
       <header className="home-header" dir="ltr">
-        <button
-          type="button"
+        <Link
+          href={isArabic ? "/?lang=en" : "/?lang=ar"}
           className="home-language-link"
           lang={isArabic ? "en" : "ar"}
-          aria-label={languageToggleLabel}
-          onClick={() => setLocale(isArabic ? "en" : "ar")}
+          aria-label={isArabic ? ar.home.en.startInEnglish : ar.home.startInArabic}
         >
           {isArabic ? "English" : "العربية"}
-        </button>
-        <Link href="/" className="home-brand" dir={locale}>
+        </Link>
+        <Link href={isArabic ? "/" : "/?lang=en"} className="home-brand" dir={locale}>
           <span>{copy.title}</span>
           <HeartbeatMark />
         </Link>

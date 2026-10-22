@@ -65,7 +65,7 @@ export default async function NursePage() {
           <button type="submit">Sign out</button>
         </form>
       </header>
-      <p style={{ padding: 12, border: "1px solid #d99191", background: "#fff0f0" }}>
+      <p style={{ padding: 12, border: "1px solid var(--urgent-border)", background: "var(--urgent-bg)", color: "var(--urgent-text)", borderRadius: "var(--radius-control)" }}>
         AUSDRISK screens diabetes risk and contains no acute-symptom assessment. Do not use these answers alone to decide ER need.
         The prototype supplies no emergency protocol. Record an action only after a separate assessment using your clinic’s approved process.
         “No ER referral” does not rule out an emergency.

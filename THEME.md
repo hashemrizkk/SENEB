@@ -1,10 +1,10 @@
 # SolveThe17 visual identity
 
-The UI direction is **Nile teal on limestone**: warm limestone backgrounds, deep teal actions, readable ink, and soft card surfaces. A rounded-top arch is the signature shape for the hero, saved state, and empty states. Keep it sparse and calm. This is a light-only theme.
+The UI direction is **warm limestone and coral** across the entire site: soft off-white backgrounds, coral actions and highlights, readable ink, and warm card surfaces. Keep the patient home page as the visual reference, then use the same palette, typography, controls, cards, and spacing across survey, screening, doctor, nurse, staff, and admin routes. Keep layouts appropriate to each workflow. This is a light-only theme.
 
 ## Foundations
 
-- CSS tokens live in `components/ui/tokens.css`; the matching TypeScript values are in `components/ui/tokens.ts`. Use those tokens instead of new hex values.
+- CSS tokens live in `components/ui/tokens.css`; the matching TypeScript values are in `components/ui/tokens.ts`. Use those tokens instead of new hex values. New screens should inherit the global warm background and coral primary action.
 - Readex Pro is the single font for Arabic and English. The installed Next.js 16.4.2 font registry contains its Arabic and Latin subsets and 400/500/600 weights. `next/font` self-hosts the selected font files.
 - Use CSS Modules for new component styles. Use logical properties so layouts can follow text direction. `--enter-x` is positive in LTR and negative in RTL.
 - Patients use Arabic RTL and 18px base text with 1.7 line height. Doctor, nurse, staff, and admin layouts use English LTR and 16px base text. Use `UserText` or `<bdi dir="auto">` for patient-generated text on LTR pages.

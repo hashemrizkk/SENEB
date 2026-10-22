@@ -100,7 +100,7 @@ export default function SummaryGenerateButton({
         </p>
       ) : null}
       {error ? (
-        <p role="alert" style={{ color: "#991b1b" }}>
+        <p role="alert" style={{ color: "var(--urgent-text)" }}>
           {error}
         </p>
       ) : null}

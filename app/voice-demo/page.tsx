@@ -100,7 +100,7 @@ export default function VoiceDemoPage() {
             padding: "0.45rem 0.8rem",
             border: "1px solid var(--primary-strong)",
             borderRadius: 8,
-            background: "#fff",
+            background: "var(--surface)",
             color: "var(--primary-strong)",
             font: "inherit",
           }}

@@ -290,20 +290,20 @@ export default function RegisterPage() {
           overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
         }
         .reg-banner {
-          background: #fff4d6; border: 1px solid #e8c76a; color: #5c4400;
-          border-radius: 12px; padding: 0.65rem 0.9rem; font-size: 16px;
+          background: var(--important-bg); border: 1px solid var(--important-border); color: var(--important-text);
+          border-radius: var(--radius-control); padding: 0.65rem 0.9rem; font-size: 16px;
           font-weight: 600; margin: 0 0 1rem;
         }
         .reg-emergency {
-          background: #fff0f0; border: 1px solid #d99191; color: #7f1d1d;
-          border-radius: 12px; padding: 0.65rem 0.9rem; font-weight: 700;
+          background: var(--urgent-bg); border: 1px solid var(--urgent-border); color: var(--urgent-text);
+          border-radius: var(--radius-control); padding: 0.65rem 0.9rem; font-weight: 700;
           margin: 0 0 0.65rem;
         }
         .reg-clinic-note { margin: 0 0 1rem; color: var(--text-secondary); }
         .reg-progress { margin-bottom: 1.25rem; }
         .reg-progress-label { margin: 0 0 0.4rem; font-size: 16px; color: var(--text-secondary); }
         .reg-progress-track {
-          height: 8px; background: #e7edf3; border-radius: 999px; overflow: hidden;
+          height: 8px; background: var(--track); border-radius: 999px; overflow: hidden;
         }
         .reg-progress-fill {
           height: 100%; background: var(--primary-strong); border-radius: 999px;
@@ -313,8 +313,8 @@ export default function RegisterPage() {
         .reg-label { display: block; font-weight: 600; margin-bottom: 0.35rem; }
         .reg-input, .reg-textarea {
           width: 100%; box-sizing: border-box; font: inherit; font-size: 18px;
-          padding: 0.7rem 0.85rem; border: 1.5px solid var(--control-border); border-radius: 12px;
-          background: #fff; color: var(--text); min-height: 48px;
+          padding: 0.7rem 0.85rem; border: 1.5px solid var(--control-border); border-radius: var(--radius-control);
+          background: var(--surface); color: var(--text); min-height: 48px;
         }
         .reg-input[dir="ltr"] { text-align: end; }
         .reg-textarea { min-height: 96px; resize: vertical; }
@@ -324,31 +324,31 @@ export default function RegisterPage() {
           outline: 3px solid var(--focus-ring); outline-offset: 2px;
         }
         .reg-input[aria-invalid="true"], .reg-textarea[aria-invalid="true"] {
-          border-color: #b3261e;
+          border-color: var(--urgent-border);
         }
-        .reg-error { color: #b3261e; font-size: 16px; margin: 0.35rem 0 0; }
+        .reg-error { color: var(--urgent-text); font-size: 16px; margin: 0.35rem 0 0; }
         .reg-counter { color: var(--text-secondary); font-size: 15px; margin: 0.25rem 0 0; text-align: start; }
         .reg-actions { display: flex; gap: 0.75rem; margin-top: 1.5rem; }
         .reg-btn {
           font: inherit; font-size: 18px; min-height: 48px; padding: 0.7rem 1.4rem;
-          border-radius: 12px; border: 1.5px solid var(--primary-strong); cursor: pointer;
+          border-radius: var(--radius-control); border: 1.5px solid var(--primary-strong); cursor: pointer;
           background: var(--primary-strong); color: #fff; font-weight: 600; flex: 1;
         }
         .reg-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-        .reg-btn-secondary { background: #fff; color: var(--primary-strong); }
+        .reg-btn-secondary { background: var(--surface); color: var(--primary-strong); }
         .reg-arrow { font-size: 20px; }
         .tap-question { border: 0; padding: 0; margin: 0 0 1.1rem; }
         .tap-legend { font-weight: 600; padding: 0; margin-bottom: 0.45rem; }
         .tap-row { display: flex; gap: 0.6rem; }
         .tap-btn {
           font: inherit; font-size: 18px; min-height: 48px; min-width: 96px;
-          padding: 0.6rem 1.2rem; border-radius: 12px;
-          border: 1.5px solid var(--control-border); background: #fff; color: var(--text); cursor: pointer;
+          padding: 0.6rem 1.2rem; border-radius: var(--radius-control);
+          border: 1.5px solid var(--control-border); background: var(--surface); color: var(--text); cursor: pointer;
         }
         .tap-btn-on { background: var(--primary-strong); border-color: var(--primary-strong); color: #fff; font-weight: 600; }
         .reg-review-row {
           display: grid; grid-template-columns: 1fr auto; gap: 0.15rem 0.75rem;
-          padding: 0.7rem 0; border-bottom: 1px solid #e7edf3;
+          padding: 0.7rem 0; border-bottom: 1px solid var(--card-border);
         }
         .reg-review-label { color: var(--text-secondary); font-size: 16px; grid-column: 1 / -1; }
         .reg-review-value { font-weight: 600; overflow-wrap: anywhere; }
@@ -358,7 +358,7 @@ export default function RegisterPage() {
           text-decoration: underline; cursor: pointer;
         }
         .reg-nudge {
-          background: var(--secondary); border-radius: 12px; padding: 0.7rem 0.9rem; font-size: 16px;
+          background: var(--secondary); border-radius: var(--radius-control); padding: 0.7rem 0.9rem; font-size: 16px;
         }
         .reg-consent { display: flex; gap: 0.6rem; align-items: flex-start; margin: 1.4rem 0; }
         .reg-consent input { width: 24px; height: 24px; margin-top: 0.25rem; }
@@ -373,7 +373,7 @@ export default function RegisterPage() {
           color: var(--primary-strong); margin: 0.2rem 0 1.5rem; direction: ltr;
         }
         .reg-success-note { color: var(--text-secondary); }
-        .reg-success-emergency { font-weight: 700; color: #b3261e; }
+        .reg-success-emergency { font-weight: 700; color: var(--urgent-text); }
       `}</style>
 
       <p className="reg-sr-only" aria-live="polite">

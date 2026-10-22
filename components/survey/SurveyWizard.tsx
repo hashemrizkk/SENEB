@@ -152,12 +152,12 @@ export default function SurveyWizard() {
         }
         .survey-page *, .survey-page *::before, .survey-page *::after { box-sizing: border-box; }
         .survey-banner { padding: .7rem .85rem; border-radius: 12px; margin: 0 0 .75rem; }
-        .survey-warning { background: #fff4d6; border: 1px solid #e8c76a; }
-        .survey-emergency { background: #fff0f0; border: 1px solid #d99191; color: #7f1d1d; font-weight: 700; }
-        .survey-disclaimer { background: #f2f6f8; border: 1px solid #d5e0e7; }
+        .survey-warning { background: var(--important-bg); border: 1px solid var(--important-border); color: var(--important-text); }
+        .survey-emergency { background: var(--urgent-bg); border: 1px solid var(--urgent-border); color: var(--urgent-text); font-weight: 700; }
+        .survey-disclaimer { background: var(--info-bg); border: 1px solid var(--info-border); color: var(--info-text); }
         .survey-progress { margin: 1rem 0 1.4rem; }
         .survey-progress-label { margin: 0 0 .3rem; font-size: 16px; }
-        .survey-track { height: 9px; overflow: hidden; border-radius: 999px; background: #e7edf3; }
+        .survey-track { height: 9px; overflow: hidden; border-radius: 999px; background: var(--track); }
         .survey-fill { height: 100%; border-radius: inherit; background: var(--primary-strong); }
         .survey-title { font-size: 1.45rem; line-height: 1.4; margin: .2rem 0 1rem; }
         .survey-copy { margin: .5rem 0 1rem; }
@@ -165,7 +165,7 @@ export default function SurveyWizard() {
         .survey-label { display: block; font-weight: 700; margin-bottom: .4rem; }
         .survey-input {
           width: 100%; min-height: 52px; padding: .65rem .8rem; border-radius: 12px;
-          border: 1.5px solid var(--control-border); background: #fff; color: var(--text);
+          border: 1.5px solid var(--control-border); background: var(--surface); color: var(--text);
           font: inherit; font-size: 18px;
         }
         .survey-input:focus-visible, .survey-option:focus-visible, .survey-button:focus-visible,
@@ -175,15 +175,15 @@ export default function SurveyWizard() {
         .survey-options { display: grid; gap: .65rem; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); }
         .survey-option, .survey-button {
           min-height: 50px; padding: .55rem .9rem; border: 1.5px solid var(--control-border);
-          border-radius: 12px; background: white; color: var(--text); font: inherit;
+          border-radius: var(--radius-control); background: var(--surface); color: var(--text); font: inherit;
           font-size: 18px; cursor: pointer;
         }
         .survey-option[aria-pressed="true"] { background: var(--primary-strong); border-color: var(--primary-strong); color: white; font-weight: 700; }
         .survey-actions { display: flex; gap: .7rem; margin-top: 1.5rem; }
         .survey-button { flex: 1; border-color: var(--primary-strong); color: var(--primary-strong); font-weight: 700; }
         .survey-primary { background: var(--primary-strong); color: #fff; }
-        .survey-error { color: #a11d1d; font-weight: 700; }
-        .survey-result-card { padding: 1rem; border: 1px solid var(--card-border); border-radius: 16px; background: var(--secondary); }
+        .survey-error { color: var(--urgent-text); font-weight: 700; }
+        .survey-result-card { padding: 1rem; border: 1px solid var(--card-border); border-radius: var(--radius-card); background: var(--secondary); }
         .survey-small { font-size: 16px; color: var(--text-secondary); }
         .survey-consent { display: flex; gap: .7rem; align-items: flex-start; margin-block: 1rem; }
         .survey-checkbox { width: 24px; height: 24px; flex: 0 0 24px; margin-top: .3rem; }

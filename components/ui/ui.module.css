@@ -64,7 +64,7 @@
 .ui-directional-icon { transform: none; }
 :global([dir="rtl"]) .ui-directional-icon { transform: scaleX(-1); }
 
-.modalBackdrop { position: fixed; z-index: 100; inset-block: 0; inset-inline: 0; display: grid; place-items: center; padding: var(--space-4); background: rgb(31 41 55 / 55%); }
+.modalBackdrop { position: fixed; z-index: 100; inset-block: 0; inset-inline: 0; display: grid; place-items: center; padding: var(--space-4); background: rgb(33 29 25 / 55%); }
 .modal { inline-size: min(100%, 560px); max-block-size: min(80dvh, 720px); overflow: auto; padding: var(--space-5); border: 1px solid var(--card-border); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-2); }
 .modalHeader { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-block-end: var(--space-4); }
 .modalHeader h2 { margin: 0; }
