@@ -91,7 +91,7 @@ export default function CaseSummaryNote({
 }
 
 const sectionStyle: React.CSSProperties = {
-  border: "1px solid #d1d5db",
+  border: "1px solid var(--card-border)",
   borderRadius: 12,
   marginBlock: 16,
   padding: 16,

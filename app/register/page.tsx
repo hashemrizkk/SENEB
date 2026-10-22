@@ -282,8 +282,8 @@ export default function RegisterPage() {
       <style>{`
         .reg-page {
           max-width: 32rem; margin: 0 auto; padding: 1rem 1rem 2.5rem;
-          font-size: 18px; line-height: 1.7; color: #16202b;
-          background: #ffffff; min-height: 100vh;
+          font-size: 18px; line-height: 1.7; color: var(--text);
+          background: var(--bg); min-height: 100vh;
         }
         .reg-sr-only {
           position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -299,14 +299,14 @@ export default function RegisterPage() {
           border-radius: 12px; padding: 0.65rem 0.9rem; font-weight: 700;
           margin: 0 0 0.65rem;
         }
-        .reg-clinic-note { margin: 0 0 1rem; color: #3b4a59; }
+        .reg-clinic-note { margin: 0 0 1rem; color: var(--text-secondary); }
         .reg-progress { margin-bottom: 1.25rem; }
-        .reg-progress-label { margin: 0 0 0.4rem; font-size: 16px; color: #4a5a6a; }
+        .reg-progress-label { margin: 0 0 0.4rem; font-size: 16px; color: var(--text-secondary); }
         .reg-progress-track {
           height: 8px; background: #e7edf3; border-radius: 999px; overflow: hidden;
         }
         .reg-progress-fill {
-          height: 100%; background: #0f6f5c; border-radius: 999px;
+          height: 100%; background: var(--primary-strong); border-radius: 999px;
           transition: width 200ms ease;
         }
         .reg-h1 { font-size: 1.35rem; margin: 0 0 1rem; }
@@ -314,29 +314,29 @@ export default function RegisterPage() {
         .reg-label { display: block; font-weight: 600; margin-bottom: 0.35rem; }
         .reg-input, .reg-textarea {
           width: 100%; box-sizing: border-box; font: inherit; font-size: 18px;
-          padding: 0.7rem 0.85rem; border: 1.5px solid #b9c6d2; border-radius: 12px;
-          background: #fff; color: #16202b; min-height: 48px;
+          padding: 0.7rem 0.85rem; border: 1.5px solid var(--control-border); border-radius: 12px;
+          background: #fff; color: var(--text); min-height: 48px;
         }
         .reg-input[dir="ltr"] { text-align: right; }
         .reg-textarea { min-height: 96px; resize: vertical; }
         .reg-input:focus-visible, .reg-textarea:focus-visible,
         .reg-btn:focus-visible, .reg-link:focus-visible, .tap-btn:focus-visible,
         .reg-consent input:focus-visible {
-          outline: 3px solid #0f6f5c; outline-offset: 2px;
+          outline: 3px solid var(--primary-strong); outline-offset: 2px;
         }
         .reg-input[aria-invalid="true"], .reg-textarea[aria-invalid="true"] {
           border-color: #b3261e;
         }
         .reg-error { color: #b3261e; font-size: 16px; margin: 0.35rem 0 0; }
-        .reg-counter { color: #5b6b7b; font-size: 15px; margin: 0.25rem 0 0; text-align: left; }
+        .reg-counter { color: var(--text-secondary); font-size: 15px; margin: 0.25rem 0 0; text-align: left; }
         .reg-actions { display: flex; gap: 0.75rem; margin-top: 1.5rem; }
         .reg-btn {
           font: inherit; font-size: 18px; min-height: 48px; padding: 0.7rem 1.4rem;
-          border-radius: 12px; border: 1.5px solid #0f6f5c; cursor: pointer;
-          background: #0f6f5c; color: #fff; font-weight: 600; flex: 1;
+          border-radius: 12px; border: 1.5px solid var(--primary-strong); cursor: pointer;
+          background: var(--primary-strong); color: #fff; font-weight: 600; flex: 1;
         }
         .reg-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-        .reg-btn-secondary { background: #fff; color: #0f6f5c; }
+        .reg-btn-secondary { background: #fff; color: var(--primary-strong); }
         .reg-arrow { font-size: 20px; }
         .tap-question { border: 0; padding: 0; margin: 0 0 1.1rem; }
         .tap-legend { font-weight: 600; padding: 0; margin-bottom: 0.45rem; }
@@ -344,36 +344,36 @@ export default function RegisterPage() {
         .tap-btn {
           font: inherit; font-size: 18px; min-height: 48px; min-width: 96px;
           padding: 0.6rem 1.2rem; border-radius: 12px;
-          border: 1.5px solid #b9c6d2; background: #fff; color: #16202b; cursor: pointer;
+          border: 1.5px solid var(--control-border); background: #fff; color: var(--text); cursor: pointer;
         }
-        .tap-btn-on { background: #0f6f5c; border-color: #0f6f5c; color: #fff; font-weight: 600; }
+        .tap-btn-on { background: var(--primary-strong); border-color: var(--primary-strong); color: #fff; font-weight: 600; }
         .reg-review-row {
           display: grid; grid-template-columns: 1fr auto; gap: 0.15rem 0.75rem;
           padding: 0.7rem 0; border-bottom: 1px solid #e7edf3;
         }
-        .reg-review-label { color: #4a5a6a; font-size: 16px; grid-column: 1 / -1; }
+        .reg-review-label { color: var(--text-secondary); font-size: 16px; grid-column: 1 / -1; }
         .reg-review-value { font-weight: 600; overflow-wrap: anywhere; }
         .reg-link {
           font: inherit; font-size: 16px; background: none; border: 0;
-          padding: 0.4rem; min-height: 48px; color: #0f6f5c;
+          padding: 0.4rem; min-height: 48px; color: var(--primary-strong);
           text-decoration: underline; cursor: pointer;
         }
         .reg-nudge {
-          background: #eef6f4; border-radius: 12px; padding: 0.7rem 0.9rem; font-size: 16px;
+          background: var(--secondary); border-radius: 12px; padding: 0.7rem 0.9rem; font-size: 16px;
         }
         .reg-consent { display: flex; gap: 0.6rem; align-items: flex-start; margin: 1.4rem 0; }
         .reg-consent input { width: 24px; height: 24px; margin-top: 0.25rem; }
         .reg-success {
           max-width: 32rem; margin: 0 auto; padding: 2rem 1rem;
-          text-align: center; font-size: 18px; color: #16202b;
+          text-align: center; font-size: 18px; color: var(--text);
         }
         .reg-success-title { font-size: 1.4rem; }
-        .reg-success-label { color: #4a5a6a; margin-bottom: 0.2rem; }
+        .reg-success-label { color: var(--text-secondary); margin-bottom: 0.2rem; }
         .reg-success-code {
           font-size: 2.6rem; letter-spacing: 0.2em; font-weight: 700;
-          color: #0f6f5c; margin: 0.2rem 0 1.5rem; direction: ltr;
+          color: var(--primary-strong); margin: 0.2rem 0 1.5rem; direction: ltr;
         }
-        .reg-success-note { color: #3b4a59; }
+        .reg-success-note { color: var(--text-secondary); }
         .reg-success-emergency { font-weight: 700; color: #b3261e; }
         @media (prefers-reduced-motion: reduce) {
           .reg-progress-fill { transition: none; }

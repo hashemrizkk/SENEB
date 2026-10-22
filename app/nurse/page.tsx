@@ -55,7 +55,7 @@ export default async function NursePage() {
   const emailReady = surveyEmailReady();
 
   return (
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
+    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24, fontFamily: "inherit" }}>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
         <div>
           <h1>Nurse survey review queue</h1>
@@ -82,7 +82,7 @@ export default async function NursePage() {
           const answers = readAnswers(submission.answers_json);
           const decision: NurseSurveyDecision | null = submission.nurse_decision;
           return (
-            <article key={submission.id} style={{ border: "1px solid #cbd7df", borderRadius: 12, padding: 16 }}>
+            <article key={submission.id} style={{ border: "1px solid var(--card-border)", borderRadius: 12, padding: 16 }}>
               <h2>{submission.full_name}</h2>
               <p>Submitted: {submission.created_at}</p>
               <p>Email (consented): <bdi dir="ltr">{submission.email ?? "Not collected"}</bdi></p>

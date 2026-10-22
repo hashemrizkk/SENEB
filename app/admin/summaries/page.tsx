@@ -16,7 +16,7 @@ export default async function AdminSummariesPage() {
 
   const summaries = latestCaseSummaries(20);
   return (
-    <main style={{ padding: 24, fontFamily: "system-ui, sans-serif" }}>
+    <main style={{ padding: 24, fontFamily: "inherit" }}>
       <h1>Developer check: case summaries</h1>
       <p>Developer check page, not for patients.</p>
       <p>Staff-only demo. Do not use with real patient data.</p>

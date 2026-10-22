@@ -23,7 +23,7 @@ export default function VoiceDemoPage() {
         maxWidth: 680,
         margin: "0 auto",
         padding: "1.25rem",
-        fontFamily: "system-ui, sans-serif",
+        fontFamily: "inherit",
         lineHeight: 1.7,
       }}
     >
@@ -39,7 +39,7 @@ export default function VoiceDemoPage() {
 
       <fieldset
         style={{
-          border: "1px solid #cbd5e1",
+          border: "1px solid var(--card-border)",
           borderRadius: 10,
           padding: "0.8rem",
         }}
@@ -81,7 +81,7 @@ export default function VoiceDemoPage() {
           marginTop: "1rem",
           padding: "0.9rem",
           borderRadius: 10,
-          background: "#eef6f4",
+          background: "var(--secondary)",
         }}
       >
         <h2 style={{ fontSize: "1.1rem", marginTop: 0 }}>العبارة المرجعية</h2>
@@ -98,10 +98,10 @@ export default function VoiceDemoPage() {
           style={{
             minHeight: 44,
             padding: "0.45rem 0.8rem",
-            border: "1px solid #0f6f5c",
+            border: "1px solid var(--primary-strong)",
             borderRadius: 8,
             background: "#fff",
-            color: "#0f6f5c",
+            color: "var(--primary-strong)",
             font: "inherit",
           }}
         >

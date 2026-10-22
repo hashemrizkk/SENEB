@@ -9,13 +9,13 @@ export default function SessionSummarySection({ patientId }: { patientId: number
   const approved = records.filter((row) => row.summary_status === "approved");
   const drafts = records.filter((row) => ["recording","review_roles","summarizing","draft"].includes(String(row.status)));
   const history = records.filter((row) => row.summary_status === "superseded");
-  return <section id="session-summary" style={{ border: "1px solid #d1d5db", borderRadius: 12, marginBlock: 16, padding: 16 }}>
+  return <section id="session-summary" style={{ border: "1px solid var(--card-border)", borderRadius: 12, marginBlock: 16, padding: 16 }}>
     <h2>Session summary</h2>
-    <p><Link href={`/doctor/${patientId}/session`} style={{ display: "inline-block", padding: "12px 16px", borderRadius: 8, background: "#173f35", color: "white" }}>Begin session</Link></p>
+    <p><Link href={`/doctor/${patientId}/session`} style={{ display: "inline-block", padding: "12px 16px", borderRadius: 8, background: "var(--primary-strong)", color: "white" }}>Begin session</Link></p>
     {drafts.length > 0 && <section aria-label="Session drafts"><h3>Drafts and in-progress sessions</h3>{drafts.map((row) => <p key={`${row.id}-${row.summary_id}`}><span style={{ border: "1px solid #9a6700", padding: 4 }}>Draft, not part of the record</span> {row.abandoned ? "Abandoned" : String(row.status)} · {formatCairoDateTime(String(row.created_at))} · <Link href={`/doctor/${patientId}/session?resume=${row.id}`}>Resume session</Link></p>)}</section>}
     {approved.length === 0 ? <p>No approved session summaries.</p> : approved.map((row) => {
       let points: Point[] = []; try { points = JSON.parse(String(row.final_points_json ?? "[]")) as Point[]; } catch { /* invalid stored data is not rendered */ }
-      return <article key={`${row.id}-${row.summary_id}`} style={{ borderTop: "1px solid #d1d5db", paddingBlock: 12 }}>
+      return <article key={`${row.id}-${row.summary_id}`} style={{ borderTop: "1px solid var(--card-border)", paddingBlock: 12 }}>
         <h3>{formatCairoDateTime(String(row.approved_at ?? row.created_at))}</h3>
         <p>{String(row.created_by_name)} · {Number(row.duration_seconds ?? 0)} seconds · {row.input_method === "pasted" ? "Pasted transcript" : "Voice recording"}</p>
         <ul>{points.map((point, index) => <li key={index}><strong>{point.category ?? "other"} · {point.speaker_role ?? "unattributed"}</strong>: {point.text} {/[0-9٠-٩۰-۹]/.test(point.text) && <strong>number as heard: verify</strong>} <small>({point.origin ?? "ai"})</small>{point.quotes?.length ? <details><summary>Show source</summary>{point.quotes.map((quote, quoteIndex) => <blockquote key={quoteIndex} dir="auto">{quote}</blockquote>)}</details> : null}</li>)}</ul>

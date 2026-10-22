@@ -227,10 +227,10 @@ export default async function DoctorIntakePage({
       {intake ? (
         <>
           {intake.meta?.needs_review ? (
-            <p role="status" style={{ background: "#fff7d6", padding: 12 }}>Extraction needs clinician review.</p>
+            <p role="status" style={{ background: "var(--important-bg)", padding: 12 }}>Extraction needs clinician review.</p>
           ) : null}
           {intake.meta?.contradiction ? (
-            <p role="status" style={{ background: "#fff7d6", padding: 12 }}>Potentially conflicting information was detected.</p>
+            <p role="status" style={{ background: "var(--important-bg)", padding: 12 }}>Potentially conflicting information was detected.</p>
           ) : null}
           {intake.meta?.survey ? (
             <section aria-labelledby="survey-review-title">

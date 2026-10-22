@@ -210,7 +210,7 @@ export default function RecordFollowupForm({
   return (
     <section
       aria-busy={busy}
-      style={{ border: "1px solid #cbd5e1", borderRadius: 12, marginTop: 24, padding: 20 }}
+      style={{ border: "1px solid var(--card-border)", borderRadius: 12, marginTop: 24, padding: 20 }}
     >
       <h2>Record a new clinic follow-up</h2>
       <p>This form uses the latest saved clinician note from the edit section, if available. Save note changes there before extracting.</p>
@@ -240,7 +240,7 @@ export default function RecordFollowupForm({
                           disabled={uncertain}
                           onClick={() => updateAnswer(field, option.value)}
                           style={{
-                            border: answers[field] === option.value ? "2px solid #1d4ed8" : "1px solid #64748b",
+                            border: answers[field] === option.value ? "2px solid var(--primary-strong)" : "1px solid var(--control-border)",
                             borderRadius: 8,
                             minHeight: 48,
                             padding: "8px 14px",
@@ -280,7 +280,7 @@ export default function RecordFollowupForm({
                             ? { ...current, [field]: current[field] === option.value ? null : option.value }
                             : current)}
                           style={{
-                            border: fields[field] === option.value ? "2px solid #1d4ed8" : "1px solid #64748b",
+                            border: fields[field] === option.value ? "2px solid var(--primary-strong)" : "1px solid var(--control-border)",
                             borderRadius: 8,
                             minHeight: 48,
                             padding: "8px 14px",

@@ -506,9 +506,9 @@ export default function VoiceInput({
       style={{
         margin: "0.75rem 0",
         padding: "0.8rem",
-        border: "1px solid #cbd5e1",
+        border: "1px solid var(--card-border)",
         borderRadius: 10,
-        background: "#f8fafc",
+        background: "var(--secondary)",
       }}
     >
       {showTranscript ? <>
@@ -542,7 +542,7 @@ export default function VoiceInput({
           boxSizing: "border-box",
           marginTop: "0.35rem",
           padding: "0.65rem",
-          border: "1px solid #94a3b8",
+          border: "1px solid var(--control-border)",
           borderRadius: 8,
           font: "inherit",
           fontSize: 18,
@@ -648,17 +648,17 @@ export default function VoiceInput({
 const buttonStyle: React.CSSProperties = {
   minHeight: 48,
   padding: "0.45rem 0.75rem",
-  border: "1px solid #0f6f5c",
+  border: "1px solid var(--primary-strong)",
   borderRadius: 8,
-  background: "#fff",
-  color: "#0f6f5c",
+  background: "var(--surface)",
+  color: "var(--primary-strong)",
   font: "inherit",
   cursor: "pointer",
 };
 
 const hintStyle: React.CSSProperties = {
   margin: "0.45rem 0 0",
-  color: "#475569",
+  color: "var(--text-secondary)",
   fontSize: "0.9rem",
 };
 

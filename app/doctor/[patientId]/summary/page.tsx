@@ -222,11 +222,11 @@ export default async function DoctorCasePage({
     : null;
 
   return (
-    <main style={{ maxWidth: 1000, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
+    <main style={{ maxWidth: 1000, margin: "0 auto", padding: 24, fontFamily: "inherit" }}>
       <header>
         <p><Link href={`/doctor/${patient.id}`}>← Intake review</Link> · <Link href="/doctor">Queue</Link> · <Link href="#visit-note">Visit note</Link> · <Link href="#session-summary">Session summary</Link></p>
         <h1>Case summary: {patient.name}</h1>
-        <p><Link href={`/doctor/${patient.id}/session`} style={{ display: "inline-block", padding: "12px 16px", borderRadius: 8, background: "#173f35", color: "white" }}>Begin session</Link></p>
+        <p><Link href={`/doctor/${patient.id}/session`} style={{ display: "inline-block", padding: "12px 16px", borderRadius: 8, background: "var(--primary-strong)", color: "white" }}>Begin session</Link></p>
         <p>
           Age: {patient.age ?? "Not recorded"} · Diabetes type:{" "}
           {patient.diabetes_type ?? "Not recorded"}
@@ -258,7 +258,7 @@ export default async function DoctorCasePage({
       </header>
 
       {stale ? (
-        <p role="status" style={{ background: "#fff7d6", padding: 12 }}>
+        <p role="status" style={{ background: "var(--important-bg)", padding: 12 }}>
           A newer intake exists. Regenerate.
         </p>
       ) : null}
@@ -412,7 +412,7 @@ export default async function DoctorCasePage({
 }
 
 const sectionStyle = {
-  border: "1px solid #d1d5db",
+  border: "1px solid var(--card-border)",
   borderRadius: 12,
   marginBlock: 16,
   padding: 16,

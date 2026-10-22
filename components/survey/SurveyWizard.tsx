@@ -147,8 +147,8 @@ export default function SurveyWizard() {
       <style>{`
         .survey-page {
           box-sizing: border-box; max-width: 36rem; min-height: 100vh;
-          margin: 0 auto; padding: 1rem 1rem 2rem; background: #fff;
-          color: #16202b; font: 18px/1.7 system-ui, sans-serif;
+          margin: 0 auto; padding: 1rem 1rem 2rem; background: var(--bg);
+          color: var(--text); font: inherit; font-size: 18px; line-height: 1.7;
         }
         .survey-page *, .survey-page *::before, .survey-page *::after { box-sizing: border-box; }
         .survey-banner { padding: .7rem .85rem; border-radius: 12px; margin: 0 0 .75rem; }
@@ -158,33 +158,33 @@ export default function SurveyWizard() {
         .survey-progress { margin: 1rem 0 1.4rem; }
         .survey-progress-label { margin: 0 0 .3rem; font-size: 16px; }
         .survey-track { height: 9px; overflow: hidden; border-radius: 999px; background: #e7edf3; }
-        .survey-fill { height: 100%; border-radius: inherit; background: #0f6f5c; transition: width 180ms ease; }
+        .survey-fill { height: 100%; border-radius: inherit; background: var(--primary-strong); transition: width 180ms ease; }
         .survey-title { font-size: 1.45rem; line-height: 1.4; margin: .2rem 0 1rem; }
         .survey-copy { margin: .5rem 0 1rem; }
         .survey-field { margin: 1rem 0; }
         .survey-label { display: block; font-weight: 700; margin-bottom: .4rem; }
         .survey-input {
           width: 100%; min-height: 52px; padding: .65rem .8rem; border-radius: 12px;
-          border: 1.5px solid #aab9c6; background: #fff; color: #16202b;
+          border: 1.5px solid var(--control-border); background: #fff; color: var(--text);
           font: inherit; font-size: 18px;
         }
         .survey-input:focus-visible, .survey-option:focus-visible, .survey-button:focus-visible,
         .survey-link:focus-visible {
-          outline: 3px solid #0f6f5c; outline-offset: 2px;
+          outline: 3px solid var(--primary-strong); outline-offset: 2px;
         }
         .survey-options { display: grid; gap: .65rem; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); }
         .survey-option, .survey-button {
-          min-height: 50px; padding: .55rem .9rem; border: 1.5px solid #9eafbc;
-          border-radius: 12px; background: white; color: #16202b; font: inherit;
+          min-height: 50px; padding: .55rem .9rem; border: 1.5px solid var(--control-border);
+          border-radius: 12px; background: white; color: var(--text); font: inherit;
           font-size: 18px; cursor: pointer;
         }
-        .survey-option[aria-pressed="true"] { background: #0f6f5c; border-color: #0f6f5c; color: white; font-weight: 700; }
+        .survey-option[aria-pressed="true"] { background: var(--primary-strong); border-color: var(--primary-strong); color: white; font-weight: 700; }
         .survey-actions { display: flex; gap: .7rem; margin-top: 1.5rem; }
-        .survey-button { flex: 1; border-color: #0f6f5c; color: #0f6f5c; font-weight: 700; }
-        .survey-primary { background: #0f6f5c; color: #fff; }
+        .survey-button { flex: 1; border-color: var(--primary-strong); color: var(--primary-strong); font-weight: 700; }
+        .survey-primary { background: var(--primary-strong); color: #fff; }
         .survey-error { color: #a11d1d; font-weight: 700; }
-        .survey-result-card { padding: 1rem; border: 1px solid #cbd7df; border-radius: 16px; background: #f8fbfc; }
-        .survey-small { font-size: 16px; color: #455563; }
+        .survey-result-card { padding: 1rem; border: 1px solid var(--card-border); border-radius: 16px; background: var(--secondary); }
+        .survey-small { font-size: 16px; color: var(--text-secondary); }
         .survey-consent { display: flex; gap: .7rem; align-items: flex-start; margin-block: 1rem; }
         .survey-checkbox { width: 24px; height: 24px; flex: 0 0 24px; margin-top: .3rem; }
         .survey-honeypot { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
