@@ -2,13 +2,18 @@ import Link from "next/link";
 import { after } from "next/server";
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import db, { getFollowupPlanDraft, getPatientRecord, type PatientIntakeRecord } from "@/lib/db";
+import {
+  default as db,
+  getAfterWorkRatingForNote,
+  getPatientRecord,
+  type PatientIntakeRecord,
+} from "@/lib/db";
 import { requireDoctorSession } from "@/lib/doctor-review";
 import { formatCairoDateTime } from "@/lib/date-time";
 import { flagLabel, followupQuestions, questionLabel } from "@/lib/questions";
 import { intakeFieldsSchema } from "@/lib/intake";
 import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
-import NewFollowupForm from "./NewFollowupForm";
+import RecordFollowupForm from "./RecordFollowupForm";
 import ReviewEditForm from "./ReviewEditForm";
 import { generateSummarySafely, summaryIsMissingOrStale } from "@/lib/summary-background";
 import { priorityForIntake } from "@/lib/intake-priority";
@@ -19,6 +24,7 @@ import {
   AUSDRISK_MAX_SCORE,
   type AusdriskItem,
 } from "@/lib/survey/ausdrisk";
+import { afterWorkRatingSchema } from "@/lib/summary-types";
 
 export const dynamic = "force-dynamic";
 
@@ -126,9 +132,32 @@ export default async function DoctorIntakePage({
     after(() => generateSummarySafely(patientId));
   }
   const intake = selectedIntake(record.intakes, intakeId);
-  const followupDraftAvailable = intake
-    ? getFollowupPlanDraft(db, intake.id) !== null
-    : false;
+  const currentNote = intake?.doctorNotes[intake.doctorNotes.length - 1]?.note_text ?? "";
+  const savedClinicianNote = record.intakes
+    .flatMap((item) => item.doctorNotes)
+    .filter((note) => note.note_text?.trim())
+    .sort((left, right) =>
+      (right.created_at ?? "").localeCompare(left.created_at ?? "") ||
+      right.id - left.id
+    )[0]?.note_text ?? "";
+  const storedNoteRating = intake
+    ? getAfterWorkRatingForNote(db, patientId, intake.id, currentNote)
+    : null;
+  const noteRating = storedNoteRating
+    ? afterWorkRatingSchema.parse(JSON.parse(storedNoteRating.payload_json))
+    : null;
+  const noteRatingDisplay = noteRating && storedNoteRating
+    ? {
+        rating: noteRating.note_rating,
+        mode: storedNoteRating.mode,
+        note: currentNote,
+        details: [
+          ...noteRating.note_missing_required.map((item) => `Missing required: ${item}`),
+          ...noteRating.note_missing_important.map((item) => `Missing important: ${item}`),
+          ...noteRating.note_suggestions.map((item) => `Suggestion: ${item}`),
+        ],
+      }
+    : null;
 
   return (
     <main style={{ maxWidth: 1000, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
@@ -276,7 +305,7 @@ export default async function DoctorIntakePage({
             key={`${intake.id}:${intake.version}`}
             intake={intake}
             patient={record.patient}
-            followupDraftAvailable={followupDraftAvailable}
+            initialNoteRating={noteRatingDisplay}
           />
           <section>
             <h2>Revision history for this record</h2>
@@ -330,7 +359,10 @@ export default async function DoctorIntakePage({
           ) : null}
         </>
       ) : null}
-      <NewFollowupForm patientId={patientId} />
+      <RecordFollowupForm
+        patient={record.patient}
+        savedClinicianNote={savedClinicianNote}
+      />
     </main>
   );
 }

@@ -10,11 +10,14 @@ import {
   listDoctorQueue,
   migrateDoctorReview,
   savePatientIntake,
-  saveClinicianEdit,
   type ReviewFilter,
   type ReviewIntake,
 } from "./doctor-review.ts";
 import type { FollowupPlan } from "./followup-plan.ts";
+import { buildFacts } from "./case-facts.ts";
+import type { AfterWorkRating, AfterWorkRatingInput } from "./summary-types.ts";
+import { redFlags } from "./rules.ts";
+import type { IntakeFields } from "./intake.ts";
 
 // ----- Connection (singleton for dev hot-reload) -----
 
@@ -93,6 +96,9 @@ db.transaction(() => {
   if (!intakeColumnNamesBeforeMigrations.has("meta_json")) {
     db.exec("ALTER TABLE intakes ADD COLUMN meta_json TEXT");
   }
+  if (!intakeColumnNamesBeforeMigrations.has("followup_request_id")) {
+    db.exec("ALTER TABLE intakes ADD COLUMN followup_request_id TEXT");
+  }
 
   for (const [columnName, sql] of patientMigrations) {
     if (!patientColumnNames.has(columnName)) db.exec(sql);
@@ -105,6 +111,9 @@ db.transaction(() => {
   );
   db.exec(
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_request_id ON patients(request_id)",
+  );
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_intakes_followup_request_id ON intakes(followup_request_id) WHERE followup_request_id IS NOT NULL",
   );
 })();
 
@@ -217,18 +226,35 @@ if (!surveyDecisionHistoryColumns.has("assessment_confirmed_at")) {
 }
 
 export function migrateFollowupPlanDrafts(database: Database.Database): void {
+export function migrateAfterWorkRatings(database: Database.Database): void {
+  const tableExists = database.prepare<[string], { name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+  ).get("after_work_ratings");
+  if (!tableExists) {
+    database.exec(`
+      CREATE TABLE after_work_ratings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+        intake_id INTEGER NOT NULL REFERENCES intakes(id) ON DELETE CASCADE,
+        note_hash TEXT NOT NULL,
+        note_rating TEXT NOT NULL CHECK (note_rating IN ('green', 'yellow', 'red')),
+        profile_rating TEXT NOT NULL CHECK (profile_rating IN ('green', 'yellow', 'red')),
+        payload_json TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK (mode IN ('llm', 'mock', 'fallback')),
+        model TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+  }
   database.exec(`
-    CREATE TABLE IF NOT EXISTS followup_plan_drafts (
-      intake_id INTEGER PRIMARY KEY REFERENCES intakes(id) ON DELETE CASCADE,
-      note_hash TEXT NOT NULL,
-      plan_json TEXT NOT NULL,
-      generation_mode TEXT NOT NULL CHECK (generation_mode IN ('mock', 'llm')),
-      created_at TEXT NOT NULL
-    )
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_after_work_rating_note
+      ON after_work_ratings(intake_id, note_hash);
+    CREATE INDEX IF NOT EXISTS idx_after_work_rating_patient
+      ON after_work_ratings(patient_id, created_at DESC);
   `);
 }
 
-migrateFollowupPlanDrafts(db);
+migrateAfterWorkRatings(db);
 
 // ----- Types -----
 
@@ -298,12 +324,142 @@ export type PatientRecord = {
   latestIntake: PatientIntakeRecord | null;
 };
 
-export type StoredFollowupPlanDraft = {
+export type StoredAfterWorkRating = {
+  id: number;
+  patient_id: number;
   intake_id: number;
-  plan_json: string;
-  generation_mode: "mock" | "llm";
+  note_hash: string;
+  note_rating: "green" | "yellow" | "red";
+  profile_rating: "green" | "yellow" | "red";
+  payload_json: string;
+  mode: "llm" | "mock" | "fallback";
+  model: string | null;
   created_at: string;
 };
+
+export function buildAfterWorkRatingInput(
+  database: Database.Database,
+  intakeId: number,
+  note: string,
+  today = new Date(),
+): { patientId: number; input: AfterWorkRatingInput } | null {
+  const row = database.prepare<[number], { patient_id: number }>(
+    "SELECT patient_id FROM intakes WHERE id = ?",
+  ).get(intakeId);
+  if (!row) return null;
+  const record = getDoctorPatientRecord(database, row.patient_id);
+  const intake = record?.intakes.find((item) => item.id === intakeId);
+  if (!record || !intake) return null;
+  const patient = record.patient;
+  const facts = buildFacts(patient, intake.fields, today);
+  const careItems: AfterWorkRatingInput["patient_profile"]["care_items"] = [
+    { item: "HbA1c", ...facts.care_gaps.hba1c },
+    { item: "Foot exam", ...facts.care_gaps.foot_exam },
+    { item: "Blood pressure", ...facts.care_gaps.blood_pressure },
+    {
+      item: "Eye exam",
+      date: patient.last_eye_exam_date,
+      days_since: null,
+      overdue: false,
+      threshold_days: 0,
+    },
+    {
+      item: "Kidney labs",
+      date: patient.last_kidney_labs_date,
+      days_since: null,
+      overdue: false,
+      threshold_days: 0,
+    },
+  ];
+  return {
+    patientId: patient.id,
+    input: {
+      doctor_note: note,
+      patient_profile: {
+        age: patient.age,
+        diabetes_type: patient.diabetes_type,
+        phone: patient.phone === null ? null : "recorded",
+        messaging_consent: patient.consent_at !== null,
+        next_visit_date: patient.next_visit_date,
+        care_items: careItems,
+      },
+    },
+  };
+}
+
+export function hasAfterWorkRating(
+  database: Database.Database,
+  intakeId: number,
+  note: string,
+): boolean {
+  const hash = noteHash(note);
+  return Boolean(database.prepare<[number, string], { id: number }>(
+    "SELECT id FROM after_work_ratings WHERE intake_id = ? AND note_hash = ? LIMIT 1",
+  ).get(intakeId, hash));
+}
+
+export function getAfterWorkRatingForNote(
+  database: Database.Database,
+  patientId: number,
+  intakeId: number,
+  note: string,
+): StoredAfterWorkRating | null {
+  if (!note.trim()) return null;
+  return database.prepare<[number, number, string], StoredAfterWorkRating>(
+    `SELECT id, patient_id, intake_id, note_hash, note_rating, profile_rating,
+            payload_json, mode, model, created_at
+     FROM after_work_ratings
+     WHERE patient_id = ? AND intake_id = ? AND note_hash = ?
+     ORDER BY created_at DESC, id DESC LIMIT 1`,
+  ).get(patientId, intakeId, noteHash(note)) ?? null;
+}
+
+export function saveAfterWorkRating(
+  database: Database.Database,
+  input: {
+    patientId: number;
+    intakeId: number;
+    note: string;
+    output: AfterWorkRating;
+    mode: "llm" | "mock" | "fallback";
+    model: string | null;
+    now?: Date;
+  },
+): boolean {
+  if (!input.note.trim() || getLatestClinicianNote(database, input.intakeId) !== input.note) {
+    return false;
+  }
+  const result = database.prepare(
+    `INSERT OR IGNORE INTO after_work_ratings (
+       patient_id, intake_id, note_hash, note_rating, profile_rating,
+       payload_json, mode, model, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.patientId,
+    input.intakeId,
+    noteHash(input.note),
+    input.output.note_rating,
+    input.output.profile_rating,
+    JSON.stringify(input.output),
+    input.mode,
+    input.model,
+    (input.now ?? new Date()).toISOString(),
+  );
+  return result.changes === 1;
+}
+
+export function latestAfterWorkRating(
+  database: Database.Database,
+  patientId: number,
+): StoredAfterWorkRating | null {
+  return database.prepare<[number], StoredAfterWorkRating>(
+    `SELECT id, patient_id, intake_id, note_hash, note_rating, profile_rating,
+            payload_json, mode, model, created_at
+     FROM after_work_ratings
+     WHERE patient_id = ?
+     ORDER BY created_at DESC, id DESC LIMIT 1`,
+  ).get(patientId) ?? null;
+}
 
 export function getLatestClinicianNote(database: Database.Database, intakeId: number): string | null {
   const note = database.prepare<[number], { note_text: string | null }>(
@@ -318,46 +474,6 @@ export function getLatestClinicianNote(database: Database.Database, intakeId: nu
 
 function noteHash(note: string): string {
   return createHash("sha256").update(note).digest("hex");
-}
-
-export function getFollowupPlanDraft(
-  database: Database.Database,
-  intakeId: number,
-  expectedNote?: string,
-): StoredFollowupPlanDraft | null {
-  const currentNote = getLatestClinicianNote(database, intakeId);
-  if (!currentNote || (expectedNote !== undefined && currentNote !== expectedNote)) return null;
-  const draft = database.prepare<[number], StoredFollowupPlanDraft & { note_hash: string }>(
-    `SELECT intake_id, note_hash, plan_json, generation_mode, created_at
-     FROM followup_plan_drafts WHERE intake_id = ?`,
-  ).get(intakeId);
-  return draft?.note_hash === noteHash(currentNote) ? draft : null;
-}
-
-export function saveFollowupPlanDraft(
-  database: Database.Database,
-  intakeId: number,
-  note: string,
-  plan: FollowupPlan,
-  generationMode: "mock" | "llm",
-  now = new Date(),
-): boolean {
-  if (!note.trim() || getLatestClinicianNote(database, intakeId) !== note) return false;
-  database.prepare(
-    `INSERT INTO followup_plan_drafts (
-       intake_id, note_hash, plan_json, generation_mode, created_at
-     ) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(intake_id) DO UPDATE SET
-       note_hash = excluded.note_hash,
-       plan_json = excluded.plan_json,
-       generation_mode = excluded.generation_mode,
-       created_at = excluded.created_at`,
-  ).run(intakeId, noteHash(note), JSON.stringify(plan), generationMode, now.toISOString());
-  return true;
-}
-
-export function deleteFollowupPlanDraft(database: Database.Database, intakeId: number): void {
-  database.prepare("DELETE FROM followup_plan_drafts WHERE intake_id = ?").run(intakeId);
 }
 
 export type QueueFilter = ReviewFilter;
@@ -514,6 +630,7 @@ export function createPatient(data: {
   name: string;
   phone: string;
   age?: number | null;
+  next_visit_date?: string | null;
   request_id?: string | null;
   email?: string | null;
   self_description?: string | null;
@@ -524,13 +641,15 @@ export function createPatient(data: {
   const result = db
     .prepare(
       `INSERT INTO patients (
-        name, age, phone, request_id, email, self_description, reference_code, consent_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        name, age, phone, next_visit_date, request_id, email, self_description,
+        reference_code, consent_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       data.name,
       data.age ?? null,
       data.phone,
+      data.next_visit_date ?? null,
       data.request_id ?? null,
       data.email ?? null,
       data.self_description ?? null,
@@ -576,8 +695,9 @@ export type StoredOutboxMessage = {
 
 export function enqueueOutboxMessage(
   message: Omit<StoredOutboxMessage, "id" | "attempts" | "provider_ref" | "error" | "phone">,
+  database: Database.Database = db,
 ): number {
-  const result = db.prepare(
+  const result = database.prepare(
     `INSERT INTO messages (patient_id, kind, body, status, scheduled_at, sent_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
   ).run(
@@ -589,6 +709,180 @@ export function enqueueOutboxMessage(
     message.sent_at,
   );
   return Number(result.lastInsertRowid);
+}
+
+export function saveRecordedFollowup(
+  database: Database.Database,
+  input: {
+    patientId: number;
+    requestId: string;
+    staffName: string;
+    note: string;
+    input_method: InputMethod;
+    fields: IntakeFields;
+    plan: FollowupPlan;
+    recapBody: string | null;
+    recapScheduledAt: string | null;
+    reminderBody: string | null;
+    reminderScheduledAt: string | null;
+    now?: Date;
+  },
+): {
+  intakeId: number;
+  duplicate: boolean;
+  noteMatches: boolean;
+  recapQueued: boolean;
+  reminderQueued: boolean;
+} {
+  const now = input.now ?? new Date();
+  return database.transaction(() => {
+    const existing = database.prepare<
+      [string],
+      { id: number; patient_id: number }
+    >(
+      "SELECT id, patient_id FROM intakes WHERE followup_request_id = ?",
+    ).get(input.requestId);
+    if (existing) {
+      if (existing.patient_id !== input.patientId) {
+        throw new Error("The request ID is already assigned to another patient.");
+      }
+      const savedNote = database.prepare<
+        [number, number],
+        { note_text: string | null }
+      >(
+        `SELECT note_text FROM notes
+         WHERE patient_id = ? AND check_result_json = 'intake:' || ?
+           AND edited_by IS NOT NULL
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+      ).get(input.patientId, existing.id)?.note_text ?? "";
+      return {
+        intakeId: existing.id,
+        duplicate: true,
+        noteMatches: savedNote === input.note.trim(),
+        recapQueued: false,
+        reminderQueued: false,
+      };
+    }
+
+    const record = getDoctorPatientRecord(database, input.patientId);
+    if (!record) throw new Error("Patient not found.");
+    const timestamp = now.toISOString();
+    const note = input.note.trim();
+    const flags = redFlags(input.fields);
+    const intakeId = savePatientIntake(
+      database,
+      {
+        patient_id: input.patientId,
+        input_method: input.input_method,
+        raw_text: note || null,
+        structured_json: JSON.stringify(input.fields),
+        red_flags_json: JSON.stringify(flags),
+        meta_json: null,
+      },
+      timestamp,
+      {
+        source: "clinician",
+        editedBy: input.staffName,
+        reason: "Clinic follow-up.",
+      },
+    );
+    database.prepare(
+      "UPDATE intakes SET followup_request_id = ? WHERE id = ?",
+    ).run(input.requestId, intakeId);
+    if (note) {
+      database.prepare(
+        `INSERT INTO notes (
+           patient_id, note_text, check_result_json, override_reason,
+           edited_by, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.patientId,
+        note,
+        `intake:${intakeId}`,
+        "Clinic follow-up.",
+        input.staffName,
+        timestamp,
+      );
+    }
+
+    database.prepare(
+      `INSERT INTO followups (
+         patient_id, intake_id, plan_json, next_visit_date,
+         confirmed_by, confirmed_at, message, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed')`,
+    ).run(
+      input.patientId,
+      intakeId,
+      JSON.stringify(input.plan),
+      input.plan.next_visit_date,
+      input.staffName,
+      timestamp,
+      null,
+    );
+    if (input.plan.next_visit_date !== null) {
+      database.prepare("UPDATE patients SET next_visit_date = ? WHERE id = ?")
+        .run(input.plan.next_visit_date, input.patientId);
+    }
+    if (
+      input.plan.next_visit_date !== null &&
+      record.patient.next_visit_date !== null &&
+      record.patient.next_visit_date !== input.plan.next_visit_date
+    ) {
+      database.prepare(
+        "UPDATE messages SET status = 'canceled' WHERE patient_id = ? AND kind = 'reminder' AND status = 'queued'",
+      ).run(input.patientId);
+    }
+
+    const contact = database.prepare<
+      [number],
+      { phone: string | null; consent_at: string | null }
+    >("SELECT phone, consent_at FROM patients WHERE id = ?").get(input.patientId);
+    let recapQueued = false;
+    let reminderQueued = false;
+    if (input.recapBody && input.recapScheduledAt && contact?.phone && contact.consent_at) {
+      enqueueOutboxMessage({
+        patient_id: input.patientId,
+        kind: "recap",
+        body: input.recapBody,
+        status: "queued",
+        scheduled_at: input.recapScheduledAt,
+        sent_at: null,
+      }, database);
+      recapQueued = true;
+    }
+    const reminderAlreadyExists = input.reminderBody
+      ? database.prepare<[number, string], { count: number }>(
+          `SELECT COUNT(*) AS count FROM messages
+           WHERE patient_id = ? AND kind = 'reminder' AND body = ?
+             AND status IN ('queued', 'sent')`,
+        ).get(input.patientId, input.reminderBody)?.count ?? 0
+      : 0;
+    if (
+      input.plan.next_visit_date &&
+      input.reminderBody &&
+      input.reminderScheduledAt &&
+      contact?.phone &&
+      contact.consent_at &&
+      reminderAlreadyExists === 0
+    ) {
+      enqueueOutboxMessage({
+        patient_id: input.patientId,
+        kind: "reminder",
+        body: input.reminderBody,
+        status: "queued",
+        scheduled_at: input.reminderScheduledAt,
+        sent_at: null,
+      }, database);
+      reminderQueued = true;
+    }
+    return {
+      intakeId,
+      duplicate: false,
+      noteMatches: true,
+      recapQueued,
+      reminderQueued,
+    };
+  })();
 }
 
 export function dueMessages(now: string): StoredOutboxMessage[] {
@@ -737,7 +1031,7 @@ export function saveNurseSurveyDecision(input: {
     const current = db.prepare<
       [number],
       Pick<SurveySubmissionRow, "nurse_decision" | "nurse_name" | "email_status">
-    >("SELECT nurse_decision, nurse_name, email_status FROM survey_submissions WHERE id = ?")
+    >( "SELECT nurse_decision, nurse_name, email_status FROM survey_submissions WHERE id = ?")
       .get(input.id);
     if (!current) return "not_found";
     if (current.email_status === "sending") return "message_in_progress";
@@ -917,5 +1211,6 @@ export function cancelQueuedRecap(patientId: number, messageId: number): boolean
   ).run(messageId, patientId);
   return result.changes === 1;
 }
+
 
 export default db;

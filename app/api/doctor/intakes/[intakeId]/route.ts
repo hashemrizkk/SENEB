@@ -2,15 +2,13 @@ import { after, NextResponse } from "next/server";
 import db, {
   getLatestClinicianNote,
   getPatientRecord,
-  saveFollowupPlanDraft,
 } from "@/lib/db";
+import { generateAndSaveAfterWorkRating } from "@/lib/after-work-rating";
 import {
   clinicianEditSchema,
   requestDoctorSession,
   saveClinicianEdit,
 } from "@/lib/doctor-review";
-import { generateFollowupPlanDraft } from "@/lib/followup-plan-drafts";
-import { draftFollowupPlan, hasSummaryProviderConfigured } from "@/lib/llm";
 import { hasSameOrigin, readJsonBody } from "@/lib/requestGuards";
 
 export const runtime = "nodejs";
@@ -48,44 +46,13 @@ export async function PUT(
       previousNote,
     );
     if (result.ok) {
-      if (result.noteChanged && parsed.data.note) {
-        const note = parsed.data.note;
-        const patientRecord = getPatientRecord(result.record.patient_id);
-        const intake = patientRecord?.intakes.find((item) => item.id === intakeId);
-        if (patientRecord && intake) {
-          const payload = {
-            patient: {
-              age: patientRecord.patient.age,
-              diabetes_type: patientRecord.patient.diabetes_type,
-              next_visit_date: patientRecord.patient.next_visit_date,
-            },
-            intake: {
-              answers: intake.fields,
-              flags: intake.flags,
-              patient_text: intake.raw_text,
-            },
-            doctor_note: parsed.data.note,
-          };
-          after(() =>
-            generateFollowupPlanDraft(
-              {
-                intakeId,
-                noteChanged: true,
-                note,
-                existingDate: patientRecord.patient.next_visit_date,
-                patientDates: patientRecord.patient,
-                payload,
-              },
-              {
-                providerConfigured: hasSummaryProviderConfigured(),
-                generate: draftFollowupPlan,
-                save: (id, note, plan, mode) =>
-                  saveFollowupPlanDraft(db, id, note, plan, mode),
-              },
-            ),
-          );
-        } else {
-          console.error("Automatic follow-up draft could not load the saved intake.");
+      const note = parsed.data.note;
+      if (result.noteChanged && note) {
+        try {
+          after(() => generateAndSaveAfterWorkRating(intakeId, note));
+        } catch (error: unknown) {
+          const errorType = error instanceof Error ? error.constructor.name : "UnknownError";
+          console.error(`Could not schedule after-work rating (${errorType}).`);
         }
       }
       return NextResponse.json({

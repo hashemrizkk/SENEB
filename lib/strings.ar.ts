@@ -112,6 +112,9 @@ export const ar = {
   returnPrecautionsPrefix: "ارجع للعيادة فورًا لو ظهر:",
   encounterDraftError:
     "تعذّر إنشاء المسودة. A follow-up draft could not be created. Nothing was saved—please try again.",
+  doctorFollowup: {
+    extractLabel: "استخراج خطة المتابعة",
+  },
   visitReminder: (date: string, clinicLine = "فريق العيادة") =>
     `تذكير بموعدك يوم ${date} — ${clinicLine}`,
   consentNote: "بإرسال إجاباتك، أنت موافق إنها تتشارك مع فريق العيادة.",

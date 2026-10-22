@@ -9,9 +9,14 @@ import {
 } from "./intake.ts";
 import {
   summaryLlmOutputSchema,
+  afterWorkRatingInputSchema,
+  afterWorkRatingSchema,
+  type AfterWorkRating,
+  type AfterWorkRatingInput,
   type SummaryLlmInput,
 } from "./summary-types.ts";
 import { CASE_SUMMARY_SYSTEM_PROMPT } from "./llm-prompts/case-summary.ts";
+import { AFTER_WORK_RATING_SYSTEM_PROMPT } from "./llm-prompts/after-work.ts";
 import {
   firstValidProvider,
   InvalidProviderOutputError,
@@ -19,6 +24,7 @@ import {
   type ProviderAttempt,
 } from "./provider-fallback.ts";
 import { createFollowupPlanSchema } from "./followup-plan.ts";
+import { verifyQuote } from "./text-normalize.ts";
 
 const GEMINI_MODEL = "gemini-3.8-flash";
 const GROQ_MODEL = process.env.GROQ_MODEL;
@@ -181,6 +187,234 @@ async function structuredProvider<T>(
   if (!result) throw new Error("Structured generation failed for all configured providers.");
   return result.value;
 }
+
+export type AfterWorkRatingGenerator = (
+  input: AfterWorkRatingInput,
+) => Promise<{ output: unknown; model: string }>;
+
+function unrecordedProfileRating(input: AfterWorkRatingInput): AfterWorkRating {
+  return {
+    ...emptyNoteRating,
+    ...profileCompleteness(input),
+  };
+}
+
+const emptyNoteRating = {
+  note_rating: "red",
+  note_assessment: "The note is missing clinician documentation. Add a short note describing what was done at this visit.",
+  note_missing_required: [
+    "What was done at this visit is not documented.",
+    "A follow-up interval or next visit date is not documented.",
+    "Medication changes or an explicit statement that there were none are not documented.",
+  ],
+  note_missing_important: [
+    "A monitoring or self-monitoring plan is not documented.",
+    "Patient instructions are not documented.",
+    "Care gaps addressed are not documented.",
+    "Return precautions are not documented.",
+  ],
+  note_present: [],
+  note_suggestions: [
+    "Add a short note describing what was done at this visit.",
+  ],
+} satisfies Pick<
+  AfterWorkRating,
+  | "note_rating"
+  | "note_assessment"
+  | "note_missing_required"
+  | "note_missing_important"
+  | "note_present"
+  | "note_suggestions"
+>;
+
+function profileCompleteness(input: AfterWorkRatingInput): Pick<
+  AfterWorkRating,
+  "profile_rating" | "profile_gaps"
+> {
+  const gaps: AfterWorkRating["profile_gaps"] = [];
+  let requiredMissing = false;
+  let importantMissing = false;
+  if (!input.patient_profile.phone?.trim() || input.patient_profile.messaging_consent !== true) {
+    gaps.push({
+      field: "phone and messaging consent",
+      importance: "required",
+      reason: "A working phone number and messaging consent are not both recorded.",
+    });
+    requiredMissing = true;
+  }
+  if (!input.patient_profile.next_visit_date?.trim()) {
+    gaps.push({
+      field: "next visit date or interval",
+      importance: "required",
+      reason: "No next visit date or planned interval is recorded.",
+    });
+    requiredMissing = true;
+  }
+  if (input.patient_profile.age === null) {
+    gaps.push({ field: "age", importance: "important", reason: "Age is not recorded." });
+    importantMissing = true;
+  }
+  for (const item of input.patient_profile.care_items) {
+    if (!item.date?.trim() || item.overdue) {
+      gaps.push({
+        field: item.item,
+        importance: "important",
+        reason: !item.date?.trim()
+          ? `No date is recorded for ${item.item}.`
+          : `${item.item} is past its recorded threshold.`,
+      });
+      importantMissing = true;
+    }
+  }
+  if (!input.patient_profile.diabetes_type?.trim()) {
+    gaps.push({
+      field: "diabetes type",
+      importance: "optional",
+      reason: "Diabetes type is not recorded.",
+    });
+  }
+  return {
+    profile_rating: requiredMissing
+      ? "red"
+      : importantMissing
+        ? "yellow"
+        : "green",
+    profile_gaps: gaps.slice(0, 12),
+  };
+}
+
+const quotedTextPattern = /"([^"]+)"|'([^']+)'|“([^”]+)”|‘([^’]+)’|«([^»]+)»|„([^“]+)“/gu;
+const bannedRatingTerms = /\burgent\b|\bemergency\b|\bsevere\b|\bcritical\b|\bhigh\s+risk\b|\blow\s+risk\b/i;
+
+function cleanUnverifiedQuotes(value: string, note: string): { value: string; invalid: boolean } {
+  let invalid = false;
+  const cleaned = value.replace(quotedTextPattern, (full, ...captures: unknown[]) => {
+    const quote = captures.find((capture): capture is string => typeof capture === "string");
+    if (quote && verifyQuote(note, quote)) return full;
+    invalid = true;
+    return "";
+  }).replace(/\s{2,}/g, " ").trim();
+  return { value: cleaned, invalid };
+}
+
+export function verifyAfterWorkRatingQuotes(
+  output: AfterWorkRating,
+  note: string,
+): AfterWorkRating {
+  const cleanList = (values: string[]) => values.flatMap((value) => {
+    const cleaned = cleanUnverifiedQuotes(value, note);
+    return cleaned.invalid || cleaned.value.length === 0 ? [] : [cleaned.value];
+  });
+  return {
+    ...output,
+    note_assessment: cleanUnverifiedQuotes(output.note_assessment, note).value,
+    note_missing_required: cleanList(output.note_missing_required),
+    note_missing_important: cleanList(output.note_missing_important),
+    note_present: cleanList(output.note_present),
+    note_suggestions: cleanList(output.note_suggestions),
+    profile_gaps: output.profile_gaps.map((gap) => ({
+      ...gap,
+      field: cleanUnverifiedQuotes(gap.field, note).value,
+      reason: cleanUnverifiedQuotes(gap.reason, note).value,
+    })),
+  };
+}
+
+function hasUnsafeRatingLanguage(output: AfterWorkRating): boolean {
+  return [
+    output.note_assessment,
+    ...output.note_missing_required,
+    ...output.note_missing_important,
+    ...output.note_suggestions,
+    ...output.profile_gaps.flatMap((gap) => [gap.field, gap.reason]),
+  ].some((text) => bannedRatingTerms.test(text));
+}
+
+function hasTwoEnglishSentences(value: string): boolean {
+  return (value.match(/[.!?](?:\s|$)/g) ?? []).length === 2 &&
+    value.trim().endsWith(".") &&
+    /[A-Za-z]/.test(value) &&
+    !/[\u0600-\u06ff]/u.test(value);
+}
+
+function isNonClinicianNote(note: string): boolean {
+  return !note.trim() ||
+    /requestedschema|(?:^|\n)\s*(?:export\s+)?(?:const|let|function|import)\b|z\.object\s*\(/i.test(note);
+}
+
+async function callAfterWorkRatingProvider(
+  input: AfterWorkRatingInput,
+): Promise<{ output: unknown; model: string }> {
+  return structuredProvider(
+    AFTER_WORK_RATING_SYSTEM_PROMPT,
+    { doctor_note: input.doctor_note },
+    afterWorkRatingSchema,
+  );
+}
+
+export async function generateAfterWorkRating(
+  input: AfterWorkRatingInput,
+  generate: AfterWorkRatingGenerator = callAfterWorkRatingProvider,
+): Promise<{ output: AfterWorkRating; model: string } | null> {
+  const parsedInput = afterWorkRatingInputSchema.safeParse(input);
+  if (!parsedInput.success) return null;
+  if (isNonClinicianNote(parsedInput.data.doctor_note)) {
+    return { output: unrecordedProfileRating(parsedInput.data), model: "fallback" };
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const candidate = await generate(parsedInput.data);
+      const parsedOutput = afterWorkRatingSchema.safeParse(candidate.output);
+      if (!parsedOutput.success) continue;
+      const output = verifyAfterWorkRatingQuotes(
+        parsedOutput.data,
+        parsedInput.data.doctor_note,
+      );
+      const finalOutput = {
+        ...output,
+        ...profileCompleteness(parsedInput.data),
+      };
+      if (
+        !hasTwoEnglishSentences(finalOutput.note_assessment) ||
+        hasUnsafeRatingLanguage(finalOutput)
+      ) {
+        continue;
+      }
+      return { output: finalOutput, model: candidate.model };
+    } catch (error: unknown) {
+      const errorType = error instanceof Error ? error.constructor.name : "UnknownError";
+      console.warn(`After-work rating generation failed (${errorType}).`);
+    }
+  }
+  return null;
+}
+
+export async function generateSurveyPhrasing(payload: unknown) {
+  if (process.env.SURVEY_LLM_MODE === "mock") {
+    throw new Error("Survey LLM mock mode is enabled.");
+  }
+  const schema = z.object({
+    phrases: z.array(z.object({
+      key: z.string(),
+      question: z.string().trim().min(1).max(240),
+      options: z.array(z.string().trim().min(1).max(160)).max(8),
+    }).strict()).length(8),
+  }).strict();
+  return structuredProvider(SURVEY_PHRASING_PROMPT, payload, schema);
+}
+
+export async function generateSurveyExplanation(payload: unknown) {
+  if (process.env.SURVEY_LLM_MODE === "mock") {
+    throw new Error("Survey LLM mock mode is enabled.");
+  }
+  return structuredProvider(
+    SURVEY_EXPLANATION_PROMPT,
+    payload,
+    z.object({ explanation: z.string().trim().min(1).max(900) }).strict(),
+  );
+}
+
 
 export function draftFollowupPlan(
   payload: unknown,
