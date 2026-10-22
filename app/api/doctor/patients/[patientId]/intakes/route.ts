@@ -28,6 +28,18 @@ function reply(error: string, status: number): Response {
   return NextResponse.json({ ok: false, error }, { status });
 }
 
+function latestSavedClinicianNote(
+  record: NonNullable<ReturnType<typeof getPatientRecord>>,
+): string {
+  return record.intakes
+    .flatMap((intake) => intake.doctorNotes)
+    .filter((note) => note.note_text?.trim())
+    .sort((left, right) =>
+      (right.created_at ?? "").localeCompare(left.created_at ?? "") ||
+      right.id - left.id
+    )[0]?.note_text ?? "";
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ patientId: string }> },
@@ -61,7 +73,7 @@ export async function POST(
     if (!record) return reply("Patient not found.", 404);
     try {
       const draft = await extractRecordFollowup(
-        parsed.data,
+        { ...parsed.data, note: latestSavedClinicianNote(record) },
         record.patient,
         {
           providerConfigured: hasSummaryProviderConfigured(),
@@ -77,7 +89,7 @@ export async function POST(
     } catch (error: unknown) {
       const errorType = error instanceof Error ? error.constructor.name : "UnknownError";
       console.error(`Clinician follow-up extraction failed (${errorType}).`);
-      return reply("The follow-up draft could not be prepared. Your note was not saved; check it and try again.", 503);
+      return reply("The follow-up draft could not be prepared. Nothing was changed; check the saved clinician note and try again.", 503);
     }
   }
 
@@ -87,10 +99,11 @@ export async function POST(
   }
   const record = getPatientRecord(patientId);
   if (!record) return reply("Patient not found.", 404);
+  const savedNote = latestSavedClinicianNote(record);
   let followup: ReturnType<typeof confirmRecordFollowup>;
   try {
     followup = confirmRecordFollowup(
-      parsed.data,
+      { ...parsed.data, note: savedNote },
       record.patient.next_visit_date,
       {
         save: (data) => {

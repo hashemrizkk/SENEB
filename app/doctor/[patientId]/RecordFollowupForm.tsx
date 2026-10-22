@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import VoiceInput from "@/components/VoiceInput";
 import type { PatientContact } from "@/lib/db";
 import {
   createFollowupPlanSchema,
@@ -11,7 +10,6 @@ import {
 } from "@/lib/followup-plan";
 import { intakeFieldsSchema, type IntakeFields } from "@/lib/intake";
 import { followupQuestions } from "@/lib/questions";
-import { appendTranscript, deriveInputMethod } from "@/lib/voice-utils";
 import { ar } from "@/lib/strings.ar";
 
 type AnswerKey = "missed_doses" | "hypoglycemia_episodes" | "foot_problem" | "vision_change";
@@ -64,17 +62,15 @@ function isSaved(value: unknown): value is {
 
 export default function RecordFollowupForm({
   patient,
+  savedClinicianNote,
 }: {
   patient: PatientContact;
+  savedClinicianNote: string;
 }) {
   const router = useRouter();
   const errorRef = useRef<HTMLDivElement>(null);
   const [answers, setAnswers] = useState<Taps>(EMPTY_TAPS);
   const [fields, setFields] = useState<IntakeFields | null>(null);
-  const [note, setNote] = useState("");
-  const [voiceTranscript, setVoiceTranscript] = useState("");
-  const [voicePieces, setVoicePieces] = useState<string[]>([]);
-  const [voiceTextEdited, setVoiceTextEdited] = useState(false);
   const [draft, setDraft] = useState<PlanDraft | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
   const [busy, setBusy] = useState(false);
@@ -111,16 +107,16 @@ export default function RecordFollowupForm({
           action: "extract",
           patient_id: patient.id,
           tap_answers: answers,
-          note,
+          note: savedClinicianNote,
         }),
       });
       const result: unknown = await response.json().catch(() => null);
-      if (!response.ok || !isPlanDraft(result, note.trim(), patient.next_visit_date)) {
+      if (!response.ok || !isPlanDraft(result, savedClinicianNote.trim(), patient.next_visit_date)) {
         throw new Error(
           result !== null && typeof result === "object" &&
             "error" in result && typeof result.error === "string"
             ? result.error
-            : "The follow-up draft could not be prepared. Your note remains here; try again.",
+          : "The follow-up draft could not be prepared. The saved clinician note remains unchanged; try again.",
         );
       }
       setDraft(result);
@@ -158,14 +154,9 @@ export default function RecordFollowupForm({
           action: "confirm",
           patient_id: patient.id,
           request_id: requestId,
-          input_method: deriveInputMethod({
-            texts: [note],
-            transcriptPieces: [voicePieces],
-            editedAfterAppend: [voiceTextEdited],
-            maxChars: [4_000],
-          }),
+          input_method: savedClinicianNote.trim() ? "typed" : "tap",
           tap_answers: answers,
-          note,
+          note: savedClinicianNote,
           fields,
           plan: draft.plan,
           recap: draft.recap,
@@ -206,10 +197,6 @@ export default function RecordFollowupForm({
   function startAnother() {
     setAnswers(EMPTY_TAPS);
     setFields(null);
-    setNote("");
-    setVoiceTranscript("");
-    setVoicePieces([]);
-    setVoiceTextEdited(false);
     setDraft(null);
     setStep(1);
     setRequestId(null);
@@ -226,6 +213,7 @@ export default function RecordFollowupForm({
       style={{ border: "1px solid #cbd5e1", borderRadius: 12, marginTop: 24, padding: 20 }}
     >
       <h2>Record a new clinic follow-up</h2>
+      <p>This form uses the latest saved clinician note from the edit section, if available. Save note changes there before extracting.</p>
       {savedIntakeId !== null ? (
         <div role="status" aria-live="polite">
           <p>{status}</p>
@@ -265,32 +253,6 @@ export default function RecordFollowupForm({
                   </fieldset>
                 );
               })}
-              <label htmlFor="record-followup-note">Visit note</label>
-              <textarea
-                id="record-followup-note"
-                dir="auto"
-                value={note}
-                maxLength={4_000}
-                disabled={uncertain}
-                onChange={(event) => {
-                  if (voicePieces.length > 0) setVoiceTextEdited(true);
-                  setNote(event.target.value);
-                }}
-                style={{ boxSizing: "border-box", display: "block", marginBlock: 8, minHeight: 140, padding: 10, width: "100%" }}
-              />
-              <VoiceInput
-                id="record-followup-voice"
-                label="Dictate visit note"
-                maxChars={4_000}
-                transcript={voiceTranscript}
-                onTranscriptChange={setVoiceTranscript}
-                onAppend={(text) => {
-                  if (text.trim()) setVoicePieces((current) => [...current, text]);
-                  setNote((current) => appendTranscript(current, text, 4_000));
-                }}
-                direction="rtl"
-              />
-              <p>{note.length}/4000</p>
               <button type="button" disabled={busy || (uncertain && !confirmedHistoryCheck)} onClick={() => void extract()}>
                 {busy ? "Extracting…" : ar.doctorFollowup.extractLabel}
               </button>

@@ -105,6 +105,13 @@ export default async function DoctorIntakePage({
   }
   const intake = selectedIntake(record.intakes, intakeId);
   const currentNote = intake?.doctorNotes[intake.doctorNotes.length - 1]?.note_text ?? "";
+  const savedClinicianNote = record.intakes
+    .flatMap((item) => item.doctorNotes)
+    .filter((note) => note.note_text?.trim())
+    .sort((left, right) =>
+      (right.created_at ?? "").localeCompare(left.created_at ?? "") ||
+      right.id - left.id
+    )[0]?.note_text ?? "";
   const storedNoteRating = intake
     ? getAfterWorkRatingForNote(db, patientId, intake.id, currentNote)
     : null;
@@ -279,7 +286,10 @@ export default async function DoctorIntakePage({
           ) : null}
         </>
       ) : null}
-      <RecordFollowupForm patient={record.patient} />
+      <RecordFollowupForm
+        patient={record.patient}
+        savedClinicianNote={savedClinicianNote}
+      />
     </main>
   );
 }

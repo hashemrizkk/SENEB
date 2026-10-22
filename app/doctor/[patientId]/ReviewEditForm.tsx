@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import VoiceInput from "@/components/VoiceInput";
 import type { PatientContact, PatientIntakeRecord } from "@/lib/db";
 import { intakeFieldsSchema, type IntakeFields } from "@/lib/intake";
 import { followupQuestions, questionLabel } from "@/lib/questions";
+import { appendTranscript } from "@/lib/voice-utils";
 import RatingCircle from "@/components/RatingCircle";
 
 type NoteRatingDisplay = {
@@ -112,6 +114,7 @@ export default function ReviewEditForm({
   const [note, setNote] = useState(
     intake.doctorNotes[intake.doctorNotes.length - 1]?.note_text ?? "",
   );
+  const [noteTranscript, setNoteTranscript] = useState("");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -229,6 +232,15 @@ export default function ReviewEditForm({
         value={note}
         onChange={(event) => setNote(event.target.value)}
         maxLength={4000}
+      />
+      <VoiceInput
+        id={`clinician-note-voice-${intake.id}`}
+        label="Dictate clinician note"
+        maxChars={4_000}
+        transcript={noteTranscript}
+        onTranscriptChange={setNoteTranscript}
+        onAppend={(text) => setNote((current) => appendTranscript(current, text, 4_000))}
+        direction="rtl"
       />
       {initialNoteRating && initialNoteRating.note === note ? (
         <RatingCircle
