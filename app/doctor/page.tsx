@@ -100,6 +100,7 @@ export default async function DoctorPage({
               <tr key={record.id}>
                 <td>
                   <strong>{record.patient_name}</strong>
+                  {record.meta?.llm_mode === "mock" ? <p><strong>MOCK extraction — synthetic demo data.</strong></p> : null}
                   <br />
                   <small>{record.reference_code ?? "No reference code"}</small>
                   {record.meta?.survey ? (
