@@ -2,14 +2,20 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const root = process.cwd();
-const scanRoots = ["app", "components/ui"];
-const cssFiles = [];
+const scanRoots = ["app", "components"];
+const styleSources = [];
 for (const scanRoot of scanRoots) {
   const visit = (path) => {
     for (const name of readdirSync(path)) {
       const fullPath = join(path, name);
       if (statSync(fullPath).isDirectory()) visit(fullPath);
-      else if (name.endsWith(".css")) cssFiles.push(fullPath);
+      else if (name.endsWith(".css")) styleSources.push({ path: fullPath, css: readFileSync(fullPath, "utf8") });
+      else if (name.endsWith(".tsx")) {
+        const source = readFileSync(fullPath, "utf8");
+        for (const match of source.matchAll(/<style(?:\s[^>]*)?>\s*\{\s*`([\s\S]*?)`\s*\}\s*<\/style>/g)) {
+          styleSources.push({ path: fullPath, css: match[1] });
+        }
+      }
     }
   };
   visit(join(root, scanRoot));
@@ -17,8 +23,8 @@ for (const scanRoot of scanRoots) {
 
 const physicalProperty = /(?:^|[;{\n])\s*(?:(?:margin|padding|inset|border(?:-(?:top|bottom))?|scroll-margin|scroll-padding)-(?:left|right)(?:-[\w-]+)?|(?:left|right))\s*:/i;
 const failures = [];
-for (const file of cssFiles) {
-  const lines = readFileSync(file, "utf8").split(/\r?\n/);
+for (const { path: file, css } of styleSources) {
+  const lines = css.split(/\r?\n/);
   lines.forEach((line, index) => {
     if (physicalProperty.test(line)) failures.push(`${relative(root, file)}:${index + 1}: ${line.trim()}`);
   });
@@ -39,5 +45,5 @@ if (failures.length) {
   console.error(failures.join("\n"));
   process.exitCode = 1;
 } else {
-  console.log(`PASS check:direction (${cssFiles.length} CSS files checked; direction wrappers and bidi isolation present)`);
+  console.log(`PASS check:direction (${styleSources.length} CSS and embedded style blocks checked; direction wrappers and bidi isolation present)`);
 }

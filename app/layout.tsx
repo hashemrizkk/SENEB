@@ -1,19 +1,14 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { Cairo, Inter } from "next/font/google";
+import { Readex_Pro } from "next/font/google";
 import { ar } from "@/lib/strings.ar";
 import "./globals.css";
 
-const arabicFont = Cairo({
+const solveFont = Readex_Pro({
   subsets: ["arabic", "latin"],
+  weight: ["400", "500", "600"],
   display: "swap",
-  variable: "--font-arabic",
-});
-
-const englishFont = Inter({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-english",
+  variable: "--font-solve",
 });
 
 export const metadata: Metadata = {
@@ -21,9 +16,15 @@ export const metadata: Metadata = {
   description: ar.appDescription,
 };
 
+export const viewport: Viewport = {
+  colorScheme: "light",
+  themeColor: "#F8F4EC",
+  viewportFit: "cover",
+};
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="ar" dir="rtl" className={`${arabicFont.variable} ${englishFont.variable}`}>
+    <html lang="ar" dir="rtl" className={solveFont.variable}>
       <body>{children}</body>
     </html>
   );

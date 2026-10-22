@@ -1,51 +1,51 @@
-# SolveThe17 UI theme
+# SolveThe17 visual identity
 
-Phase 1 foundation for the friendly clinic redesign, guided by the `survey-frontend` on the `ali_1` reference branch. The visual direction is warm cream, dark ink, deep coral actions, beige dividers, and rounded surfaces. Patient surfaces use Arabic and RTL by default; doctor, nurse, staff, and admin surfaces use English and LTR. This document is a usage guide, not a claim that later page phases have been completed.
+The UI direction is **Nile teal on limestone**: warm limestone backgrounds, deep teal actions, readable ink, and soft card surfaces. A rounded-top arch is the signature shape for the hero, saved state, and empty states. Keep it sparse and calm. This is a light-only theme.
 
 ## Foundations
 
-- Tokens live in `components/ui/tokens.css`; TypeScript references live in `components/ui/tokens.ts`.
-- Cairo is used for Arabic because the installed Next.js font registry contains its Arabic and Latin subsets and it is designed for Arabic legibility. Inter is used for English staff interfaces; the reference uses Hanken Grotesk, which is not available in this installed Next.js font registry. Next 16.4.2 self-hosts imported Google fonts at build time via `next/font`, so visitors do not fetch font files from Google.
-- Use CSS Modules for new component styles. Keep spacing on the 4px scale and use logical properties such as `padding-inline`, `margin-block`, and `inset-inline` so layout can follow text direction.
-- Patient base text is 18px with generous line height. Staff scopes are 16px and LTR. Arabic user text inside staff interfaces should use `UserText` or `<bdi dir="auto">`; `:lang(ar)` selects Cairo.
-- `--primary-strong` is the reference's deep coral; `--primary-bright` is decoration only and must not be used for text, controls, borders, focus, or selected states. Normal priority is neutral slate, never green or coral. Color never communicates a status by itself: use visible text and an icon together.
-- Every interactive control receives the shared `:focus-visible` treatment. It uses a high-contrast coral outer ring and a white inner gap so focus remains distinct around controls and light surfaces.
-- Under `prefers-reduced-motion: reduce`, animation, transitions, transforms, shimmer, and pulse are removed; status text remains.
+- CSS tokens live in `components/ui/tokens.css`; the matching TypeScript values are in `components/ui/tokens.ts`. Use those tokens instead of new hex values.
+- Readex Pro is the single font for Arabic and English. The installed Next.js 16.4.2 font registry contains its Arabic and Latin subsets and 400/500/600 weights. `next/font` self-hosts the selected font files.
+- Use CSS Modules for new component styles. Use logical properties so layouts can follow text direction. `--enter-x` is positive in LTR and negative in RTL.
+- Patients use Arabic RTL and 18px base text with 1.7 line height. Doctor, nurse, staff, and admin layouts use English LTR and 16px base text. Use `UserText` or `<bdi dir="auto">` for patient-generated text on LTR pages.
+- Controls use 14px corners; cards 20px; chips are pill-shaped; arches use `--radius-arch`. Space values follow the 4px scale. Shadows are single-layer `--shadow-1` or `--shadow-2` only.
+- `--faience` and `--sand` are decoration only: do not use them for text, selected states, borders, or controls. Status colors keep their clinical meaning, have visible labels and icons, and never represent “safe” or normal priority through green alone. The visit-note traffic light keeps its separate status tokens and shapes.
+- Focus uses a 3px ink outline with a 2px offset. Keep it visible in forced-colors mode. Controls and secondary ink meet the contrast checks against their surfaces.
+- The static emergency line, clinic-review timing, demo labels, consent text, AI/mock/unavailable disclosures, red flags, priority, traffic-light meaning, conflicts, and errors must stay visible and unchanged during visual work. Patients must never receive staff-only medical data.
 
-## Components and use
+## Components
 
-Import from `components/ui/primitives.tsx` unless a client-only component is needed.
+Import shared pieces from `components/ui/primitives.tsx`; interactive dialog and toast pieces are client components.
 
 | Component | Use |
 |---|---|
-| `Button` | Native button with primary, secondary, quiet, danger, and loading variants. Keep the button label visible while busy. |
-| `IconButton` | Icon-only action. TypeScript requires an `aria-label`; use an icon from `icons.tsx`. |
-| `Card` | Section/article surface for related content. |
-| `Badge` | Status chip with a built-in icon and visible text. Choose urgent, important, normal, info, or success; do not change clinical meaning by changing colors. |
-| `Input`, `Textarea`, `Select` | Native form controls. Always pair them with a visible `<label>` and existing validation behavior. `Textarea` has a counter slot. |
-| `ProgressBar`, `Stepper` | Progress with visible text, not a color-only bar. `Stepper` marks completed steps with a check and labels the current step. |
-| `Modal` | Client-only dialog with focus entry, Tab trapping, Escape close, backdrop close, and focus restoration. Keep the title specific and preserve the caller's state/behavior. |
-| `Toast` | Client-only, polite announcement; noncritical messages dismiss after four seconds. Critical errors do not auto-dismiss. It never moves focus. |
-| `InlineAlert` | Persistent actionable error; defaults to `role="alert"`. Use for save errors and conflicts while preserving the user's edited content. |
-| `Skeleton` | Loading placeholder with `aria-busy` and visually hidden “Loading” text. |
-| `EmptyState` | Inline decorative icon and existing empty-state text. |
-| `SectionHeader` | Heading, optional description, and optional action. |
-| `UserText` | `<bdi dir="auto">` isolation for names, notes, transcript text, and quotes in LTR pages. |
-| `VisuallyHidden` | Screen-reader text that stays available to assistive technology. |
-| `icons.tsx` | Small inline SVG set. Decorative icons are hidden from assistive technology by default. Directional arrows mirror in RTL. |
+| `Button` / `IconButton` | Primary, secondary, quiet, danger, and loading actions. Icon buttons require an accessible name. |
+| `Card` | A surface for related content. |
+| `Badge` | A status chip with both icon and label; preserve the meaning of each variant. |
+| `Input`, `Textarea`, `Select` | Native controls paired with visible labels and existing validation. |
+| `ProgressBar`, `Stepper` | Include a textual step count; completed steps show a check. |
+| `Modal` | Client-only dialog with focus entry, Tab trapping, Escape/backdrop close, and focus restoration. |
+| `Toast` | Polite, non-focus-stealing feedback; only noncritical messages auto-dismiss. |
+| `InlineAlert` | Persistent actionable errors and conflict messages. |
+| `Skeleton` | `aria-busy` plus visually hidden loading text; shimmer only when motion is allowed. |
+| `EmptyState`, `SectionHeader` | Use existing screen copy and a small inline SVG where useful. |
+| `UserText`, `VisuallyHidden` | Bidi isolation for patient text and assistive-only labels. |
+| `icons.tsx` | Inline SVG only; hide decorative icons from assistive technology and mirror directional icons in RTL. |
 
-Use components as presentation only: do not move fetching, handlers, effects, validation, intervals, or API calls into this layer. Do not put new visible copy in components; add allowed new UI copy to `components/copy/ui-copy.ts` for later review.
+Presentation components must not take over fetching, state, validation, effects, routing, or API calls. Keep visible copy unchanged, except for the explicitly allowed copy listed in the design brief, and put any such new strings in `components/copy/ui-copy.ts`.
 
-## Direction rules
+## Motion and performance
 
-- The root document stays Arabic RTL. Nested `doctor`, `admin`, `nurse`, and `staff` layouts set an English LTR wrapper without changing route URLs or replacing the root layout.
-- Keep phone, email, reference codes, and other Latin identifiers explicitly LTR.
-- In English staff views, isolate patient-entered Arabic/Latin content with `UserText`; do not force the direction of mixed user text.
-- New CSS must not use physical `left`/`right` direction properties. `npm run check:direction` checks styles and verifies the direction wrappers and bidi primitive.
+The four signature effects are: (1) a 220ms transform/opacity step entrance from the reading-forward side, (2) answer selection with a 120ms tint fade and 160ms check pop, (3) a one-time 400ms arch success check, and (4) skeleton shimmer moved with `translateX`. Reduced motion shows the same state without movement or shimmer. The only other motion allowed is button press, a decorative mic pulse beside existing recording text, spinner rotation, and subtle row lift on hover devices.
 
-## Safety and adding a screen
+Animate only `transform` and `opacity`; no layout properties, background position, filters, `transition: all`, JavaScript animation loops, or animation libraries. Put transitions and animations inside `prefers-reduced-motion: no-preference`. Put hover styles inside `@media (hover: hover)`. No layered shadows. `npm run check:animations` scans CSS and style-bearing TypeScript files for these rules.
 
-- Preserve every current disclaimer, consent sentence, red-flag and priority indicator, fallback/mock/unavailable badge, conflict/stale warning, traffic-light meaning, and error message verbatim and with equal or greater prominence. Review `ui-evidence/safety-inventory.md` before changing a screen.
-- Patients must not receive staff-only flags, priority, notes, or medical interpretation. Do not add medical claims or imply a diagnosis, outcome, or approval.
-- Before restyling a screen, capture its current visible text and enumerate safety signals. Apply tokens and components while keeping its data and behavior unchanged. Compare text against the baseline and inspect at 360px, 768px, and 1280px when browser access is available.
-- Run `npm run check:contrast`, `npm run check:direction`, and `npm run check:scope` before committing. The scope check compares to `UI-Implementation` (override with `UI_SCOPE_BASE` only when the redesign base changes).
+`npm run check:budget` reads the latest production build manifests, compares each route's first-load JS against `ui-evidence/bundle-budget-baseline.json`, reports route CSS and font bytes, and fails if client JS grows by more than 10%. Run it after `npm run build`. Add `-- --record-current` to save a reviewable report. The baseline in this folder was captured from the existing coral-theme build immediately before this Nile theme migration.
+
+## Direction, safety, and adding a screen
+
+- The root remains `lang="ar" dir="rtl"`. Nested doctor, nurse, staff, and admin wrappers remain English LTR; route URLs do not change.
+- Keep phone/email/reference codes explicitly LTR. Mixed patient text on LTR pages uses `dir="auto"` and bidi isolation.
+- Read `ui-evidence/safety-inventory.md` and the route text baseline before restyling a screen. Keep all fields, visible copy, handlers, states, data flow, and safety meaning intact. Review patient pages to ensure they still expose no staff-only data.
+- Use tokens and shared primitives, then inspect the result at 360, 480, 768, 1024, and 1280px when browser access is available. Record unavailable visual checks instead of claiming screenshots were reviewed.
+- Check with `npm run check:contrast`, `npm run check:direction`, `npm run check:animations`, `npm run check:budget`, `npm run check:scope`, `npm run lint`, `npm run typecheck`, and `npm run build` as the work warrants. Do not modify protected business, API, database, auth, script, or test paths.

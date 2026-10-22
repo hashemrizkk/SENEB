@@ -283,7 +283,7 @@ export default function RegisterPage() {
         .reg-page {
           max-width: 32rem; margin: 0 auto; padding: 1rem 1rem 2.5rem;
           font-size: 18px; line-height: 1.7; color: var(--text);
-          background: var(--bg); min-height: 100vh;
+          background: var(--bg); min-height: 100dvh;
         }
         .reg-sr-only {
           position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -307,7 +307,6 @@ export default function RegisterPage() {
         }
         .reg-progress-fill {
           height: 100%; background: var(--primary-strong); border-radius: 999px;
-          transition: width 200ms ease;
         }
         .reg-h1 { font-size: 1.35rem; margin: 0 0 1rem; }
         .reg-field { margin-bottom: 1.15rem; }
@@ -317,18 +316,18 @@ export default function RegisterPage() {
           padding: 0.7rem 0.85rem; border: 1.5px solid var(--control-border); border-radius: 12px;
           background: #fff; color: var(--text); min-height: 48px;
         }
-        .reg-input[dir="ltr"] { text-align: right; }
+        .reg-input[dir="ltr"] { text-align: end; }
         .reg-textarea { min-height: 96px; resize: vertical; }
         .reg-input:focus-visible, .reg-textarea:focus-visible,
         .reg-btn:focus-visible, .reg-link:focus-visible, .tap-btn:focus-visible,
         .reg-consent input:focus-visible {
-          outline: 3px solid var(--primary-strong); outline-offset: 2px;
+          outline: 3px solid var(--focus-ring); outline-offset: 2px;
         }
         .reg-input[aria-invalid="true"], .reg-textarea[aria-invalid="true"] {
           border-color: #b3261e;
         }
         .reg-error { color: #b3261e; font-size: 16px; margin: 0.35rem 0 0; }
-        .reg-counter { color: var(--text-secondary); font-size: 15px; margin: 0.25rem 0 0; text-align: left; }
+        .reg-counter { color: var(--text-secondary); font-size: 15px; margin: 0.25rem 0 0; text-align: start; }
         .reg-actions { display: flex; gap: 0.75rem; margin-top: 1.5rem; }
         .reg-btn {
           font: inherit; font-size: 18px; min-height: 48px; padding: 0.7rem 1.4rem;
@@ -375,9 +374,6 @@ export default function RegisterPage() {
         }
         .reg-success-note { color: var(--text-secondary); }
         .reg-success-emergency { font-weight: 700; color: #b3261e; }
-        @media (prefers-reduced-motion: reduce) {
-          .reg-progress-fill { transition: none; }
-        }
       `}</style>
 
       <p className="reg-sr-only" aria-live="polite">

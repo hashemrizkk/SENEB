@@ -1,0 +1,130 @@
+{
+  "source": "existing coral-theme production build before Nile theme migration",
+  "routes": {
+    "/admin/intakes": {
+      "jsBytes": 21642,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/admin/notes": {
+      "jsBytes": 21642,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/admin/sessions": {
+      "jsBytes": 21642,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/admin/summaries": {
+      "jsBytes": 21642,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/doctor/login": {
+      "jsBytes": 23228,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/doctor": {
+      "jsBytes": 31046,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/doctor/[patientId]": {
+      "jsBytes": 194439,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/doctor/[patientId]/session": {
+      "jsBytes": 36513,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/doctor/[patientId]/summary": {
+      "jsBytes": 76342,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/nurse/login": {
+      "jsBytes": 23217,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/nurse": {
+      "jsBytes": 132030,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/": {
+      "jsBytes": 21642,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/register": {
+      "jsBytes": 179817,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/screening/locations": {
+      "jsBytes": 30457,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/screening": {
+      "jsBytes": 51986,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/screening/summary": {
+      "jsBytes": 29641,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/staff/funnel": {
+      "jsBytes": 21642,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/staff/locations": {
+      "jsBytes": 21642,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/staff": {
+      "jsBytes": 30525,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/staff/reviews": {
+      "jsBytes": 31856,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/staff/ui-kit": {
+      "jsBytes": 58224,
+      "cssBytes": 23818,
+      "fontBytes": 112788
+    },
+    "/survey": {
+      "jsBytes": 21642,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/voice-demo": {
+      "jsBytes": 53180,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    },
+    "/_global-error": {
+      "jsBytes": 13822,
+      "cssBytes": 0,
+      "fontBytes": 0
+    },
+    "/_not-found": {
+      "jsBytes": 21642,
+      "cssBytes": 15924,
+      "fontBytes": 112788
+    }
+  }
+}

@@ -3,16 +3,15 @@
 *, *::before, *::after { box-sizing: border-box; }
 html { min-height: 100%; background: var(--bg); }
 body {
-  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   color: var(--text);
   background: var(--bg);
-  font-family: var(--font-arabic), sans-serif;
+  font-family: var(--font-solve), sans-serif;
   font-size: 18px;
   line-height: 1.7;
 }
 a { color: var(--accent-foreground); text-underline-offset: .18em; }
-a:hover { color: var(--primary-hover); }
 :where(button, input, select, textarea) { font: inherit; }
 :where(button, input, select) { min-block-size: 48px; }
 :where(button):not(:disabled) { cursor: pointer; }
@@ -28,23 +27,19 @@ a:hover { color: var(--primary-hover); }
   border-radius: var(--radius-control);
   background: var(--primary-strong);
   color: #fff;
-  transition: background-color 160ms ease-out, border-color 160ms ease-out, transform 160ms ease-out;
 }
-:where(button:hover:not(:disabled)) { background: var(--primary-hover); border-color: var(--primary-hover); }
-:where(button:active:not(:disabled)) { transform: scale(.98); }
 :where(button:disabled) { cursor: not-allowed; }
 :where(a, button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
   outline: 3px solid var(--focus-ring);
-  outline-offset: 3px;
-  box-shadow: 0 0 0 3px var(--focus-gap);
+  outline-offset: 2px;
 }
 ::selection { color: var(--text); background: var(--accent); }
 
 .doctor-app, .admin-app, .nurse-app, .staff-app {
-  min-block-size: 100vh;
+  min-block-size: 100dvh;
   color: var(--text);
   background: var(--bg);
-  font-family: var(--font-english), sans-serif;
+  font-family: var(--font-solve), sans-serif;
   font-size: 16px;
   line-height: 1.55;
 }
@@ -54,12 +49,11 @@ a:hover { color: var(--primary-hover); }
   margin-inline: auto;
   padding-block: 24px 40px;
   color: var(--text);
-  font-family: var(--font-english), sans-serif;
+  font-family: var(--font-solve), sans-serif;
 }
 .doctor-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; }
 .doctor-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block: 16px 24px; padding-block: 12px; border-block: 1px solid var(--card-border); }
 .doctor-nav a { display: inline-flex; min-block-size: 44px; align-items: center; padding-inline: 12px; border-radius: var(--radius-control); }
-.doctor-nav a:hover { background: var(--secondary); }
 .doctor-nav button, .doctor-nav input[type="submit"] { padding-inline: 16px; }
 .doctor-card, .doctor-shell > section, .doctor-shell article {
   border: 1px solid var(--card-border);
@@ -88,7 +82,7 @@ a:hover { color: var(--primary-hover); }
   background: var(--surface);
   box-shadow: var(--shadow-soft);
 }
-:lang(ar) { font-family: var(--font-arabic), sans-serif; }
+:lang(ar) { font-family: var(--font-solve), sans-serif; }
 :where(.doctor-app, .admin-app, .nurse-app, .staff-app) :where(button, input, select, textarea) { font-family: inherit; }
 :where(.doctor-app, .admin-app, .nurse-app, .staff-app) :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { padding: 10px 12px; }
 :where(.doctor-app, .admin-app, .nurse-app, .staff-app) table { width: 100%; border-collapse: collapse; background: var(--surface); }
@@ -104,7 +98,7 @@ a:hover { color: var(--primary-hover); }
 .screening-page {
   box-sizing: border-box;
   width: min(100% - 32px, 720px);
-  min-block-size: 100vh;
+  min-block-size: 100dvh;
   margin-inline: auto;
   padding-block: 16px 40px;
   color: var(--text);
@@ -154,13 +148,11 @@ a:hover { color: var(--primary-hover); }
 .screening-funnel-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 12px; }
 .screening-demo-label { border: 0; font-size: .9rem; font-weight: 600; }
 
-.home-page { display: grid; min-block-size: 100vh; place-items: center; padding: 24px; }
+.home-page { display: grid; min-block-size: 100dvh; place-items: center; padding: 24px; }
 .home-content { width: min(100%, 720px); display: grid; gap: 16px; }
 .home-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
-.home-card { display: grid; min-block-size: 112px; align-content: center; gap: 4px; padding: 20px 24px; border: 1px solid var(--card-border); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-soft); color: var(--text); text-decoration: none; transition: transform 160ms ease-out, box-shadow 160ms ease-out, border-color 160ms ease-out; }
+.home-card { display: grid; min-block-size: 112px; align-content: center; gap: 4px; padding: 20px 24px; border: 1px solid var(--card-border); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-1); color: var(--text); text-decoration: none; }
 .home-card-primary { border-color: var(--primary-strong); background: var(--primary-strong); color: #fff; }
-.home-card-primary:hover { background: var(--primary-hover); color: #fff; }
-.home-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgb(27 25 22 / 10%); }
 .home-card-secondary { border-color: var(--control-border); }
 
 .rule-highlight { background: #fef08a; color: #1f2937; }
@@ -176,13 +168,33 @@ a:hover { color: var(--primary-hover); }
   .home-page { padding: 16px; }
   .home-content { gap: 12px; }
 }
+@media (prefers-reduced-motion: no-preference) {
+  :where(button) { transition: transform 160ms ease-out; }
+  :where(button:active:not(:disabled)) { transform: scale(.98); }
+  .home-card { transition: transform 160ms ease-out; }
+}
+@media (hover: hover) {
+  a:hover { color: var(--primary-hover); }
+  :where(button:hover:not(:disabled)) { background: var(--primary-hover); border-color: var(--primary-hover); }
+  .doctor-nav a:hover { background: var(--surface-sunken); }
+  .home-card-primary:hover { background: var(--primary-hover); color: #fff; }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .home-card:hover { transform: translateY(-1px); }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    transform: none !important;
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (forced-colors: active) {
+  :where(button, input, select, textarea, a) { border-color: ButtonText; }
+  :where(a, button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
+    forced-color-adjust: auto;
   }
 }
 @media print {

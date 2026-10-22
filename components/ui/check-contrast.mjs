@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 const css = readFileSync(fileURLToPath(new URL("./tokens.css", import.meta.url)), "utf8");
 const token = (name) => {
   const match = css.match(new RegExp(`--${name}:\\s*(#[0-9A-Fa-f]{6})`));
-  if (!match) throw new Error(`Missing color token --${name}`);
+  if (!match) throw new Error(`Missing literal color token --${name}`);
   return match[1];
 };
 const luminance = (hex) => {
@@ -18,17 +18,18 @@ const ratio = (a, b) => {
 };
 
 const checks = [
-  ["Body text / background", "text", "bg", 4.5],
-  ["Body text / surface", "text", "surface", 4.5],
-  ["Secondary text / background", "text-secondary", "bg", 4.5],
-  ["Secondary text / surface", "text-secondary", "surface", 4.5],
-  ["Primary button text / strong", "surface", "primary-strong", 4.5],
-  ["Primary button text / hover", "surface", "primary-hover", 4.5],
-  ["Control border / background", "control-border", "bg", 3],
+  ["Ink / limestone", "ink", "bg", 4.5],
+  ["Ink / surface", "ink", "surface", 4.5],
+  ["Secondary ink / limestone", "ink-secondary", "bg", 4.5],
+  ["Secondary ink / surface", "ink-secondary", "surface", 4.5],
+  ["Primary button / surface", "surface", "primary", 4.5],
+  ["Primary button / hover", "surface", "primary-hover", 4.5],
+  ["Pressed selected text / tint", "primary-press", "primary-tint", 4.5],
+  ["Control border / limestone", "control-border", "bg", 3],
   ["Control border / surface", "control-border", "surface", 3],
-  ["Focus ring / background", "focus-ring", "bg", 3],
+  ["Focus ring / limestone", "focus-ring", "bg", 3],
   ["Focus ring / surface", "focus-ring", "surface", 3],
-  ["Focus gap / primary button", "focus-gap", "primary-strong", 3],
+  ["Primary progress fill / track", "primary", "track", 3],
   ...["urgent", "important", "normal", "info", "success"].flatMap((status) => [
     [`${status} text / tint`, `${status}-text`, `${status}-bg`, 4.5],
     [`${status} border / tint`, `${status}-border`, `${status}-bg`, 3],

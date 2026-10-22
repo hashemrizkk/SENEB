@@ -146,7 +146,7 @@ export default function SurveyWizard() {
     <main dir="rtl" lang="ar" className="survey-page">
       <style>{`
         .survey-page {
-          box-sizing: border-box; max-width: 36rem; min-height: 100vh;
+          box-sizing: border-box; max-width: 36rem; min-height: 100dvh;
           margin: 0 auto; padding: 1rem 1rem 2rem; background: var(--bg);
           color: var(--text); font: inherit; font-size: 18px; line-height: 1.7;
         }
@@ -158,7 +158,7 @@ export default function SurveyWizard() {
         .survey-progress { margin: 1rem 0 1.4rem; }
         .survey-progress-label { margin: 0 0 .3rem; font-size: 16px; }
         .survey-track { height: 9px; overflow: hidden; border-radius: 999px; background: #e7edf3; }
-        .survey-fill { height: 100%; border-radius: inherit; background: var(--primary-strong); transition: width 180ms ease; }
+        .survey-fill { height: 100%; border-radius: inherit; background: var(--primary-strong); }
         .survey-title { font-size: 1.45rem; line-height: 1.4; margin: .2rem 0 1rem; }
         .survey-copy { margin: .5rem 0 1rem; }
         .survey-field { margin: 1rem 0; }
@@ -170,7 +170,7 @@ export default function SurveyWizard() {
         }
         .survey-input:focus-visible, .survey-option:focus-visible, .survey-button:focus-visible,
         .survey-link:focus-visible {
-          outline: 3px solid var(--primary-strong); outline-offset: 2px;
+          outline: 3px solid var(--focus-ring); outline-offset: 2px;
         }
         .survey-options { display: grid; gap: .65rem; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); }
         .survey-option, .survey-button {
@@ -188,7 +188,6 @@ export default function SurveyWizard() {
         .survey-consent { display: flex; gap: .7rem; align-items: flex-start; margin-block: 1rem; }
         .survey-checkbox { width: 24px; height: 24px; flex: 0 0 24px; margin-top: .3rem; }
         .survey-honeypot { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-        @media (prefers-reduced-motion: reduce) { .survey-fill { transition: none; } }
       `}</style>
 
       <p className="survey-banner survey-warning" role="note">{ar.demoWarning}</p>

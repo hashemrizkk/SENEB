@@ -1,50 +1,71 @@
 :root {
   color-scheme: light;
-  --primary-strong: #C8462D;
-  --primary-hover: #A83825;
-  --primary-bright: #E98D72;
-  --bg: #FAF9F6;
+
+  /* Nile teal on limestone */
+  --bg: #F8F4EC;
   --surface: #FFFFFF;
-  --card-border: #E6DFD3;
-  --control-border: #766B5D;
-  --text: #1B1916;
-  --text-secondary: #6B6359;
-  --focus-ring: #C8462D;
-  --focus-gap: #FFFFFF;
-  --accent: #FBE7E0;
-  --accent-foreground: #A83825;
-  --secondary: #EFEAE0;
-  --urgent-bg: #FEE2E2;
-  --urgent-text: #7F1D1D;
-  --urgent-border: #B91C1C;
-  --important-bg: #FEF3C7;
-  --important-text: #78350F;
-  --important-border: #B45309;
-  --normal-bg: #E2E8F0;
-  --normal-text: #334155;
-  --normal-border: #64748B;
-  --info-bg: #DBEAFE;
-  --info-text: #1E3A8A;
-  --info-border: #1D4ED8;
-  --success-bg: #DCFCE7;
-  --success-text: #166534;
-  --success-border: #15803D;
-  --radius-control: 12px;
-  --radius-card: 16px;
+  --surface-sunken: #F0EBE0;
+  --card-border: #E4DDCF;
+  --ink: #1C2B2A;
+  --ink-secondary: #4A5B59;
+  --primary: #0B6B5D;
+  --primary-hover: #085A4E;
+  --primary-press: #064A40;
+  --primary-tint: #DCF1EC;
+  --faience: #2BB5A0;
+  --sand: #D9A441;
+  --control-border: #6F7F7D;
+  --track: #DDE5E3;
+  --focus-ring: #1C2B2A;
+
+  --urgent-bg: #FDE8E6;
+  --urgent-text: #8A1C13;
+  --urgent-border: #C8362B;
+  --important-bg: #FFF1D6;
+  --important-text: #7A4B00;
+  --important-border: #9B6B12;
+  --normal-bg: #E8EEF1;
+  --normal-text: #2A3F4A;
+  --normal-border: #607985;
+  --info-bg: #E3EEF9;
+  --info-text: #1D4568;
+  --info-border: #4C759A;
+  --success-bg: #E3F4E8;
+  --success-text: #14532D;
+  --success-border: #40794F;
+
+  --radius-control: 14px;
+  --radius-card: 20px;
   --radius-pill: 999px;
-  --shadow-soft: 0 2px 12px rgb(31 41 55 / 7%);
+  --radius-arch: 999px 999px 20px 20px;
+  --shadow-1: 0 1px 2px rgb(28 43 42 / 10%);
+  --shadow-2: 0 8px 16px -8px rgb(28 43 42 / 22%);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-  --space-10: 40px;
-  --space-12: 48px;
-  --clinical: var(--primary-strong);
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-8: 48px;
+  --space-10: 64px;
+  --space-12: 64px;
+  --enter-x: 24px;
+
+  /* Compatibility aliases while the page styles migrate in later phases. */
+  --primary-strong: var(--primary);
+  --clinical: var(--primary);
   --clinical-dark: var(--primary-hover);
-  --surface-soft: var(--secondary);
+  --primary-bright: var(--faience);
+  --text: var(--ink);
+  --text-secondary: var(--ink-secondary);
+  --accent: var(--primary-tint);
+  --accent-foreground: var(--primary-press);
+  --secondary: var(--surface-sunken);
+  --surface-soft: var(--surface-sunken);
   --border: var(--card-border);
   --card-radius: var(--radius-card);
+  --shadow-soft: var(--shadow-1);
 }
+
+[dir="rtl"] { --enter-x: -24px; }
+[dir="ltr"] { --enter-x: 24px; }

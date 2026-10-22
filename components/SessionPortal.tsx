@@ -45,7 +45,7 @@ export default function SessionPortal({ patientId }: { patientId: number }) {
   const approve = async () => { if (!id || !summaryId) return; setBusy(true); try { const response = await fetch(`/api/sessions/${id}/summary/${summaryId}/approve`, { method: "POST", headers, body: JSON.stringify({ final_points: points }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); router.push(`/doctor/${patientId}/summary#session-summary`); } catch (e) { setError(e instanceof Error ? e.message : "Could not approve summary."); } finally { setBusy(false); } };
   const discard = async () => { if (!id || !window.confirm("Discard this session and its unapproved transcript and summary?")) return; const response = await fetch(`/api/sessions/${id}/discard`, { method: "POST" }); if (response.ok) router.push(`/doctor/${patientId}/summary#session-summary`); else setError("Could not discard this session."); };
   const updateRole = (rowId: number, value: string) => setRows((old) => old.map((row) => row.id === rowId ? { ...row, confirmed_role: value } : row));
-  return <main lang="en" dir="ltr" style={{ maxWidth: 850, margin: "0 auto", padding: 24, fontFamily: "system-ui" }}>
+  return <main lang="en" dir="ltr" style={{ maxWidth: 850, margin: "0 auto", padding: 24, fontFamily: "inherit" }}>
     <p><a href={`/doctor/${patientId}/summary#session-summary`}>← Case summary</a></p><h1>Begin session</h1><p>AI-generated from a recording. Not an emergency system. Does not diagnose.</p>
     <nav aria-label="Session steps">1 Consent · 2 Record · 3 Review speakers · 4 Summary · 5 Approve</nav>
     {error && <p role="alert">{error}</p>}
