@@ -13,3 +13,5 @@ hackathon.db-wal
 next-env.d.ts
 npm-debug.log*
 .agents/
+repomix-output.xml
+repomix-output.md
