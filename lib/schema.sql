@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS patients (
 CREATE TABLE IF NOT EXISTS intakes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   patient_id INTEGER NOT NULL REFERENCES patients(id),
-  input_method TEXT CHECK (input_method IN ('tap', 'typed', 'voice', 'assisted')),
+  input_method TEXT CHECK (input_method IN ('tap', 'typed', 'voice', 'mixed', 'assisted')),
   raw_text TEXT,
   structured_json TEXT,
   red_flags_json TEXT,

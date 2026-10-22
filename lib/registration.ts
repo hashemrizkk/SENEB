@@ -120,6 +120,7 @@ export const registrationSchema = z.object({
     .trim()
     .max(500, ar.register.errors.notesLong)
     .default(""),
+  input_method: z.enum(["tap", "typed", "voice", "mixed"]).default("typed"),
   consent: consentSchema,
   // Honeypot: permissive here because the route checks it BEFORE safeParse,
   // so a filled honeypot gets a silent { ok: true } instead of a 400.

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ar } from "@/lib/strings.ar";
 import { followupQuestions } from "@/lib/questions";
 import VoiceInput from "@/components/VoiceInput";
-import { appendTranscript } from "@/lib/voice-utils";
+import { appendTranscript, deriveInputMethod } from "@/lib/voice-utils";
 
 // Toggle: tap same button again → clear back to null
 function toggle<T>(current: T | null, value: T): T | null {
@@ -25,6 +25,8 @@ export default function IntakeForm({
   const [visionChange, setVisionChange] = useState<boolean | null>(null);
   const [freeText, setFreeText] = useState("");
   const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [voicePieces, setVoicePieces] = useState<string[]>([]);
+  const [voiceTextEdited, setVoiceTextEdited] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -64,7 +66,12 @@ export default function IntakeForm({
     setError(null);
 
     const hasFreeText = freeText.trim().length > 0;
-    const inputMethod = hasFreeText ? "typed" : "tap";
+    const inputMethod = deriveInputMethod({
+      texts: [freeText],
+      transcriptPieces: [voicePieces],
+      editedAfterAppend: [voiceTextEdited],
+      maxChars: [maxChars],
+    });
 
     const body = {
       patient_id: patientId,
@@ -228,6 +235,7 @@ export default function IntakeForm({
           aria-describedby="free_text-counter"
           onChange={(e) => {
             if (e.target.value.length <= maxChars) {
+              if (voicePieces.length) setVoiceTextEdited(true);
               setFreeText(e.target.value);
             }
           }}
@@ -250,11 +258,10 @@ export default function IntakeForm({
           maxChars={maxChars}
           transcript={voiceTranscript}
           onTranscriptChange={setVoiceTranscript}
-          onAppend={(value) =>
-            setFreeText((current) =>
-              appendTranscript(current, value, maxChars),
-            )
-          }
+          onAppend={(value, speechPieces) => {
+            setVoicePieces((current) => [...current, ...speechPieces]);
+            setFreeText((current) => appendTranscript(current, value, maxChars));
+          }}
         />
         <p
           id="free_text-counter"

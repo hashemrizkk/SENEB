@@ -1,13 +1,14 @@
 import { insertIntakeWithRevision } from "./db";
 import { extractIntake } from "./llm";
 import {
+  type InputMethod,
   intakeFieldsSchema,
   type IntakeFields,
   type IntakeMeta,
 } from "./intake";
 import { redFlags, type RedFlagResult } from "./rules";
 
-export type InputMethod = "tap" | "typed";
+export type { InputMethod } from "./intake";
 export type TapAnswers = Partial<
   Pick<
     IntakeFields,

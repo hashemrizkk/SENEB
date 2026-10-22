@@ -12,6 +12,9 @@ export const intakeFieldsSchema = z.object({
   symptoms_text: z.string().max(500).nullable(),
 });
 
+export const inputMethodSchema = z.enum(["tap", "typed", "voice", "mixed"]);
+export type InputMethod = z.infer<typeof inputMethodSchema>;
+
 export type IntakeFields = z.infer<typeof intakeFieldsSchema>;
 
 // ----- Meta object saved in meta_json -----
@@ -34,7 +37,7 @@ export const intakeRequestSchema = z.object({
   tap_foot_problem: z.boolean().nullable(),
   tap_vision_change: z.boolean().nullable(),
   free_text: z.string().max(500).nullable().optional(),
-  input_method: z.enum(["tap", "typed"]),
+  input_method: inputMethodSchema,
 });
 
 export type IntakeRequest = z.infer<typeof intakeRequestSchema>;

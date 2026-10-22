@@ -6,6 +6,7 @@ import { requireDoctorSession } from "@/lib/doctor-review";
 import { formatCairoDateTime } from "@/lib/date-time";
 import { flagLabel, followupQuestions, questionLabel } from "@/lib/questions";
 import { intakeFieldsSchema } from "@/lib/intake";
+import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
 import NewFollowupForm from "./NewFollowupForm";
 import ReviewEditForm from "./ReviewEditForm";
 
@@ -52,6 +53,7 @@ function displayTime(value: string | null): string {
 const revisionSnapshotSchema = z.object({
   patient: z.object({ name: z.string() }),
   intake: z.object({
+    input_method: z.enum(["tap", "typed", "voice", "mixed", "assisted"]).nullable(),
     raw_text: z.string().nullable(),
     priority: z.enum(["urgent", "important", "normal"]).nullable(),
     status: z.enum(["new", "triaged", "seen"]),
@@ -100,6 +102,10 @@ export default async function DoctorIntakePage({
           <>
             <p>Selected record submitted {displayTime(intake.created_at)}</p>
             <p>Status: {intake.status} · Staff priority: {intake.priority ?? "Not assigned"} · Version: {intake.version}</p>
+            <p>Input method: {inputMethodLabel(intake.input_method)}</p>
+            {inputMethodNote(intake.input_method) ? (
+              <p>{inputMethodNote(intake.input_method)}</p>
+            ) : null}
           </>
         ) : <p>This patient does not have an intake yet.</p>}
         <p>Age: {record.patient.age ?? "Not recorded"} · Diabetes: {record.patient.diabetes_type ?? "Not recorded"}</p>
@@ -186,6 +192,10 @@ export default async function DoctorIntakePage({
                     <details>
                       <summary>View saved record values</summary>
                       <p>Patient name: {snapshot.patient.name}</p>
+                      <p>Input method: {inputMethodLabel(snapshot.intake.input_method)}</p>
+                      {inputMethodNote(snapshot.intake.input_method) ? (
+                        <p>{inputMethodNote(snapshot.intake.input_method)}</p>
+                      ) : null}
                       <p>Queue status: {snapshot.intake.status} · Priority: {snapshot.intake.priority ?? "Not assigned"}</p>
                       <h4>Saved answers</h4>
                       {snapshot.fields ? (

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireDoctorSession } from "@/lib/doctor-review";
 import { listQueue, type QueueFilter } from "@/lib/db";
 import { flagLabel } from "@/lib/questions";
+import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
 import DoctorQueueRefresh from "./DoctorQueueRefresh";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,7 @@ export default async function DoctorPage({
             <tr>
               <th>Patient / reference</th>
               <th>Submitted</th>
+              <th>Input method</th>
               <th>Queue state</th>
               <th>Priority</th>
               <th>Review flags</th>
@@ -66,6 +68,12 @@ export default async function DoctorPage({
                   <small>{record.reference_code ?? "No reference code"}</small>
                 </td>
                 <td>{record.created_at ?? "Unknown"}</td>
+                <td>
+                  {inputMethodLabel(record.input_method)}
+                  {inputMethodNote(record.input_method) ? (
+                    <p>{inputMethodNote(record.input_method)}</p>
+                  ) : null}
+                </td>
                 <td>{record.status}</td>
                 <td>{record.priority ?? "Not assigned"}</td>
                 <td>

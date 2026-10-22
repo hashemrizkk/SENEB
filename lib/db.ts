@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import type { InputMethod } from "./intake.ts";
+import { migrateInputMethodCheck } from "./db-migrations.ts";
 import { seedPatients } from "./seed.ts";
 import {
   getDoctorPatientRecord,
@@ -87,6 +89,8 @@ db.transaction(() => {
 // Additive clinician-review schema migration; existing queue tables are preserved.
 migrateDoctorReview(db);
 
+migrateInputMethodCheck(db);
+
 // ----- Types -----
 
 export type Patient = {
@@ -107,7 +111,7 @@ export type IntakeRow = {
   id: number;
   patient_id: number;
   patient_name: string;
-  input_method: string | null;
+  input_method: InputMethod | "assisted" | null;
   raw_text: string | null;
   structured_json: string | null;
   red_flags_json: string | null;
@@ -189,7 +193,7 @@ export function listPatients(): Patient[] {
 
 export function insertIntakeWithRevision(data: {
   patient_id: number;
-  input_method: string;
+  input_method: InputMethod;
   raw_text: string | null;
   structured_json: string;
   red_flags_json: string;

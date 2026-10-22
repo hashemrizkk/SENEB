@@ -1,3 +1,48 @@
+import { ar } from "./strings.ar.ts";
+
+export type InputMethod = "tap" | "typed" | "voice" | "mixed";
+
+export function deriveInputMethod(input: {
+  texts: readonly string[];
+  transcriptPieces: readonly (readonly string[])[];
+  editedAfterAppend: readonly boolean[];
+  maxChars: readonly number[];
+}): InputMethod {
+  const hasText = input.texts.some((text) => text.trim().length > 0);
+  if (!hasText) return "tap";
+
+  const voiceUsed = input.transcriptPieces.some((pieces) => pieces.length > 0);
+  if (!voiceUsed) return "typed";
+
+  const allTextIsUneditedVoice = input.texts.every((text, index) => {
+    const pieces = input.transcriptPieces[index] ?? [];
+    const expected = pieces.reduce(
+      (combined, piece) => appendTranscript(
+        combined,
+        piece,
+        input.maxChars[index] ?? Number.MAX_SAFE_INTEGER,
+      ),
+      "",
+    );
+    return !input.editedAfterAppend[index] && text.trim() === expected.trim();
+  });
+  return allTextIsUneditedVoice ? "voice" : "mixed";
+}
+
+export function inputMethodLabel(value: string | null | undefined): string {
+  switch (value) {
+    case "tap": return ar.inputMethod.tap;
+    case "typed": return ar.inputMethod.typed;
+    case "voice": return ar.inputMethod.voice;
+    case "mixed": return ar.inputMethod.mixed;
+    default: return ar.inputMethod.unknown;
+  }
+}
+
+export function inputMethodNote(value: string | null | undefined): string | null {
+  return value === "voice" || value === "mixed" ? ar.inputMethod.voiceNote : null;
+}
+
 export function appendTranscript(
   existing: string,
   transcript: string,

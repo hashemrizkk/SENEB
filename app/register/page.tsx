@@ -17,7 +17,7 @@ import {
   registrationSchema,
 } from "@/lib/registration";
 import { ar } from "@/lib/strings.ar";
-import { appendTranscript } from "@/lib/voice-utils";
+import { appendTranscript, deriveInputMethod } from "@/lib/voice-utils";
 import {
   registrationQuestions,
   registrationTextQuestions,
@@ -84,6 +84,14 @@ export default function RegisterPage() {
   });
   const [descriptionTranscript, setDescriptionTranscript] = useState("");
   const [notesTranscript, setNotesTranscript] = useState("");
+  const [voicePieces, setVoicePieces] = useState({
+    self_description: [] as string[],
+    notes: [] as string[],
+  });
+  const [voiceTextEdited, setVoiceTextEdited] = useState({
+    self_description: false,
+    notes: false,
+  });
   const [answers, setAnswers] = useState<TapAnswersState>(emptyAnswers);
   const [consent, setConsent] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -181,6 +189,15 @@ export default function RegisterPage() {
       self_description: form.self_description,
       answers,
       notes: form.notes,
+      input_method: deriveInputMethod({
+        texts: [form.self_description, form.notes],
+        transcriptPieces: [voicePieces.self_description, voicePieces.notes],
+        editedAfterAppend: [
+          voiceTextEdited.self_description,
+          voiceTextEdited.notes,
+        ],
+        maxChars: [300, 500],
+      }),
       consent,
       website,
       request_id: activeRequestId,
@@ -227,6 +244,8 @@ export default function RegisterPage() {
       setForm({ full_name: "", phone: "", email: "", self_description: "", notes: "" });
       setDescriptionTranscript("");
       setNotesTranscript("");
+      setVoicePieces({ self_description: [], notes: [] });
+      setVoiceTextEdited({ self_description: false, notes: false });
       setAnswers(emptyAnswers());
       setConsent(false);
       setWebsite("");
@@ -494,12 +513,18 @@ export default function RegisterPage() {
               className="reg-textarea"
               maxLength={300}
               value={form.self_description}
-              onChange={(event) =>
+              onChange={(event) => {
+                if (voicePieces.self_description.length) {
+                  setVoiceTextEdited((current) => ({
+                    ...current,
+                    self_description: true,
+                  }));
+                }
                 setForm((current) => ({
                   ...current,
                   self_description: event.target.value,
-                }))
-              }
+                }));
+              }}
             />
             <VoiceInput
               id="registration-description-voice"
@@ -507,7 +532,11 @@ export default function RegisterPage() {
               maxChars={300}
               transcript={descriptionTranscript}
               onTranscriptChange={setDescriptionTranscript}
-              onAppend={(value) =>
+              onAppend={(value, speechPieces) => {
+                setVoicePieces((current) => ({
+                  ...current,
+                  self_description: [...current.self_description, ...speechPieces],
+                }));
                 setForm((current) => ({
                   ...current,
                   self_description: appendTranscript(
@@ -515,8 +544,8 @@ export default function RegisterPage() {
                     value,
                     300,
                   ),
-                }))
-              }
+                }));
+              }}
             />
             <p className="reg-counter">
               {ar.register.charCount(form.self_description.length, 300)}
@@ -532,9 +561,12 @@ export default function RegisterPage() {
               className="reg-textarea"
               maxLength={500}
               value={form.notes}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, notes: event.target.value }))
-              }
+              onChange={(event) => {
+                if (voicePieces.notes.length) {
+                  setVoiceTextEdited((current) => ({ ...current, notes: true }));
+                }
+                setForm((current) => ({ ...current, notes: event.target.value }));
+              }}
             />
             <VoiceInput
               id="registration-notes-voice"
@@ -542,12 +574,16 @@ export default function RegisterPage() {
               maxChars={500}
               transcript={notesTranscript}
               onTranscriptChange={setNotesTranscript}
-              onAppend={(value) =>
+              onAppend={(value, speechPieces) => {
+                setVoicePieces((current) => ({
+                  ...current,
+                  notes: [...current.notes, ...speechPieces],
+                }));
                 setForm((current) => ({
                   ...current,
                   notes: appendTranscript(current.notes, value, 500),
-                }))
-              }
+                }));
+              }}
             />
             <p className="reg-counter">
               {ar.register.charCount(form.notes.length, 500)}

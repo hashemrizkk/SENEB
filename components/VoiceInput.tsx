@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { recordingToWav } from "@/lib/audio-wav";
 import { appendTranscript } from "@/lib/voice-utils";
+import { ar } from "@/lib/strings.ar";
 
 type VoiceInputProps = {
   id: string;
@@ -10,17 +11,17 @@ type VoiceInputProps = {
   maxChars: number;
   transcript: string;
   onTranscriptChange: (value: string) => void;
-  onAppend?: (value: string) => void;
+  onAppend?: (value: string, speechPieces: readonly string[]) => void;
   direction?: "rtl" | "ltr";
 };
 
 const LANGUAGES = [
-  { code: "ar-EG", label: "العربية (مصر)" },
-  { code: "ar", label: "العربية" },
-  { code: "en-US", label: "English" },
+  { code: "ar-EG", label: ar.voice.languages.arabicEgypt },
+  { code: "ar", label: ar.voice.languages.arabic },
+  { code: "en-US", label: ar.voice.languages.english },
 ];
 const MAX_RECORDING_MS = 30_000;
-const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+const MAX_WAV_BYTES = 1024 * 1024;
 
 function isSupported(): boolean {
   return (
@@ -47,46 +48,62 @@ function errorMessage(error: string): string {
   switch (error) {
     case "not-allowed":
     case "permission-denied":
-      return "لم يُسمح باستخدام الميكروفون. فعّل الإذن من إعدادات الموقع.";
+      return ar.voice.permissionDenied;
     case "not-found":
     case "devices-not-found":
-      return "لم يتم العثور على ميكروفون متاح.";
+      return ar.voice.noMicrophone;
     case "not-readable":
     case "track-start":
-      return "الميكروفون مستخدم من تطبيق آخر أو تعذّر تشغيله.";
+      return ar.voice.microphoneBusy;
     case "insecure-context":
-      return "يلزم اتصال آمن (HTTPS أو localhost) لاستخدام الميكروفون.";
+      return ar.voice.insecureContext;
     case "no-audio":
-      return "لم يتم تسجيل صوت. حاول التحدث بوضوح بعد بدء التسجيل.";
+      return ar.voice.noAudio;
     case "audio-too-large":
-      return "التسجيل طويل جدًا. حاول تسجيل مقطع أقصر.";
+      return ar.voice.audioTooLarge;
     case "gemini-not-configured":
-      return "مفتاح Gemini غير مضبوط على الخادم. أضفه إلى .env.local ثم أعد تشغيل التطبيق.";
+      return ar.voice.geminiNotConfigured;
     case "rate-limited":
     case "rate_limited":
-      return "تم تجاوز عدد المحاولات المسموح به. انتظر قليلًا ثم حاول مرة أخرى.";
+      return ar.voice.rateLimited;
     case "empty-transcript":
-      return "لم يتمكن Gemini من التعرف على كلمات. اقترب من الميكروفون وحاول مجددًا.";
+      return ar.voice.emptyTranscript;
     case "transcription-timeout":
-      return "استغرق تحويل الصوت وقتًا طويلًا. تحقق من الاتصال وحاول مجددًا.";
+      return ar.voice.timeout;
     case "transcription-failed":
-      return "تعذّر تحويل الصوت عبر Gemini. تحقق من المفتاح والاتصال، ثم حاول مجددًا.";
+      return ar.voice.failed;
     case "gemini-auth-failed":
-      return "رفض Gemini مفتاح API. تأكد من GEMINI_API_KEY في .env.local ثم أعد تشغيل الخادم.";
+      return ar.voice.authFailed;
     case "gemini-model-unavailable":
-      return "نموذج Gemini المستخدم غير متاح لهذا المفتاح أو المنطقة.";
+      return ar.voice.modelUnavailable;
     case "unsupported-audio":
-      return "تعذّر قراءة التسجيل الصوتي. حاول مجددًا بعبارة أقصر.";
+      return ar.voice.unsupportedAudio;
     case "bad-audio":
     case "recorder-failed":
-      return "تعذّر تجهيز التسجيل الصوتي. حاول مرة أخرى.";
+      return ar.voice.recorderFailed;
     case "provider-unavailable":
-      return "خدمة Gemini غير متاحة مؤقتًا. تحقق من الاتصال وحاول لاحقًا.";
+      return ar.voice.providerUnavailable;
     case "bad-origin":
-      return "تعذّر إرسال التسجيل من هذه الصفحة. أعد تحميل التطبيق وحاول مجددًا.";
+      return ar.voice.badOrigin;
+    case "request-too-large":
+      return ar.voice.requestTooLarge;
     default:
-      return "حدث خطأ أثناء التسجيل. يمكنك كتابة النص يدويًا.";
+      return ar.errorGeneric;
   }
+}
+
+function mediaErrorCode(error: unknown): string {
+  const name = error instanceof Error ? error.name : "";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "not-allowed";
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "not-found";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "not-readable";
+  }
+  return "audio-capture";
 }
 
 function bestAudioMimeType(): string | undefined {
@@ -121,11 +138,22 @@ export default function VoiceInput({
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const finalTranscriptRef = useRef("");
+  const speechPiecesRef = useRef<string[]>([]);
+  const recordingStartedAtRef = useRef<number | null>(null);
+  const recordingDurationRef = useRef(0);
+  const stoppedAtRef = useRef<number | null>(null);
+  const wavConversionMsRef = useRef(0);
+  const uploadToResponseMsRef = useRef(0);
+  const providerMsRef = useRef(0);
+  const audioBytesRef = useRef(0);
+  const timingLoggedRef = useRef(false);
   const [language, setLanguage] = useState("ar-EG");
   const [status, setStatus] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isRequestingMic, setIsRequestingMic] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [showVoiceConsent, setShowVoiceConsent] = useState(false);
+  const [voiceConsentAccepted, setVoiceConsentAccepted] = useState(false);
   const capabilityFlags = useSyncExternalStore(
     subscribeToBrowserCapabilities,
     browserCapabilityFlags,
@@ -153,70 +181,91 @@ export default function VoiceInput({
   }, []);
 
   async function transcribeAudio(audio: Blob): Promise<void> {
-    if (!audio.size) {
-      setStatus(errorMessage("no-audio"));
-      return;
-    }
-    if (audio.size > MAX_AUDIO_BYTES) {
-      setStatus(errorMessage("audio-too-large"));
-      return;
-    }
-
-    setIsTranscribing(true);
-    setStatus("جارٍ إرسال التسجيل إلى Gemini لتحويله إلى نص...");
-    let wavAudio: Blob;
-    try {
-      wavAudio = await recordingToWav(audio);
-    } catch {
-      if (mountedRef.current) {
-        setStatus(errorMessage("unsupported-audio"));
-        setIsTranscribing(false);
-      }
-      return;
-    }
-    const form = new FormData();
-    form.append("audio", wavAudio, "voice.wav");
-    form.append("language", language);
     const controller = new AbortController();
-    abortRef.current = controller;
-    const requestTimeout = setTimeout(() => controller.abort(), 50_000);
-
+    setIsTranscribing(true);
+    setStatus(ar.voice.sendingStatus);
     try {
-      const response = await fetch("/api/voice/transcribe", {
-        method: "POST",
-        body: form,
-        signal: controller.signal,
-      });
-      const result: unknown = await response.json().catch(() => null);
-      if (
-        result === null ||
-        typeof result !== "object" ||
-        !("ok" in result) ||
-        result.ok !== true ||
-        !("transcript" in result) ||
-        typeof result.transcript !== "string"
-      ) {
-        const error =
-          result && typeof result === "object" && "error" in result &&
-          typeof result.error === "string"
+      if (!audio.size) {
+        setStatus(errorMessage("no-audio"));
+        return;
+      }
+      const conversionStartedAt = performance.now();
+      let wavAudio: Blob;
+      try {
+        wavAudio = await recordingToWav(audio);
+      } catch {
+        setStatus(errorMessage("unsupported-audio"));
+        return;
+      } finally {
+        wavConversionMsRef.current = Math.round(performance.now() - conversionStartedAt);
+      }
+      if (wavAudio.size > MAX_WAV_BYTES) {
+        setStatus(errorMessage("audio-too-large"));
+        return;
+      }
+      audioBytesRef.current = wavAudio.size;
+
+      const form = new FormData();
+      form.append("audio", wavAudio, "voice.wav");
+      form.append("language", language);
+      abortRef.current = controller;
+      const requestTimeout = setTimeout(() => controller.abort(), 50_000);
+
+      try {
+        const uploadStartedAt = performance.now();
+        const response = await fetch("/api/voice/transcribe", {
+          method: "POST",
+          body: form,
+          signal: controller.signal,
+        });
+        const result: unknown = await response.json().catch(() => null);
+        uploadToResponseMsRef.current = Math.round(performance.now() - uploadStartedAt);
+        if (
+          result && typeof result === "object" && "timings" in result &&
+          result.timings && typeof result.timings === "object" &&
+          "providerMs" in result.timings && typeof result.timings.providerMs === "number"
+        ) {
+          providerMsRef.current = result.timings.providerMs;
+        }
+
+        if (response.status === 413) {
+          setStatus(errorMessage("request-too-large"));
+          return;
+        }
+        if (result === null || typeof result !== "object") {
+          setStatus(errorMessage("unexpected-response"));
+          return;
+        }
+        if (
+          !("ok" in result) ||
+          result.ok !== true ||
+          !("transcript" in result) ||
+          typeof result.transcript !== "string"
+        ) {
+          const error = "error" in result && typeof result.error === "string"
             ? result.error
             : "transcription-failed";
-        setStatus(errorMessage(error));
-        return;
-      }
+          setStatus(errorMessage(error));
+          return;
+        }
 
-      const cleanTranscript = result.transcript.trim().slice(0, maxChars);
-      if (!cleanTranscript) {
-        setStatus(errorMessage("empty-transcript"));
-        return;
+        const cleanTranscript = result.transcript.trim().slice(0, maxChars);
+        if (!cleanTranscript) {
+          setStatus(errorMessage("empty-transcript"));
+          return;
+        }
+        finalTranscriptRef.current = appendTranscript(
+          finalTranscriptRef.current,
+          cleanTranscript,
+          maxChars,
+        );
+        speechPiecesRef.current = [...speechPiecesRef.current, cleanTranscript];
+        onTranscriptChange(finalTranscriptRef.current);
+        setStatus(ar.voice.completeStatus);
+      } finally {
+        clearTimeout(requestTimeout);
+        abortRef.current = null;
       }
-      finalTranscriptRef.current = appendTranscript(
-        finalTranscriptRef.current,
-        cleanTranscript,
-        maxChars,
-      );
-      onTranscriptChange(finalTranscriptRef.current);
-      setStatus("اكتمل التحويل. راجع النص وعدّله قبل إضافته إلى الحقل.");
     } catch {
       if (mountedRef.current) {
         setStatus(
@@ -226,49 +275,85 @@ export default function VoiceInput({
         );
       }
     } finally {
-      clearTimeout(requestTimeout);
-      abortRef.current = null;
+      if (process.env.NODE_ENV === "development" && !timingLoggedRef.current) {
+        timingLoggedRef.current = true;
+        const stoppedAt = stoppedAtRef.current ?? performance.now();
+        console.info("Voice timing metrics (numeric only)", {
+          recordingDurationMs: Math.round(recordingDurationRef.current),
+          wavConversionMs: wavConversionMsRef.current,
+          uploadToResponseMs: uploadToResponseMsRef.current,
+          providerMs: providerMsRef.current,
+          totalPostStopMs: Math.round(performance.now() - stoppedAt),
+          audioBytes: audioBytesRef.current,
+        });
+      }
       if (mountedRef.current) setIsTranscribing(false);
     }
   }
 
-  async function startRecording(): Promise<void> {
+  async function startRecording(consentConfirmed = false): Promise<void> {
+    if (!voiceConsentAccepted && !consentConfirmed) {
+      setShowVoiceConsent(true);
+      setStatus(ar.voice.consentPrompt);
+      return;
+    }
     if (!secureContext) {
       setStatus(errorMessage("insecure-context"));
       return;
     }
     if (!supported || isRecording || isRequestingMic || isTranscribing) {
       if (!supported) {
-        setStatus("هذا المتصفح أو الجهاز لا يدعم تسجيل الصوت. يمكنك الكتابة يدويًا.");
+        setStatus(ar.voice.unsupportedShort);
       }
       return;
     }
 
     setIsRequestingMic(true);
-    setStatus("يرجى السماح باستخدام الميكروفون في نافذة المتصفح.");
+    setStatus(ar.voice.permissionPrompt);
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
     } catch (error: unknown) {
-      if (!mountedRef.current) return;
       const name = error instanceof Error ? error.name : "";
-      const mapped =
-        name === "NotAllowedError" || name === "PermissionDeniedError"
-          ? "not-allowed"
-          : name === "NotFoundError" || name === "DevicesNotFoundError"
-            ? "not-found"
-            : name === "NotReadableError" || name === "TrackStartError"
-              ? "not-readable"
-              : "audio-capture";
-      setStatus(errorMessage(mapped));
-      setIsRequestingMic(false);
-      return;
+      if (name === "OverconstrainedError" || name === "TypeError") {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (fallbackError: unknown) {
+          if (!mountedRef.current) return;
+          setStatus(errorMessage(mediaErrorCode(fallbackError)));
+          setIsRequestingMic(false);
+          return;
+        }
+      } else {
+        if (!mountedRef.current) return;
+        setStatus(errorMessage(mediaErrorCode(error)));
+        setIsRequestingMic(false);
+        return;
+      }
     }
     if (!mountedRef.current) {
       releaseStream(stream);
       return;
     }
     setIsRequestingMic(false);
+    const track = stream.getAudioTracks()[0];
+    if (process.env.NODE_ENV === "development" && track) {
+      const settings = track.getSettings();
+      console.info("Voice microphone settings", {
+        echoCancellation: settings.echoCancellation,
+        noiseSuppression: settings.noiseSuppression,
+        autoGainControl: settings.autoGainControl,
+        sampleRate: settings.sampleRate,
+        channelCount: settings.channelCount,
+        sampleSize: settings.sampleSize,
+      });
+    }
 
     const mimeType = bestAudioMimeType();
     let recorder: MediaRecorder;
@@ -276,7 +361,7 @@ export default function VoiceInput({
       recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     } catch {
       releaseStream(stream);
-      setStatus("تعذّر تهيئة تسجيل الصوت في هذا المتصفح. يمكنك الكتابة يدويًا.");
+      setStatus(ar.voice.unsupportedRecorder);
       return;
     }
 
@@ -307,6 +392,12 @@ export default function VoiceInput({
       streamRef.current = null;
       recorderRef.current = null;
       setIsRecording(false);
+      const stoppedAt = performance.now();
+      const recordingStartedAt = recordingStartedAtRef.current;
+      recordingDurationRef.current = recordingStartedAt === null
+        ? 0
+        : stoppedAt - recordingStartedAt;
+      stoppedAtRef.current = stoppedAt;
       if (recorderErrorRef.current) return;
       void transcribeAudio(recordedAudio);
     };
@@ -314,7 +405,15 @@ export default function VoiceInput({
     try {
       recorder.start();
       setIsRecording(true);
-      setStatus("جارٍ التسجيل... تحدث الآن، وسيتم الإيقاف تلقائيًا بعد 30 ثانية.");
+      recordingStartedAtRef.current = performance.now();
+      recordingDurationRef.current = 0;
+      stoppedAtRef.current = null;
+      wavConversionMsRef.current = 0;
+      uploadToResponseMsRef.current = 0;
+      providerMsRef.current = 0;
+      audioBytesRef.current = 0;
+      timingLoggedRef.current = false;
+      setStatus(ar.voice.recordingStatus);
       timeoutRef.current = setTimeout(() => {
         if (recorder.state === "recording") recorder.stop();
       }, MAX_RECORDING_MS);
@@ -322,7 +421,7 @@ export default function VoiceInput({
       releaseStream(streamRef.current);
       streamRef.current = null;
       recorderRef.current = null;
-      setStatus("تعذّر بدء تسجيل الصوت. حاول مرة أخرى أو اكتب النص يدويًا.");
+      setStatus(ar.voice.recorderStartFailed);
     }
   }
 
@@ -330,7 +429,7 @@ export default function VoiceInput({
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = null;
     if (recorderRef.current?.state === "recording") {
-      setStatus("جارٍ تجهيز التسجيل...");
+      setStatus(ar.voice.preparingStatus);
       recorderRef.current.stop();
     }
   }
@@ -338,17 +437,24 @@ export default function VoiceInput({
   function clearTranscript(): void {
     abortRef.current?.abort();
     finalTranscriptRef.current = "";
+    speechPiecesRef.current = [];
     onTranscriptChange("");
-    setStatus("تم مسح النص.");
+    setStatus(ar.voice.clearedStatus);
   }
 
   function appendToForm(): void {
     if (!transcript.trim() || !onAppend) {
-      setStatus("لا يوجد نص لإضافته.");
+      setStatus(ar.voice.noTranscript);
       return;
     }
-    onAppend(transcript);
-    setStatus("تمت إضافة النص إلى الحقل. راجعه قبل الإرسال.");
+    onAppend(transcript, speechPiecesRef.current);
+    setStatus(ar.voice.appendedStatus);
+  }
+
+  function acceptVoiceConsent(): void {
+    setVoiceConsentAccepted(true);
+    setShowVoiceConsent(false);
+    void startRecording(true);
   }
 
   return (
@@ -366,15 +472,47 @@ export default function VoiceInput({
         htmlFor={`${id}-language`}
         style={{ display: "block", fontWeight: 600, marginBottom: "0.4rem" }}
       >
-        التسجيل الصوتي والنسخ إلى نص
+        {ar.voice.captureLabel}
       </label>
+      <label
+        htmlFor={`${id}-transcript`}
+        style={{ display: "block", fontWeight: 600, marginTop: "0.6rem" }}
+      >
+        {ar.voice.typeOrReviewLabel}
+      </label>
+      <textarea
+        id={`${id}-transcript`}
+        aria-label={ar.voice.transcriptLabel}
+        dir={direction}
+        lang={language}
+        maxLength={maxChars}
+        value={transcript}
+        onChange={(event) => {
+          finalTranscriptRef.current = event.target.value;
+          onTranscriptChange(event.target.value);
+        }}
+        placeholder={ar.voice.transcriptPlaceholder}
+        style={{
+          width: "100%",
+          minHeight: 96,
+          boxSizing: "border-box",
+          marginTop: "0.35rem",
+          padding: "0.65rem",
+          border: "1px solid #94a3b8",
+          borderRadius: 8,
+          font: "inherit",
+          fontSize: 18,
+          resize: "vertical",
+        }}
+      />
+      <p style={hintStyle}>{ar.voice.characterCount(transcript.length, maxChars)}</p>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
         <select
           id={`${id}-language`}
           value={language}
           disabled={isRecording || isTranscribing}
           onChange={(event) => setLanguage(event.target.value)}
-          aria-label="لغة التسجيل"
+          aria-label={ar.voice.languageLabel}
           style={{ minHeight: 44, padding: "0.45rem", font: "inherit" }}
         >
           {LANGUAGES.map((option) => (
@@ -385,7 +523,7 @@ export default function VoiceInput({
         </select>
         {isRecording ? (
           <button type="button" onClick={stopRecording} style={buttonStyle}>
-            إيقاف وإرسال للتحويل
+            {ar.voice.stopButton}
           </button>
         ) : (
           <button
@@ -397,10 +535,10 @@ export default function VoiceInput({
             style={buttonStyle}
           >
             {isRequestingMic
-              ? "بانتظار إذن الميكروفون..."
+              ? ar.voice.requestingMic
               : isTranscribing
-                ? "جارٍ التحويل..."
-                : "ابدأ التسجيل"}
+                ? ar.voice.transcribing
+                : ar.voice.recordButton}
           </button>
         )}
         <button
@@ -411,7 +549,7 @@ export default function VoiceInput({
           }
           style={buttonStyle}
         >
-          مسح النص
+          {ar.voice.clearButton}
         </button>
         {onAppend ? (
           <button
@@ -420,56 +558,52 @@ export default function VoiceInput({
             disabled={!transcript.trim()}
             style={buttonStyle}
           >
-            أضف إلى الحقل
+            {ar.voice.appendButton}
           </button>
         ) : null}
       </div>
       {!supported ? (
         <p style={hintStyle}>
-          هذا المتصفح لا يدعم تسجيل الصوت. استخدم متصفحًا حديثًا أو اكتب يدويًا.
+          {ar.voice.unsupportedBrowser}
         </p>
       ) : !secureContext ? (
-        <p style={hintStyle}>افتح الموقع عبر HTTPS أو localhost لتسجيل الصوت.</p>
+        <p style={hintStyle}>{ar.voice.secureContextHint}</p>
       ) : null}
-      <textarea
-        aria-label="النص المحوّل، قابل للتعديل"
-        dir={direction}
-        lang={language}
-        maxLength={maxChars}
-        value={transcript}
-        onChange={(event) => {
-          finalTranscriptRef.current = event.target.value;
-          onTranscriptChange(event.target.value);
-        }}
-        placeholder="سيظهر النص هنا ويمكنك تعديله..."
-        style={{
-          width: "100%",
-          minHeight: 76,
-          boxSizing: "border-box",
-          marginTop: "0.6rem",
-          padding: "0.65rem",
-          border: "1px solid #94a3b8",
-          borderRadius: 8,
-          font: "inherit",
-          resize: "vertical",
-        }}
-      />
-      <p style={hintStyle}>{transcript.length}/{maxChars} حرف</p>
+      {showVoiceConsent ? (
+        <div role="group" aria-labelledby={`${id}-consent-title`} style={consentStyle}>
+          <h3 id={`${id}-consent-title`} style={{ marginTop: 0 }}>
+            {ar.voice.consentTitle}
+          </h3>
+          <p>{ar.voice.consentNotice}</p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+            <button type="button" onClick={acceptVoiceConsent} style={buttonStyle}>
+              {ar.voice.consentContinue}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowVoiceConsent(false);
+                setStatus("");
+              }}
+              style={buttonStyle}
+            >
+              {ar.voice.consentCancel}
+            </button>
+          </div>
+        </div>
+      ) : null}
       <p role="status" aria-live="polite" style={hintStyle}>
         {status}
       </p>
       <p style={hintStyle}>
-        يتم التسجيل لمدة تصل إلى 30 ثانية. بعد الإيقاف، يُرسل الصوت إلى خادم
-        التطبيق ثم إلى Google Gemini باستخدام مفتاحك لتحويله إلى نص؛ لا يُحفظ
-        التسجيل في قاعدة بيانات التطبيق. استخدم تسجيلات تجريبية فقط وراجع النص
-        قبل استخدامه. يستلزم ذلك اتصالًا بالإنترنت وقد يستهلك حصة API.
+        {ar.voice.transferHint}
       </p>
     </section>
   );
 }
 
 const buttonStyle: React.CSSProperties = {
-  minHeight: 44,
+  minHeight: 48,
   padding: "0.45rem 0.75rem",
   border: "1px solid #0f6f5c",
   borderRadius: 8,
@@ -483,4 +617,12 @@ const hintStyle: React.CSSProperties = {
   margin: "0.45rem 0 0",
   color: "#475569",
   fontSize: "0.9rem",
+};
+
+const consentStyle: React.CSSProperties = {
+  marginTop: "0.65rem",
+  padding: "0.75rem",
+  border: "1px solid #b45309",
+  borderRadius: 8,
+  background: "#fffbeb",
 };

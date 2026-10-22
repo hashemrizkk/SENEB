@@ -6,7 +6,12 @@ import {
   fullNameSchema,
   phoneSchema,
 } from "./registration.ts";
-import { intakeFieldsSchema, type IntakeFields, intakeMetaSchema } from "./intake.ts";
+import {
+  intakeFieldsSchema,
+  type IntakeFields,
+  type InputMethod,
+  intakeMetaSchema,
+} from "./intake.ts";
 import { redFlags, type RedFlagResult } from "./rules.ts";
 
 export type ReviewStatus = "new" | "triaged" | "seen";
@@ -53,7 +58,7 @@ type PatientSnapshot = {
 type IntakeSnapshot = {
   id: number;
   patient_id: number;
-  input_method: string | null;
+  input_method: InputMethod | "assisted" | null;
   raw_text: string | null;
   structured_json: string | null;
   red_flags_json: string | null;
@@ -651,7 +656,7 @@ export function savePatientIntake(
   db: Database.Database,
   data: {
     patient_id: number;
-    input_method: string;
+    input_method: InputMethod;
     raw_text: string | null;
     structured_json: string;
     red_flags_json: string;

@@ -3,6 +3,7 @@ import { requireDoctorSession } from "@/lib/doctor-review";
 import { latestIntakes } from "@/lib/db";
 import { intakeFieldsSchema, intakeMetaSchema } from "@/lib/intake";
 import { ar } from "@/lib/strings.ar";
+import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
 import { flagLabel, questionLabel, unansweredLabels } from "@/lib/questions";
 
 export const dynamic = "force-dynamic";
@@ -56,6 +57,10 @@ export default async function AdminIntakesPage() {
             >
               <h2>{intake.patient_name}</h2>
               <p>{ar.admin.created(intake.created_at ?? ar.admin.unknown)}</p>
+              <p>{ar.admin.inputMethod}: {inputMethodLabel(intake.input_method)}</p>
+              {inputMethodNote(intake.input_method) ? (
+                <p>{inputMethodNote(intake.input_method)}</p>
+              ) : null}
               <p>
                 {ar.admin.processing}: {meta?.llm_mode ?? ar.admin.unknown}
                 {meta?.needs_review ? ` — ${ar.admin.needsReview}` : ""}
