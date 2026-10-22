@@ -632,6 +632,20 @@ async function main(): Promise<void> {
   );
   rateLimitDb.close();
 
+  const previousDemoCooldown = process.env.DEMO_COOLDOWN_OFF;
+  process.env.DEMO_COOLDOWN_OFF = "1";
+  const demoCooldownDb = fixture({ fields: allNegative });
+  const demoFirst = await generateCaseSummary(1, dependencies(demoCooldownDb, {
+    hasProvider: false, now: () => new Date(fixedTime),
+  }));
+  const demoSecond = await generateCaseSummary(1, dependencies(demoCooldownDb, {
+    hasProvider: false, now: () => new Date(fixedTime.getTime() + 999),
+  }));
+  report("demo cooldown shortens to about one second", demoFirst.ok && !demoSecond.ok && demoSecond.status === 429 && demoSecond.retryAfterSeconds === 1);
+  demoCooldownDb.close();
+  if (previousDemoCooldown === undefined) delete process.env.DEMO_COOLDOWN_OFF;
+  else process.env.DEMO_COOLDOWN_OFF = previousDemoCooldown;
+
   const concurrentDb = fixture({ fields: allNegative });
   let releaseSummary:
     | ((result: { output: unknown; model: string | null }) => void)

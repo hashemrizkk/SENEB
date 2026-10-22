@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import type { InputMethod } from "./intake.ts";
 import { migrateInputMethodCheck } from "./db-migrations.ts";
-import { seedPatients } from "./seed.ts";
+import { narrativeDemoStories, seedPatients } from "./seed.ts";
 import {
   getDoctorPatientRecord,
   listDoctorQueue,
@@ -274,6 +274,47 @@ export function migrateAfterWorkRatings(database: Database.Database): void {
 migrateFollowupPlanDrafts(db);
 migrateAfterWorkRatings(db);
 
+function seedNarrativeDemoStories(database: Database.Database): void {
+  const existing = database.prepare<[], { count: number }>("SELECT COUNT(*) AS count FROM intakes").get()?.count ?? 0;
+  if (existing > 0) return;
+  const patientIds = database.prepare<[], { id: number }>("SELECT id FROM patients ORDER BY id LIMIT 3").all().map((row) => row.id);
+  if (patientIds.length < 3) return;
+  const [urgentPatient, , followupPatient] = patientIds as [number, number, number];
+  const submittedAt = new Date().toISOString();
+  const fields = { missed_doses: null, hypoglycemia_episodes: null, hypoglycemia_symptoms: null, foot_problem: null, vision_change: null, emergency_symptoms_mentioned: true, symptoms_text: "ألم في الصدر" };
+  const redFlagResult = redFlags(fields);
+  const intakeId = savePatientIntake(database, {
+    patient_id: urgentPatient, input_method: "typed", raw_text: narrativeDemoStories.urgentText,
+    structured_json: JSON.stringify(fields), red_flags_json: JSON.stringify(redFlagResult),
+    meta_json: JSON.stringify({ llm_mode: "mock", model: null, needs_review: true, contradiction: false }), priority: "urgent",
+  }, submittedAt, { source: "patient", editedBy: null, reason: "Synthetic demo story" });
+  database.prepare("UPDATE intakes SET priority = 'urgent' WHERE id = ?").run(intakeId);
+
+  const surveyAnswers = { age: 67, sex: "male", family_history: true, high_glucose: true, antihypertensive: true, daily_smoking: true, daily_fruit_veg: false, activity_150_minutes: false, waist_cm: 115 };
+  database.prepare(`INSERT INTO survey_submissions (
+    request_id, full_name, phone, answers_json, metadata_json, whatsapp_consent_at,
+    email, email_consent_at, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    "demo-survey-story", "منى تجربة تجريبية", "01000000002", JSON.stringify(surveyAnswers),
+    JSON.stringify({ demo: true, screening_cutoff: "diabetes" }), "", narrativeDemoStories.surveyEmail, submittedAt, submittedAt,
+  );
+
+  const followupId = savePatientIntake(database, {
+    patient_id: followupPatient, input_method: "tap", raw_text: null,
+    structured_json: JSON.stringify({ ...fields, emergency_symptoms_mentioned: null, symptoms_text: null }),
+    red_flags_json: JSON.stringify(redFlags({ ...fields, emergency_symptoms_mentioned: null, symptoms_text: null })),
+    meta_json: JSON.stringify({ llm_mode: "none", model: null, needs_review: false, contradiction: false }), priority: "normal",
+  }, submittedAt, { source: "patient", editedBy: null, reason: "Synthetic demo story" });
+  const plan = JSON.stringify({ demo: true, plan: narrativeDemoStories.followupPlan });
+  database.prepare(`INSERT INTO followups (patient_id, intake_id, plan_json, next_visit_date, confirmed_by, confirmed_at, message, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(followupPatient, followupId, plan, submittedAt.slice(0, 10), "Demo Clinic Team", submittedAt, narrativeDemoStories.followupPlan, "completed", submittedAt);
+  for (const [kind, body] of [["recap", "ملخص متابعة تجريبي — راجعه فريق العيادة."], ["reminder", "تذكير تجريبي بموعد المتابعة القادم."]] as const) {
+    database.prepare("INSERT INTO messages (patient_id, kind, body, status, scheduled_at) VALUES (?, ?, ?, 'queued', ?)").run(followupPatient, kind, body, submittedAt);
+  }
+}
+
+if (process.env.DEMO_SEED === "1") seedNarrativeDemoStories(db);
+
 // ----- Types -----
 
 export type Patient = {
@@ -508,6 +549,17 @@ export function getPatientRecord(patientId: number): PatientRecord | null {
 
 export function listQueue(filter: QueueFilter = "all"): PatientIntakeRecord[] {
   return listDoctorQueue(db, filter);
+}
+
+export function getDemoWeekMetrics(): { autoStructured: number; notesAutoRated: number } {
+  const start = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const autoStructured = db.prepare<[string], { count: number }>(
+    "SELECT COUNT(*) AS count FROM intakes WHERE created_at >= ? AND structured_json IS NOT NULL AND json_extract(meta_json, '$.llm_mode') IN ('real', 'mock')",
+  ).get(start)?.count ?? 0;
+  const notesAutoRated = db.prepare<[string], { count: number }>(
+    "SELECT COUNT(*) AS count FROM after_work_ratings WHERE created_at >= ?",
+  ).get(start)?.count ?? 0;
+  return { autoStructured, notesAutoRated };
 }
 
 // ----- Query functions -----

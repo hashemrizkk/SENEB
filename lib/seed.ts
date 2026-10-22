@@ -1,5 +1,11 @@
 import type Database from "better-sqlite3";
 
+export const narrativeDemoStories = {
+  urgentText: "أنا عندي ألم في الصدر من الصبح وعايز أراجع الفريق الطبي.",
+  surveyEmail: "demo-survey@example.invalid",
+  followupPlan: "خطة متابعة تجريبية راجعها فريق العيادة مع المريض.",
+} as const;
+
 const patients = [
   { name: "أحمد تجريبي", age: 42, diabetesType: "type2", hba1cDaysAgo: 60, footDaysAgo: 100, bpDaysAgo: null, nextVisitDaysFromNow: -10 },
   { name: "منى تجريبية", age: 55, diabetesType: "type2", hba1cDaysAgo: 90, footDaysAgo: 120, bpDaysAgo: 30, nextVisitDaysFromNow: -20 },

@@ -346,12 +346,13 @@ async function generateCaseSummaryInternal(
     .get(patientId);
   if (previousSummary) {
     const elapsed = now.getTime() - Date.parse(previousSummary.text);
-    if (elapsed >= 0 && elapsed < 5_000) {
+    const cooldownMs = process.env.DEMO_COOLDOWN_OFF === "1" ? 1_000 : 5_000;
+    if (elapsed >= 0 && elapsed < cooldownMs) {
       return {
         ok: false,
-        error: "Please wait 5 seconds before generating another summary.",
+        error: `Please wait ${Math.ceil(cooldownMs / 1_000)} seconds before generating another summary.`,
         status: 429,
-        retryAfterSeconds: Math.ceil((5_000 - elapsed) / 1_000),
+        retryAfterSeconds: Math.ceil((cooldownMs - elapsed) / 1_000),
       };
     }
   }
