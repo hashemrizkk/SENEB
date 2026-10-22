@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import db, { getPatient } from "@/lib/db";
 import { intakeRequestSchema } from "@/lib/intake";
 import {
@@ -7,6 +7,7 @@ import {
   readJsonBody,
 } from "@/lib/requestGuards";
 import { prepareIntake, saveIntake } from "@/lib/submitIntake";
+import { generateSummarySafely } from "@/lib/summary-background";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,6 +54,7 @@ export async function POST(request: Request): Promise<Response> {
       }),
     )();
 
+    after(() => generateSummarySafely(data.patient_id));
     return NextResponse.json({ ok: true, intake_id: intakeId });
   } catch (error: unknown) {
     const errorType =

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import {
+  buildTranscriptionPrompt,
   isSupportedAudioType,
+  mockVoiceTranscript,
+  parseVoiceChunkMetadata,
   readGeminiTranscript,
   withValidatedGeminiWav,
   VoiceAudioValidationError,
@@ -69,8 +72,47 @@ await test("rejects oversized WAV before provider invocation", async () => {
   await assertRejectedWithoutProvider(makeWav(0), "audio/wav", 20);
 });
 
-await test("rejects a valid WAV longer than 30 seconds without provider invocation", async () => {
-  await assertRejectedWithoutProvider(makeWav(32_000 * 31));
+await test("accepts a 45-second PCM16 WAV within the raised request cap", async () => {
+  let providerCalled = false;
+  await withValidatedGeminiWav(makeWav(32_000 * 45), "audio/wav", 4 * 1024 * 1024, async (duration) => {
+    providerCalled = true;
+    assert.equal(duration, 45_000);
+  });
+  assert.equal(providerCalled, true);
+});
+
+await test("validates optional chunk sequence and total while preserving the single request shape", () => {
+  assert.deepEqual(parseVoiceChunkMetadata(null, null), { sequence: null, total: null });
+  assert.deepEqual(parseVoiceChunkMetadata("2", "4"), { sequence: 2, total: 4 });
+  assert.throws(() => parseVoiceChunkMetadata("x", null), VoiceAudioValidationError);
+  assert.throws(() => parseVoiceChunkMetadata("4", "4"), VoiceAudioValidationError);
+});
+
+await test("selects the exact auto-detect doctor dictation prompt", () => {
+  assert.equal(
+    buildTranscriptionPrompt("auto", "dictation"),
+    "Transcribe the audio verbatim in the language(s) spoken (Egyptian Arabic and/or English). Keep medication and medical terms in the original language. Clean punctuation, no filler words, numbers and dosages verbatim.",
+  );
+});
+
+await test("maps Arabic selector values to Egyptian Arabic-only dictation", () => {
+  assert.match(buildTranscriptionPrompt("ar", "dictation"), /Egyptian Arabic only/);
+  assert.match(buildTranscriptionPrompt("ar-EG", "dictation"), /Egyptian Arabic only/);
+  assert.match(buildTranscriptionPrompt("ar"), /Egyptian Arabic only/);
+});
+
+await test("maps English selector value to English-only dictation", () => {
+  assert.match(buildTranscriptionPrompt("en-US", "dictation"), /English only/);
+  assert.match(buildTranscriptionPrompt("en-US"), /English only/);
+});
+
+await test("preserves the legacy explicit transcription prompt", () => {
+  assert.match(buildTranscriptionPrompt("ar-EG"), /Egyptian Arabic/);
+  assert.match(buildTranscriptionPrompt("en-US"), /Transcribe.*English/);
+});
+
+await test("mock transcription is clearly labeled without contacting an STT provider", () => {
+  assert.match(mockVoiceTranscript(), /^\[MOCK\]/);
 });
 
 await test("rejects wrong WAV format and inconsistent headers without provider invocation", async () => {

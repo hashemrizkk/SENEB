@@ -9,9 +9,11 @@ import {
   listDoctorQueue,
   migrateDoctorReview,
   savePatientIntake,
+  saveClinicianEdit,
   type ReviewFilter,
   type ReviewIntake,
 } from "./doctor-review.ts";
+import type { FollowupPlan } from "./followup-plan.ts";
 
 // ----- Connection (singleton for dev hot-reload) -----
 
@@ -90,6 +92,40 @@ db.transaction(() => {
 migrateDoctorReview(db);
 
 migrateInputMethodCheck(db);
+
+const followupColumns = new Set(
+  db.prepare<[], { name: string }>("SELECT name FROM pragma_table_info('followups')")
+    .all().map((column) => column.name),
+);
+db.transaction(() => {
+  const followupMigrations: [string, string][] = [
+    ["intake_id", "ALTER TABLE followups ADD COLUMN intake_id INTEGER REFERENCES intakes(id)"],
+    ["plan_json", "ALTER TABLE followups ADD COLUMN plan_json TEXT"],
+    ["next_visit_date", "ALTER TABLE followups ADD COLUMN next_visit_date TEXT"],
+    ["confirmed_by", "ALTER TABLE followups ADD COLUMN confirmed_by TEXT"],
+    ["confirmed_at", "ALTER TABLE followups ADD COLUMN confirmed_at TEXT"],
+  ];
+  for (const [column, sql] of followupMigrations) {
+    if (!followupColumns.has(column)) db.exec(sql);
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL REFERENCES patients(id),
+      kind TEXT NOT NULL CHECK (kind IN ('recap', 'reminder')),
+      body TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'sent', 'failed', 'canceled')),
+      scheduled_at TEXT NOT NULL,
+      sent_at TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      provider_ref TEXT,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_messages_due ON messages(status, scheduled_at);
+    CREATE INDEX IF NOT EXISTS idx_followups_intake ON followups(intake_id, confirmed_at);
+  `);
+})();
 
 // ----- Types -----
 
@@ -198,8 +234,14 @@ export function insertIntakeWithRevision(data: {
   structured_json: string;
   red_flags_json: string;
   meta_json: string | null;
+  priority?: "urgent" | "important" | "normal" | null;
+  revision_reason?: string | null;
 }): number {
-  return savePatientIntake(db, data);
+  return savePatientIntake(db, { ...data, priority: data.priority ?? null }, undefined, {
+    source: "patient",
+    editedBy: null,
+    reason: data.revision_reason ?? null,
+  });
 }
 
 export function latestIntakes(limit: number): IntakeRow[] {
@@ -345,6 +387,186 @@ export function referenceCodeExists(code: string): boolean {
       )
       .get(code)?.count ?? 0
   ) > 0;
+}
+
+export type StoredOutboxMessage = {
+  id: number;
+  patient_id: number;
+  kind: "recap" | "reminder";
+  body: string;
+  status: "queued" | "sent" | "failed" | "canceled";
+  scheduled_at: string;
+  sent_at: string | null;
+  attempts: number;
+  provider_ref: string | null;
+  error: string | null;
+  phone: string | null;
+};
+
+export function enqueueOutboxMessage(
+  message: Omit<StoredOutboxMessage, "id" | "attempts" | "provider_ref" | "error" | "phone">,
+): number {
+  const result = db.prepare(
+    `INSERT INTO messages (patient_id, kind, body, status, scheduled_at, sent_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    message.patient_id,
+    message.kind,
+    message.body,
+    message.status,
+    message.scheduled_at,
+    message.sent_at,
+  );
+  return Number(result.lastInsertRowid);
+}
+
+export function dueMessages(now: string): StoredOutboxMessage[] {
+  return db.prepare<[string], StoredOutboxMessage>(
+    `SELECT m.id, m.patient_id, m.kind, m.body, m.status, m.scheduled_at,
+            m.sent_at, m.attempts, m.provider_ref, m.error, p.phone
+     FROM messages m JOIN patients p ON p.id = m.patient_id
+     WHERE m.status = 'queued' AND m.scheduled_at <= ?
+     ORDER BY m.scheduled_at, m.id LIMIT 100`,
+  ).all(now);
+}
+
+export function markMessageSent(id: number, providerRef: string, now: string): void {
+  db.prepare(
+    `UPDATE messages SET status = 'sent', sent_at = ?, attempts = attempts + 1,
+       provider_ref = ?, error = NULL WHERE id = ? AND status = 'queued'`,
+  ).run(now, providerRef, id);
+}
+
+export function markMessageFailed(
+  id: number,
+  attempts: number,
+  error: string,
+  retryAt: string | null,
+): void {
+  db.prepare(
+    `UPDATE messages SET status = ?, attempts = ?, error = ?, scheduled_at = ?
+     WHERE id = ? AND status = 'queued'`,
+  ).run(retryAt ? "queued" : "failed", attempts, error, retryAt ?? new Date().toISOString(), id);
+}
+
+export function latestMessages(limit = 50): StoredOutboxMessage[] {
+  return db.prepare<[number], StoredOutboxMessage>(
+    `SELECT m.id, m.patient_id, m.kind, m.body, m.status, m.scheduled_at,
+            m.sent_at, m.attempts, m.provider_ref, m.error, p.phone
+     FROM messages m JOIN patients p ON p.id = m.patient_id
+     ORDER BY m.id DESC LIMIT ?`,
+  ).all(limit);
+}
+
+export function saveEncounterClose(input: {
+  intakeId: number;
+  version: number;
+  staffName: string;
+  note: string;
+  plan: FollowupPlan;
+  recapBody: string | null;
+  recapScheduledAt: string;
+  reminderBody: string | null;
+  reminderScheduledAt: string | null;
+  now?: Date;
+}): { ok: true; recapQueued: boolean; recapMessageId: number | null; reminderQueued: boolean } | { ok: false; conflict: true } {
+  const now = input.now ?? new Date();
+  return db.transaction(() => {
+    const record = getDoctorPatientRecord(db, Number(
+      db.prepare<[number], { patient_id: number }>("SELECT patient_id FROM intakes WHERE id = ?")
+        .get(input.intakeId)?.patient_id,
+    ));
+    const intake = record?.intakes.find((item) => item.id === input.intakeId);
+    if (!record || !intake) throw new Error("Intake not found.");
+    const saveResult = saveClinicianEdit(db, input.intakeId, input.staffName, {
+      version: input.version,
+      patient: {
+        name: record.patient.name,
+        phone: record.patient.phone ?? "",
+        email: record.patient.email ?? "",
+        self_description: record.patient.self_description ?? "",
+      },
+      fields: intake.fields,
+      raw_text: intake.raw_text,
+      priority: intake.priority,
+      status: intake.status,
+      note: input.note,
+      reason: "Encounter closed; follow-up plan confirmed.",
+    }, now);
+    if (!saveResult.ok) return { ok: false as const, conflict: true as const };
+
+    const timestamp = now.toISOString();
+    db.prepare(
+      `INSERT INTO followups (
+         patient_id, intake_id, plan_json, next_visit_date,
+         confirmed_by, confirmed_at, message, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed')`,
+    ).run(
+      record.patient.id,
+      input.intakeId,
+      JSON.stringify(input.plan),
+      input.plan.next_visit_date,
+      input.staffName,
+      timestamp,
+      null,
+    );
+    db.prepare("UPDATE patients SET next_visit_date = ? WHERE id = ?")
+      .run(input.plan.next_visit_date, record.patient.id);
+    const visitDateChanged = record.patient.next_visit_date !== input.plan.next_visit_date;
+    if (visitDateChanged) {
+      db.prepare(
+        "UPDATE messages SET status = 'canceled' WHERE patient_id = ? AND kind = 'reminder' AND status = 'queued'",
+      ).run(record.patient.id);
+    }
+
+    const patientInfo = db.prepare<[number], { consent_at: string | null; phone: string | null }>(
+      "SELECT consent_at, phone FROM patients WHERE id = ?",
+    ).get(record.patient.id);
+    let recapMessageId: number | null = null;
+    if (input.recapBody && patientInfo?.consent_at && patientInfo.phone) {
+      recapMessageId = enqueueOutboxMessage({
+        patient_id: record.patient.id,
+        kind: "recap",
+        body: input.recapBody,
+        status: "queued",
+        scheduled_at: input.recapScheduledAt,
+        sent_at: null,
+      });
+    }
+    let reminderQueued = false;
+    const reminderAlreadyExists = input.reminderBody
+      ? db.prepare<[number, string], { count: number }>(
+          `SELECT COUNT(*) AS count FROM messages
+           WHERE patient_id = ? AND kind = 'reminder' AND body = ?
+             AND status IN ('queued', 'sent')`,
+        ).get(record.patient.id, input.reminderBody)?.count ?? 0
+      : 0;
+    if (
+      input.plan.next_visit_date &&
+      input.reminderBody &&
+      input.reminderScheduledAt &&
+      reminderAlreadyExists === 0
+    ) {
+      enqueueOutboxMessage({
+        patient_id: record.patient.id,
+        kind: "reminder",
+        body: input.reminderBody,
+        status: "queued",
+        scheduled_at: input.reminderScheduledAt,
+        sent_at: null,
+      });
+      reminderQueued = true;
+    }
+    return { ok: true as const, recapQueued: recapMessageId !== null, recapMessageId, reminderQueued };
+  })();
+}
+
+export function cancelQueuedRecap(patientId: number, messageId: number): boolean {
+  const result = db.prepare(
+    `UPDATE messages SET status = 'canceled'
+     WHERE id = ? AND patient_id = ? AND kind = 'recap' AND status = 'queued'`,
+  ).run(messageId, patientId);
+  return result.changes === 1;
 }
 
 export default db;

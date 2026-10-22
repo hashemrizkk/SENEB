@@ -142,6 +142,7 @@ export default function VoiceInput({
   const recordingStartedAtRef = useRef<number | null>(null);
   const recordingDurationRef = useRef(0);
   const stoppedAtRef = useRef<number | null>(null);
+  const pendingRenderAtRef = useRef<number | null>(null);
   const wavConversionMsRef = useRef(0);
   const uploadToResponseMsRef = useRef(0);
   const providerMsRef = useRef(0);
@@ -179,6 +180,15 @@ export default function VoiceInput({
       releaseStream(streamRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    const renderedAt = pendingRenderAtRef.current;
+    if (renderedAt === null) return;
+    pendingRenderAtRef.current = null;
+    if (process.env.NODE_ENV === "development") {
+      console.info("Voice response-to-text-rendered ms", Math.round(performance.now() - renderedAt));
+    }
+  }, [transcript]);
 
   async function transcribeAudio(audio: Blob): Promise<void> {
     const controller = new AbortController();
@@ -218,6 +228,7 @@ export default function VoiceInput({
           body: form,
           signal: controller.signal,
         });
+        const responseHeadersAt = performance.now();
         const result: unknown = await response.json().catch(() => null);
         uploadToResponseMsRef.current = Math.round(performance.now() - uploadStartedAt);
         if (
@@ -226,6 +237,16 @@ export default function VoiceInput({
           "providerMs" in result.timings && typeof result.timings.providerMs === "number"
         ) {
           providerMsRef.current = result.timings.providerMs;
+        }
+        if (process.env.NODE_ENV === "development") {
+          const stoppedAt = stoppedAtRef.current ?? uploadStartedAt;
+          console.info("Voice stop-to-upload-start ms", Math.round(uploadStartedAt - stoppedAt));
+          console.info("Voice upload and response timing ms", {
+            estimatedUploadMs: Math.max(0, Math.round(responseHeadersAt - uploadStartedAt - providerMsRef.current)),
+            fetchToHeadersMs: Math.round(responseHeadersAt - uploadStartedAt),
+            responseBodyMs: Math.round(performance.now() - responseHeadersAt),
+            serverGeminiRoundTripMs: providerMsRef.current,
+          });
         }
 
         if (response.status === 413) {
@@ -260,6 +281,7 @@ export default function VoiceInput({
           maxChars,
         );
         speechPiecesRef.current = [...speechPiecesRef.current, cleanTranscript];
+        pendingRenderAtRef.current = performance.now();
         onTranscriptChange(finalTranscriptRef.current);
         setStatus(ar.voice.completeStatus);
       } finally {

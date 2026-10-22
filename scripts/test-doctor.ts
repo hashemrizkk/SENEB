@@ -297,7 +297,7 @@ try {
     raw_text: "Edited test note",
     priority: "important" as const,
     status: "seen" as const,
-    note: "Clinician test note",
+    note: "N".repeat(3_000),
     reason: "Test edit",
   };
   const saved = saveClinicianEdit(db, 1, "Dr Test", edit, new Date("2025-01-02T10:00:00Z"));
@@ -317,7 +317,7 @@ try {
   for (const field of ["patient.name", "intake.status", "intake.priority"]) {
     assert.ok(changedFields.includes(field), `revision should include ${field}`);
   }
-  assert.equal(saved.record.doctorNotes[0]?.note_text, "Clinician test note");
+  assert.equal(saved.record.doctorNotes[0]?.note_text, "N".repeat(3_000));
 
   const stale = saveClinicianEdit(db, 1, "Dr Test", edit);
   assert.deepEqual(stale, { ok: false, conflict: true });

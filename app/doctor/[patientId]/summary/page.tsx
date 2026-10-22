@@ -4,9 +4,8 @@ import { requireDoctorSession } from "@/lib/doctor-review";
 import {
   caseSummaryHistory,
   getIntakeById,
-  getPatient,
+  getPatientRecord,
   latestCaseSummary,
-  latestIntakeForPatient,
 } from "@/lib/db";
 import { caseFactsSchema, buildFacts } from "@/lib/case-facts";
 import { intakeFieldsSchema, intakeMetaSchema, type IntakeFields } from "@/lib/intake";
@@ -14,6 +13,7 @@ import { assessIntake } from "@/lib/case-assessment";
 import { cairoDate, formatCairoDateTime } from "@/lib/date-time";
 import { findAllOccurrences, highlightSegments } from "@/lib/text-normalize";
 import SummaryGenerateButton from "../SummaryGenerateButton";
+import CaseSummaryNote from "./CaseSummaryNote";
 
 export const dynamic = "force-dynamic";
 
@@ -98,10 +98,10 @@ export default async function DoctorCasePage({
     return <main><p>patient not found</p></main>;
   }
 
-  const patient = getPatient(patientId);
-  if (!patient) return <main><p>patient not found</p></main>;
-
-  const intake = latestIntakeForPatient(patientId);
+  const doctorRecord = getPatientRecord(patientId);
+  if (!doctorRecord) return <main><p>patient not found</p></main>;
+  const patient = doctorRecord.patient;
+  const intake = doctorRecord.latestIntake;
   const summary = latestCaseSummary(patientId);
   const summaryIntake = summary ? getIntakeById(summary.intake_id) : undefined;
   const parsedFields = intake
@@ -369,6 +369,10 @@ export default async function DoctorCasePage({
           <p>Generate a summary to see the narrative.</p>
         )}
       </section>
+
+      {intake ? (
+        <CaseSummaryNote patient={doctorRecord.patient} intake={intake} />
+      ) : null}
 
       <section style={sectionStyle}>
         <h2>Summary history</h2>

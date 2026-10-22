@@ -1,9 +1,60 @@
 const ALLOWED_AUDIO_TYPES = new Set(["audio/wav"]);
 const WAV_HEADER_BYTES = 44;
 const WAV_BYTES_PER_SECOND = 16_000 * 2;
-const MAX_WAV_DURATION_MS = 30_500;
+const SUPPORTED_LANGUAGES = new Set(["auto", "ar-EG", "ar", "en-US"]);
 
-export type VoiceAudioError = "audio-too-large" | "unsupported-audio";
+export type VoiceAudioError = "audio-too-large" | "unsupported-audio" | "bad-audio";
+export type VoiceLanguage = "auto" | "ar-EG" | "ar" | "en-US";
+export type VoiceTranscriptionMode = "transcription" | "dictation";
+
+export function mockVoiceTranscript(): string {
+  return "[MOCK] Dictation unavailable — transcription service is not configured.";
+}
+
+export function buildTranscriptionPrompt(
+  language: VoiceLanguage,
+  mode: VoiceTranscriptionMode = "transcription",
+): string {
+  if (language === "auto") {
+    return "Transcribe the audio verbatim in the language(s) spoken (Egyptian Arabic and/or English). Keep medication and medical terms in the original language. Clean punctuation, no filler words, numbers and dosages verbatim.";
+  }
+  const languageName = language === "en-US" ? "English" : "Egyptian Arabic";
+  if (mode === "transcription") {
+    return `Transcribe the spoken words verbatim in ${languageName} only. Return only the spoken words as plain text. Do not translate, summarize, interpret, or add commentary.`;
+  }
+  return `Transcribe the audio verbatim in ${languageName} only. Keep medication and medical terms in the original language. Clean punctuation, no filler words, numbers and dosages verbatim.`;
+}
+
+export function parseVoiceChunkMetadata(
+  sequenceValue: string | null,
+  totalValue: string | null,
+): { sequence: number | null; total: number | null } {
+  if (sequenceValue === null && totalValue === null) {
+    return { sequence: null, total: null };
+  }
+  if (
+    sequenceValue === null ||
+    !/^\d+$/.test(sequenceValue) ||
+    (totalValue !== null && !/^\d+$/.test(totalValue))
+  ) {
+    throw new VoiceAudioValidationError("bad-audio");
+  }
+  const sequence = Number(sequenceValue);
+  const total = totalValue === null ? null : Number(totalValue);
+  if (
+    !Number.isSafeInteger(sequence) ||
+    sequence < 0 ||
+    (total !== null &&
+      (!Number.isSafeInteger(total) || total < 1 || sequence >= total))
+  ) {
+    throw new VoiceAudioValidationError("bad-audio");
+  }
+  return { sequence, total };
+}
+
+export function isVoiceLanguage(value: string): value is VoiceLanguage {
+  return SUPPORTED_LANGUAGES.has(value);
+}
 
 export class VoiceAudioValidationError extends Error {
   readonly code: VoiceAudioError;
@@ -60,9 +111,6 @@ export async function withValidatedGeminiWav<T>(
     throw new VoiceAudioValidationError("unsupported-audio");
   }
   const durationMs = (dataBytes / WAV_BYTES_PER_SECOND) * 1_000;
-  if (durationMs > MAX_WAV_DURATION_MS) {
-    throw new VoiceAudioValidationError("unsupported-audio");
-  }
   return invokeProvider(durationMs);
 }
 

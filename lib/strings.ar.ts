@@ -16,6 +16,9 @@ export const ar = {
 
   // Clinic review note (always visible)
   clinicReviewNote: "إجاباتك بيراجعها فريق العيادة ومش فورية.",
+  visitRecapPrefix: "ملخص زيارتك:",
+  visitReminder: (date: string, clinicLine = "فريق العيادة") =>
+    `تذكير بموعدك يوم ${date} — ${clinicLine}`,
   consentNote: "بإرسال إجاباتك، أنت موافق إنها تتشارك مع فريق العيادة.",
   inputMethod: {
     tap: "اختيارات فقط",

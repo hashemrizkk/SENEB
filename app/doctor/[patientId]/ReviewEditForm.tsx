@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import DoctorDictation from "@/components/DoctorDictation";
+import EncounterClose from "./EncounterClose";
 import type { PatientContact, PatientIntakeRecord } from "@/lib/db";
 import { intakeFieldsSchema, type IntakeFields } from "@/lib/intake";
 import { followupQuestions, questionLabel } from "@/lib/questions";
@@ -100,6 +102,7 @@ export default function ReviewEditForm({
   const [status, setStatus] = useState(intake.status);
   const [priority, setPriority] = useState(intake.priority ?? "");
   const [note, setNote] = useState("");
+  const noteRef = useRef<HTMLTextAreaElement>(null);
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -212,13 +215,27 @@ export default function ReviewEditForm({
           <option value="">Not assigned</option><option value="urgent">Urgent</option><option value="important">Important</option><option value="normal">Normal</option>
         </select>
       </label>
-      <label>Clinician note (optional)<textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} /></label>
+      <label htmlFor="clinician-note">Clinician note (optional)</label>
+      <textarea
+        id="clinician-note"
+        ref={noteRef}
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        maxLength={4000}
+      />
+      <DoctorDictation value={note} onChange={setNote} textareaRef={noteRef} />
       <label>Reason for changes (optional)<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} /></label>
       <p>
         Low-sugar symptoms: {fields.hypoglycemia_symptoms === null ? "not recorded" : fields.hypoglycemia_symptoms ? "reported" : "not reported"}
         {" · "}Emergency symptoms: {fields.emergency_symptoms_mentioned === null ? "not recorded" : fields.emergency_symptoms_mentioned ? "mentioned" : "not mentioned"}
       </p>
       <button type="button" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+      <EncounterClose
+        intakeId={intake.id}
+        version={intake.version}
+        note={note}
+        existingDate={patient.next_visit_date}
+      />
       {message ? <p role="status">{message}</p> : null}
       {conflictVersion !== null ? <p>Latest server version: {conflictVersion}.</p> : null}
       {latestRecord ? (

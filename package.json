@@ -15,9 +15,12 @@
     "test:summary": "node --experimental-strip-types scripts/test-summary.ts",
     "test:providers": "node --experimental-strip-types scripts/test-provider-fallback.ts",
     "test:voice": "node --experimental-strip-types scripts/test-voice-utils.ts",
-    "test:voice-api": "node --experimental-strip-types scripts/test-gemini-audio.ts",
+    "test:voice-api": "node --experimental-strip-types scripts/test-gemini-audio.ts && node --experimental-strip-types scripts/test-recorder-chunks.ts",
     "test:audio-wav": "node --experimental-strip-types scripts/test-audio-wav.ts",
     "test:doctor": "node --experimental-strip-types scripts/test-doctor.ts",
+    "test:priority-auto": "node --experimental-strip-types scripts/test-priority-auto.ts",
+    "test:followup-plan": "node --experimental-strip-types scripts/test-followup-plan.ts",
+    "test:messaging": "node --experimental-strip-types scripts/test-messaging.ts",
     "smoke:summary": "node --experimental-strip-types scripts/smoke-summary.ts"
   },
   "dependencies": {

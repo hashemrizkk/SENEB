@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireDoctorSession } from "@/lib/doctor-review";
-import { latestIntakes } from "@/lib/db";
+import { latestIntakes, latestMessages } from "@/lib/db";
 import { intakeFieldsSchema, intakeMetaSchema } from "@/lib/intake";
 import { ar } from "@/lib/strings.ar";
 import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
@@ -26,9 +26,25 @@ export default async function AdminIntakesPage() {
   await requireDoctorSession();
 
   const intakes = latestIntakes(100);
+  const messages = latestMessages(50);
   return (
     <main dir="rtl" lang="ar" style={{ maxWidth: 960, margin: "0 auto", padding: 24 }}>
       <h1>{ar.admin.title}</h1>
+      <section aria-label="Message outbox">
+        <h2>Messages outbox</h2>
+        {messages.length === 0 ? <p>No messages have been queued.</p> : (
+          <ol>
+            {messages.map((message) => (
+              <li key={message.id}>
+                <p>#{message.id} · {message.kind} · {message.status} · scheduled {message.scheduled_at} · attempts {message.attempts}</p>
+                {message.provider_ref === "mock" ? <p>MOCK delivery (demo only)</p> : null}
+                {message.error ? <p>Delivery error: {message.error}</p> : null}
+                <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{message.body}</pre>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
       {intakes.length === 0 ? <p>{ar.admin.empty}</p> : null}
       <ol style={{ paddingInlineStart: 24 }}>
         {intakes.map((intake) => {

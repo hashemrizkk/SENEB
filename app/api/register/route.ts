@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import db, {
   createPatient,
   getRegistrationReferenceCode,
@@ -16,6 +16,7 @@ import {
   saveIntake,
   type TapAnswers,
 } from "@/lib/submitIntake";
+import { generateSummarySafely } from "@/lib/summary-background";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,7 +81,7 @@ export async function POST(request: Request): Promise<Response> {
   const prepared = await prepareIntake(freeText, registrationAnswers);
 
   try {
-    const referenceCode = db.transaction(() => {
+    const registration = db.transaction(() => {
       let code: string | undefined;
       for (let attempt = 0; attempt < 100; attempt += 1) {
         const candidate = newCode();
@@ -103,7 +104,7 @@ export async function POST(request: Request): Promise<Response> {
         created_at: now,
       });
 
-      saveIntake({
+      const intakeId = saveIntake({
         patient_id: patientId,
         input_method: "typed",
         raw_text: freeText,
@@ -112,10 +113,11 @@ export async function POST(request: Request): Promise<Response> {
         meta: prepared.meta,
       });
 
-      return code;
+      return { code, patientId, intakeId };
     })();
 
-    return NextResponse.json({ ok: true, reference_code: referenceCode });
+    after(() => generateSummarySafely(registration.patientId));
+    return NextResponse.json({ ok: true, reference_code: registration.code });
   } catch (error: unknown) {
     const existing = getRegistrationReferenceCode(data.request_id);
     if (existing) {

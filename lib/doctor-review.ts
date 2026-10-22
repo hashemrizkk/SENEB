@@ -29,7 +29,7 @@ export const clinicianEditSchema = z.object({
   raw_text: z.string().max(1_000).nullable(),
   priority: z.enum(["urgent", "important", "normal"]).nullable(),
   status: z.enum(["new", "triaged", "seen"]),
-  note: z.string().trim().max(1_000),
+  note: z.string().trim().max(4_000),
   reason: z.string().trim().max(500),
 }).strict();
 
@@ -564,6 +564,12 @@ export function saveClinicianEdit(
         .filter((key) => key in current && newIntake[key as keyof IntakeSnapshot] !== current[key as keyof IntakeSnapshot])
         .map((key) => `intake.${key}`),
     );
+  const revisionReason = [
+    data.reason || null,
+    data.priority !== current.priority && data.priority !== null
+      ? "Priority source: manual."
+      : null,
+  ].filter((part): part is string => Boolean(part)).join(" ");
   const updatePatient = db.prepare(
     `UPDATE patients
      SET name = ?, phone = ?, email = ?, self_description = ?,
@@ -604,7 +610,7 @@ export function saveClinicianEdit(
     insertRevision(db, intakeId, {
       source: "clinician",
       editedBy: normalizedName,
-      reason: data.reason || null,
+      reason: revisionReason || null,
       changedFields,
       isBackfill: false,
       editedAt: timestamp,
@@ -661,6 +667,7 @@ export function savePatientIntake(
     structured_json: string;
     red_flags_json: string;
     meta_json: string | null;
+    priority?: ReviewPriority;
   },
   editedAt = new Date().toISOString(),
   author: {
@@ -673,8 +680,8 @@ export function savePatientIntake(
     const result = db.prepare(
       `INSERT INTO intakes (
          patient_id, input_method, raw_text, structured_json,
-         red_flags_json, meta_json, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         red_flags_json, meta_json, priority, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       data.patient_id,
       data.input_method,
@@ -682,6 +689,7 @@ export function savePatientIntake(
       data.structured_json,
       data.red_flags_json,
       data.meta_json,
+      data.priority ?? null,
       editedAt,
     );
     const intakeId = Number(result.lastInsertRowid);

@@ -62,12 +62,30 @@ CREATE INDEX IF NOT EXISTS idx_intake_revisions_intake
 CREATE TABLE IF NOT EXISTS followups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   patient_id INTEGER NOT NULL REFERENCES patients(id),
+  intake_id INTEGER REFERENCES intakes(id),
+  plan_json TEXT,
+  next_visit_date TEXT,
+  confirmed_by TEXT,
+  confirmed_at TEXT,
   message TEXT,
   status TEXT DEFAULT 'sent',
   reply_text TEXT,
   escalated INTEGER DEFAULT 0,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  kind TEXT NOT NULL CHECK (kind IN ('recap', 'reminder')),
+  body TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'sent', 'failed', 'canceled')),
+  scheduled_at TEXT NOT NULL,
+  sent_at TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  provider_ref TEXT,
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_messages_due ON messages(status, scheduled_at);
 
 CREATE TABLE IF NOT EXISTS case_summaries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

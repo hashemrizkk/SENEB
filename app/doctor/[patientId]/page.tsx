@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { after } from "next/server";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { getPatientRecord, type PatientIntakeRecord } from "@/lib/db";
@@ -9,6 +10,8 @@ import { intakeFieldsSchema } from "@/lib/intake";
 import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
 import NewFollowupForm from "./NewFollowupForm";
 import ReviewEditForm from "./ReviewEditForm";
+import { generateSummarySafely, summaryIsMissingOrStale } from "@/lib/summary-background";
+import { priorityForIntake } from "@/lib/intake-priority";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +93,9 @@ export default async function DoctorIntakePage({
   if (!Number.isSafeInteger(patientId) || patientId < 1) notFound();
   const record = getPatientRecord(patientId);
   if (!record) notFound();
+  if (summaryIsMissingOrStale(patientId)) {
+    after(() => generateSummarySafely(patientId));
+  }
   const intake = selectedIntake(record.intakes, intakeId);
 
   return (
@@ -102,6 +108,22 @@ export default async function DoctorIntakePage({
           <>
             <p>Selected record submitted {displayTime(intake.created_at)}</p>
             <p>Status: {intake.status} · Staff priority: {intake.priority ?? "Not assigned"} · Version: {intake.version}</p>
+            {(() => {
+              const suggestion = priorityForIntake(
+                intake.fields,
+                intake.raw_text,
+                intake.meta?.needs_review ?? false,
+              );
+              const latestRevision = intake.revisions.find((revision) => revision.revision === intake.version);
+              return (
+                <section aria-label="Suggested priority">
+                  <p>Suggested priority: {suggestion.priority ?? "Not assigned"} · source: {latestRevision?.reason?.includes("Priority source: manual") ? "manual" : "auto (rules)"}</p>
+                  {suggestion.reasons.length ? (
+                    <ul>{suggestion.reasons.map((reason) => <li key={reason.rule_id}>{reason.text}</li>)}</ul>
+                  ) : null}
+                </section>
+              );
+            })()}
             <p>Input method: {inputMethodLabel(intake.input_method)}</p>
             {inputMethodNote(intake.input_method) ? (
               <p>{inputMethodNote(intake.input_method)}</p>

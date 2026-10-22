@@ -7,6 +7,7 @@ import {
   type IntakeMeta,
 } from "./intake";
 import { redFlags, type RedFlagResult } from "./rules";
+import { autoPriorityMetadata } from "./intake-priority.ts";
 
 export type { InputMethod } from "./intake";
 export type TapAnswers = Partial<
@@ -99,6 +100,11 @@ export function saveIntake(data: {
   flags: RedFlagResult;
   meta: IntakeMeta;
 }): number {
+  const priority = autoPriorityMetadata(
+    data.fields,
+    data.raw_text,
+    data.meta.needs_review,
+  );
   return insertIntakeWithRevision({
     patient_id: data.patient_id,
     input_method: data.input_method,
@@ -106,6 +112,8 @@ export function saveIntake(data: {
     structured_json: JSON.stringify(data.fields),
     red_flags_json: JSON.stringify(data.flags),
     meta_json: JSON.stringify(data.meta),
+    priority: priority.priority,
+    revision_reason: priority.revision_reason,
   });
 }
 
