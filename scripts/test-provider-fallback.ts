@@ -133,6 +133,36 @@ async function main(): Promise<void> {
     assert.equal(exhausted, null);
   });
 
+  const previousProviderEnvironment = {
+    gemini: process.env.GEMINI_API_KEY,
+    google: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    groq: process.env.GROQ_API_KEY,
+    groqModel: process.env.GROQ_MODEL,
+  };
+  try {
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    process.env.GROQ_API_KEY = "synthetic-test-key";
+    delete process.env.GROQ_MODEL;
+    const { extractIntake } = await import("../lib/llm.ts");
+    const extraction = await extractIntake("حصل هبوط مرتين");
+    report("Groq key without a model uses labeled mock extraction", () => {
+      assert.equal(extraction.meta.llm_mode, "mock");
+      assert.equal(extraction.meta.needs_review, true);
+      assert.equal(extraction.fields.hypoglycemia_episodes, 2);
+    });
+  } finally {
+    for (const [key, value] of [
+      ["GEMINI_API_KEY", previousProviderEnvironment.gemini],
+      ["GOOGLE_GENERATIVE_AI_API_KEY", previousProviderEnvironment.google],
+      ["GROQ_API_KEY", previousProviderEnvironment.groq],
+      ["GROQ_MODEL", previousProviderEnvironment.groqModel],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+
   console.log(`\n${total - failures}/${total} provider fallback tests passed.`);
   if (failures > 0) process.exitCode = 1;
 }

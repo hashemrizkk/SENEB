@@ -36,7 +36,7 @@ function geminiApiKey(): string | undefined {
 function configuredProviders(): LlmProviderName[] {
   const providers: LlmProviderName[] = [];
   if (geminiApiKey()) providers.push("Gemini");
-  if (process.env.GROQ_API_KEY) providers.push("Groq");
+  if (process.env.GROQ_API_KEY && GROQ_MODEL) providers.push("Groq");
   return providers;
 }
 
@@ -463,7 +463,7 @@ function arabicIndicToWestern(text: string): string {
 // ----- Mock mode (keyword matching) -----
 
 function mockExtract(freeText: string): IntakeFields {
-  console.log("MOCK MODE: no LLM API key configured");
+  console.log("MOCK MODE: no usable LLM provider configured");
 
   const fields = nullFields();
   const t = freeText;
