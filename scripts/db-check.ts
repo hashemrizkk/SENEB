@@ -6,24 +6,6 @@ const tables = db
   )
   .all("table", "sqlite_%");
 
-const patients = db
-  .prepare<
-    [],
-    {
-      id: number;
-      name: string;
-      age: number | null;
-      diabetes_type: string | null;
-      next_visit_date: string | null;
-    }
-  >(
-    `SELECT id, name, age, diabetes_type, next_visit_date
-     FROM patients
-     ORDER BY id
-     LIMIT 3`,
-  )
-  .all();
-
 function countRows(sql: string): number {
   const result = db.prepare<[], { count: number }>(sql).get();
   if (!result) {
@@ -39,4 +21,4 @@ const rowCounts = {
   followups: countRows("SELECT COUNT(*) AS count FROM followups"),
 };
 
-console.log(JSON.stringify({ tables, rowCounts, firstThreePatients: patients }, null, 2));
+console.log(JSON.stringify({ tables, rowCounts }, null, 2));
