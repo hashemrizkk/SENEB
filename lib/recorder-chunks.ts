@@ -174,3 +174,16 @@ export function insertDictationAtCursor(
 export function inaudibleSegment(sequence: number): string {
   return `[inaudible segment ${sequence + 1}]`;
 }
+
+export function replaceInaudibleSegment(
+  value: string,
+  sequence: number,
+  transcript: string,
+): { value: string; cursor: number } | null {
+  const placeholder = inaudibleSegment(sequence);
+  const start = value.indexOf(placeholder);
+  const spokenText = transcript.trim();
+  if (start < 0 || !spokenText) return null;
+  const nextValue = `${value.slice(0, start)}${spokenText}${value.slice(start + placeholder.length)}`;
+  return { value: nextValue, cursor: start + spokenText.length };
+}

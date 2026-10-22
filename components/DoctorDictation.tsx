@@ -5,6 +5,7 @@ import { recordingToWav } from "@/lib/audio-wav";
 import {
   inaudibleSegment,
   insertDictationAtCursor,
+  replaceInaudibleSegment,
   RecorderChunkManager,
   type ChunkRecorder,
   type RecordedChunk,
@@ -131,6 +132,8 @@ export default function DoctorDictation({
   const startTimeRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioChunksRef = useRef(new Map<number, RecordedChunk>());
+  const failedChunksRef = useRef(new Map<number, RecordedChunk>());
+  const placeholderSequencesRef = useRef(new Set<number>());
   const expectedSequenceRef = useRef(0);
   const totalChunksRef = useRef<number | null>(null);
   const queueRef = useRef<Promise<void>>(Promise.resolve());
@@ -140,6 +143,7 @@ export default function DoctorDictation({
   const [isRecording, setIsRecording] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
   const [pendingChunks, setPendingChunks] = useState(0);
+  const [failedAudioCount, setFailedAudioCount] = useState(0);
   const [recordedChunks, setRecordedChunks] = useState(0);
   const [activeChunk, setActiveChunk] = useState(1);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -178,10 +182,55 @@ export default function DoctorDictation({
     }
   }
 
+  function insertSuccessfulTranscript(chunk: RecordedChunk, transcript: string): void {
+    const replaced = placeholderSequencesRef.current.has(chunk.sequence)
+      ? replaceInaudibleSegment(latestValueRef.current, chunk.sequence, transcript)
+      : null;
+    if (!replaced) {
+      insertText(transcript);
+      placeholderSequencesRef.current.delete(chunk.sequence);
+      failedChunksRef.current.delete(chunk.sequence);
+      setFailedAudioCount(failedChunksRef.current.size);
+      return;
+    }
+
+    placeholderSequencesRef.current.delete(chunk.sequence);
+    failedChunksRef.current.delete(chunk.sequence);
+    setFailedAudioCount(failedChunksRef.current.size);
+    latestValueRef.current = replaced.value;
+    onChange(replaced.value);
+    const textarea = textareaRef.current;
+    if (textarea) {
+      requestAnimationFrame(() => {
+        if (textareaRef.current === textarea) {
+          textarea.setSelectionRange(replaced.cursor, replaced.cursor);
+        }
+      });
+    }
+  }
+
+  function addFailedChunkPlaceholder(
+    chunk: RecordedChunk,
+    message: string,
+  ): void {
+    failedChunksRef.current.set(chunk.sequence, chunk);
+    setFailedAudioCount(failedChunksRef.current.size);
+    if (!placeholderSequencesRef.current.has(chunk.sequence)) {
+      insertText(inaudibleSegment(chunk.sequence));
+      placeholderSequencesRef.current.add(chunk.sequence);
+    }
+    failedRef.current = true;
+    setError(message);
+    setStatus("A failed segment placeholder was added to the note.");
+  }
+
   function enqueuePlaceholder(sequence: number, message: string): void {
     queueRef.current = queueRef.current.then(() => {
       if (!mountedRef.current) return;
-      insertText(inaudibleSegment(sequence));
+      if (!placeholderSequencesRef.current.has(sequence)) {
+        insertText(inaudibleSegment(sequence));
+        placeholderSequencesRef.current.add(sequence);
+      }
       failedRef.current = true;
       setError(message);
       setStatus("A failed segment placeholder was added to the note.");
@@ -243,7 +292,7 @@ export default function DoctorDictation({
         if (!mountedRef.current) return;
         const transcript = result.transcript.trim();
         if (!transcript) throw new Error("empty-transcript");
-        insertText(transcript);
+        insertSuccessfulTranscript(chunk, transcript);
         setRecordedChunks((count) => count + 1);
         setStatus(
           result.mock
@@ -263,15 +312,25 @@ export default function DoctorDictation({
         activeRequestsRef.current.delete(controller);
       }
     }
-    const detail =
-      failure instanceof Error && failure.message === "audio-too-large"
-        ? "A dictation chunk exceeded the audio size limit."
-        : `A dictation chunk could not be transcribed${attemptsMade > 1 ? " after one retry" : ""}.`;
     if (!mountedRef.current) return;
-    insertText(inaudibleSegment(chunk.sequence));
-    failedRef.current = true;
-    setError(`${detail} Edit the placeholder or dictate that segment again.`);
-    setStatus("A failed segment placeholder was added to the note.");
+    const errorCode = failure instanceof Error ? failure.message : "";
+    const detail = errorCode === "audio-too-large"
+      ? "A dictation chunk exceeded the audio size limit."
+      : errorCode === "provider-auth-failed"
+        ? "The transcription provider rejected its API key or model access. Check the server-side provider configuration."
+        : errorCode === "rate-limited"
+          ? "The transcription provider is rate-limiting requests. Wait briefly, then retry."
+          : errorCode === "transcription-timeout"
+            ? "Transcription timed out. Retry the captured audio."
+            : errorCode === "provider-unavailable" || errorCode === "transcription-network-error"
+              ? "The transcription provider is temporarily unavailable. Retry the captured audio."
+              : errorCode === "unsupported-audio" || errorCode === "bad-audio"
+                ? "The recorded audio could not be read. Record that segment again."
+                : `The dictation chunk could not be transcribed${attemptsMade > 1 ? " after one retry" : ""}.`;
+    addFailedChunkPlaceholder(
+      chunk,
+      `${detail} The captured audio is kept; retry it or edit the placeholder.`,
+    );
   }
 
   function queueChunk(chunk: RecordedChunk): void {
@@ -281,10 +340,7 @@ export default function DoctorDictation({
       .then(() => transcribeChunk(chunk))
       .catch(() => {
         if (!mountedRef.current) return;
-        insertText(inaudibleSegment(chunk.sequence));
-        failedRef.current = true;
-        setError("An unexpected transcription error occurred.");
-        setStatus("A failed segment placeholder was added to the note.");
+        addFailedChunkPlaceholder(chunk, "An unexpected transcription error occurred. The captured audio is kept for retry.");
       })
       .finally(() => {
         pendingCountRef.current -= 1;
@@ -323,6 +379,9 @@ export default function DoctorDictation({
     totalChunksRef.current = totalChunks;
     if (!mountedRef.current) {
       audioChunksRef.current.clear();
+      if (failedChunksRef.current.size === 0) {
+        placeholderSequencesRef.current.clear();
+      }
       return;
     }
     setIsRecording(false);
@@ -424,12 +483,24 @@ export default function DoctorDictation({
     managerRef.current = null;
   }
 
+  function retryFailedChunks(): void {
+    if (pendingCountRef.current > 0 || failedChunksRef.current.size === 0) return;
+    setError("");
+    setStatus("Retrying the captured audio…");
+    for (const chunk of [...failedChunksRef.current.values()].sort((a, b) => a.sequence - b.sequence)) {
+      queueChunk(chunk);
+    }
+  }
+
   useEffect(() => {
     shortcutRef.current = {
       isRecording,
       isRequesting,
       pendingChunks,
-      start: startRecording,
+      start: async () => {
+        if (failedChunksRef.current.size > 0) retryFailedChunks();
+        else await startRecording();
+      },
       stop: stopRecording,
     };
   });
@@ -491,7 +562,11 @@ export default function DoctorDictation({
         </details>
         <button
           type="button"
-          onClick={isRecording ? stopRecording : () => void startRecording()}
+          onClick={isRecording
+            ? stopRecording
+            : failedAudioCount > 0
+              ? retryFailedChunks
+              : () => void startRecording()}
           disabled={!isRecording && (isRequesting || busy)}
           style={buttonStyle}
           onMouseDown={(event) => event.preventDefault()}
@@ -500,8 +575,10 @@ export default function DoctorDictation({
             ? "Stop dictation"
             : isRequesting
               ? "Starting…"
-              : hasError
-                ? "Retry dictation"
+              : failedAudioCount > 0
+                ? "Retry failed audio"
+                : hasError
+                  ? "Record again"
                 : "Record note"}
           {!isRecording ? <span style={shortcutStyle}> Ctrl/⌘+Shift+K</span> : null}
         </button>

@@ -3,6 +3,7 @@ import { assessIntake } from "./case-assessment.ts";
 import { buildFacts, type CaseFacts } from "./case-facts.ts";
 import { intakeFieldsSchema, intakeMetaSchema, type IntakeFields } from "./intake.ts";
 import { cairoDate } from "./date-time.ts";
+import { matchLexicon } from "./lexicon.ts";
 import { BANNED_SUMMARY_TERMS, RULES_VERSION } from "./priority-config.ts";
 import { normalizeWithMap, verifyQuote } from "./text-normalize.ts";
 import {
@@ -34,14 +35,17 @@ type SummaryResult = {
   summary_id?: number;
   error?: string;
   status?: number;
+  retryAfterSeconds?: number;
 };
 
 export type SummaryDependencies = {
   db: Database.Database;
   summarizeCase: (
     payload: SummaryLlmInput,
+    options?: { onProviderRequest?: () => void },
   ) => Promise<{ output: unknown; model: string | null }>;
   hasProvider: () => boolean;
+  onProviderRequest?: () => void;
   now?: () => Date;
 };
 
@@ -152,8 +156,74 @@ function hasBannedTerm(summary: string): boolean {
   return BANNED_SUMMARY_TERMS.some((term) => lowered.includes(term));
 }
 
-function checkAiOutput(
-  output: SummaryLlmOutput,
+type SummaryHighlight = SummaryLlmOutput["highlights"][number];
+
+function lexiconCategory(id: string): SummaryHighlight["category"] {
+  switch (id) {
+    case "foot_wound":
+      return "foot";
+    case "vision":
+      return "vision";
+    case "hypoglycemia_symptoms":
+      return "hypoglycemia";
+    case "high_sugar":
+      return "hyperglycemia";
+    default:
+      return "symptom";
+  }
+}
+
+function lexiconHighlights(patientText: string): SummaryHighlight[] {
+  return matchLexicon(patientText).map((match) => ({
+    quote: match.term,
+    category: lexiconCategory(match.id),
+  }));
+}
+
+function isNumericToken(value: string): boolean {
+  return /^\d+(?:[.,٫٬]\d+)*$/u.test(normalizeWithMap(value).normalized);
+}
+
+function containsExactNumericToken(text: string, token: string): boolean {
+  if (!isNumericToken(token)) return false;
+  const normalizedText = normalizeWithMap(text).normalized;
+  const normalizedToken = normalizeWithMap(token).normalized;
+  let start = normalizedText.indexOf(normalizedToken);
+  while (start >= 0) {
+    const end = start + normalizedToken.length;
+    const previous = normalizedText[start - 1] ?? "";
+    const next = normalizedText[end] ?? "";
+    if (!/[A-Za-z0-9]/u.test(previous) && !/[A-Za-z0-9]/u.test(next)) {
+      return true;
+    }
+    start = normalizedText.indexOf(normalizedToken, start + 1);
+  }
+  return false;
+}
+
+function patientNumericValues(patientText: string): SummaryLlmOutput["values"] {
+  const values: SummaryLlmOutput["values"] = [];
+  const seen = new Set<string>();
+  const numericTokens = /[\p{Nd}]+(?:[.,٫٬][\p{Nd}]+)*/gu;
+  for (const match of patientText.matchAll(numericTokens)) {
+    const quote = match[0];
+    const start = match.index;
+    const previous = patientText[start - 1] ?? "";
+    const next = patientText[start + quote.length] ?? "";
+    if (/[A-Za-z0-9]/u.test(previous) || /[A-Za-z0-9]/u.test(next)) continue;
+    const normalized = normalizeWithMap(quote).normalized;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    values.push({ quote, meaning: "Patient-stated number" });
+  }
+  return values;
+}
+
+export function verifySummaryOutput(
+  output: Pick<
+    SummaryLlmOutput,
+    "highlights" | "values" | "inconsistencies"
+  >,
   patientText: string | null,
 ): {
   highlights: SummaryLlmOutput["highlights"];
@@ -168,14 +238,34 @@ function checkAiOutput(
     if (!verified) dropped += 1;
     return verified;
   });
+  if (patientText !== null) {
+    for (const item of lexiconHighlights(patientText)) {
+      const alreadyCovered = highlights.some(
+        (existing) =>
+          verifyQuote(existing.quote, item.quote) ||
+          verifyQuote(item.quote, existing.quote),
+      );
+      if (!alreadyCovered) highlights.push(item);
+    }
+  }
   const values = output.values.filter((item) => {
-    const verified =
-      patientText !== null &&
-      verifyQuote(patientText, item.quote) &&
-      /\d/.test(normalizeWithMap(item.quote).normalized);
+    const normalizedQuote = normalizeWithMap(item.quote).normalized;
+    const hasNumber = /\d/u.test(normalizedQuote);
+    const verified = patientText !== null && hasNumber &&
+      (isNumericToken(item.quote)
+        ? containsExactNumericToken(patientText, item.quote)
+        : verifyQuote(patientText, item.quote));
     if (!verified) dropped += 1;
     return verified;
   });
+  if (patientText !== null) {
+    for (const item of patientNumericValues(patientText)) {
+      const alreadyCovered = values.some((existing) =>
+        containsExactNumericToken(existing.quote, item.quote),
+      );
+      if (!alreadyCovered) values.push(item);
+    }
+  }
   const inconsistencies = output.inconsistencies.filter((item) => {
     const verified =
       patientText !== null &&
@@ -261,6 +351,7 @@ async function generateCaseSummaryInternal(
         ok: false,
         error: "Please wait 5 seconds before generating another summary.",
         status: 429,
+        retryAfterSeconds: Math.ceil((5_000 - elapsed) / 1_000),
       };
     }
   }
@@ -307,7 +398,9 @@ async function generateCaseSummaryInternal(
     for (let attempt = 0; attempt < 2; attempt += 1) {
       let result: { output: unknown; model: string | null };
       try {
-        result = await deps.summarizeCase(payload);
+        result = await deps.summarizeCase(payload, {
+          onProviderRequest: deps.onProviderRequest,
+        });
       } catch (error: unknown) {
         const errorType =
           error instanceof Error ? error.constructor.name : "UnknownError";
@@ -326,15 +419,10 @@ async function generateCaseSummaryInternal(
     }
   }
 
-  const verified =
-    summary && mode === "llm"
-      ? checkAiOutput(summary, intake.raw_text)
-      : {
-          highlights: [],
-          values: [],
-          inconsistencies: [],
-          dropped: 0,
-        };
+  const verified = verifySummaryOutput(
+    summary ?? { highlights: [], values: [], inconsistencies: [] },
+    intake.raw_text,
+  );
   const insert = database.prepare(
     `INSERT INTO case_summaries (
        patient_id, intake_id, generation_mode, model, summary_text, facts_json,
