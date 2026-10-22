@@ -12,6 +12,7 @@
     "db:reset": "node --experimental-strip-types scripts/db-reset.ts",
     "db:check": "node --experimental-strip-types scripts/db-check.ts",
     "test:register": "node --experimental-strip-types scripts/test-register.ts",
+    "test:survey": "node --experimental-strip-types scripts/test-survey.ts && node --experimental-strip-types scripts/test-survey-register.ts",
     "test:summary": "node --experimental-strip-types scripts/test-summary.ts",
     "test:providers": "node --experimental-strip-types scripts/test-provider-fallback.ts",
     "test:voice": "node --experimental-strip-types scripts/test-voice-utils.ts",

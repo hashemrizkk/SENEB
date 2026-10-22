@@ -1,4 +1,5 @@
 import { ar } from "./strings.ar.ts";
+import { composeRecapBody } from "./recap-content.ts";
 import {
   dueMessages,
   enqueueOutboxMessage,
@@ -27,10 +28,15 @@ export function createRecapMessage(input: {
   consentAt: string | null;
   phone: string | null;
   recap: string;
+  returnPrecautions?: string | null;
+  nextVisitDate?: string | null;
+  patientInstructions?: string | null;
 }): NewOutboxMessage | null {
   if (!input.consentAt || !input.phone) return null;
-  const body = `${RECAP_TEMPLATE.replace("{{1}}", input.recap.trim())}\n${ar.emergencyNotice}\n${ar.clinicReviewNote}`;
-  if (body.length > 600) throw new Error("The recap message exceeds 600 characters.");
+  const body = composeRecapBody(input);
+  if (!body.startsWith(RECAP_TEMPLATE.slice(0, RECAP_TEMPLATE.indexOf("{{1}}")))) {
+    throw new Error("The recap message does not match its required template.");
+  }
   return {
     patient_id: input.patientId,
     kind: "recap",

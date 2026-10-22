@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS patients (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   diabetes_type TEXT,
   last_hba1c_date TEXT,
+  last_kidney_labs_date TEXT,
   last_foot_exam_date TEXT,
+  last_eye_exam_date TEXT,
   last_bp_date TEXT,
   next_visit_date TEXT
 );

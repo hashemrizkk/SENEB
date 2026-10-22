@@ -2,7 +2,7 @@ import Link from "next/link";
 import { after } from "next/server";
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import { getPatientRecord, type PatientIntakeRecord } from "@/lib/db";
+import db, { getFollowupPlanDraft, getPatientRecord, type PatientIntakeRecord } from "@/lib/db";
 import { requireDoctorSession } from "@/lib/doctor-review";
 import { formatCairoDateTime } from "@/lib/date-time";
 import { flagLabel, followupQuestions, questionLabel } from "@/lib/questions";
@@ -98,6 +98,9 @@ export default async function DoctorIntakePage({
     after(() => generateSummarySafely(patientId));
   }
   const intake = selectedIntake(record.intakes, intakeId);
+  const followupDraftAvailable = intake
+    ? getFollowupPlanDraft(db, intake.id) !== null
+    : false;
 
   return (
     <main style={{ maxWidth: 1000, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
@@ -196,7 +199,12 @@ export default async function DoctorIntakePage({
             <h3>Submitted patient text</h3>
             <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{intake.raw_text ?? "No text submitted"}</pre>
           </section>
-          <ReviewEditForm key={`${intake.id}:${intake.version}`} intake={intake} patient={record.patient} />
+          <ReviewEditForm
+            key={`${intake.id}:${intake.version}`}
+            intake={intake}
+            patient={record.patient}
+            followupDraftAvailable={followupDraftAvailable}
+          />
           <section>
             <h2>Revision history for this record</h2>
             <ol>

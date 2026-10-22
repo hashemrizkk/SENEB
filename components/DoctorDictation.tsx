@@ -15,6 +15,7 @@ type DoctorDictationProps = {
   value: string;
   onChange: (value: string) => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  enableKeyboardShortcut?: boolean;
 };
 
 const MAX_WAV_BYTES = 4 * 1024 * 1024;
@@ -121,6 +122,7 @@ export default function DoctorDictation({
   value,
   onChange,
   textareaRef,
+  enableKeyboardShortcut = true,
 }: DoctorDictationProps) {
   const latestValueRef = useRef(value);
   const streamRef = useRef<MediaStream | null>(null);
@@ -448,6 +450,7 @@ export default function DoctorDictation({
   }, []);
 
   useEffect(() => {
+    if (!enableKeyboardShortcut) return;
     function onKeyDown(event: KeyboardEvent): void {
       if (
         (event.ctrlKey || event.metaKey) &&
@@ -464,7 +467,7 @@ export default function DoctorDictation({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [enableKeyboardShortcut]);
 
   const busy = isRequesting || pendingChunks > 0;
   const hasError = Boolean(error);
@@ -503,7 +506,9 @@ export default function DoctorDictation({
               : hasError
                 ? "Retry dictation"
                 : "Record note"}
-          {!isRecording ? <span style={shortcutStyle}> Ctrl/⌘+Shift+K</span> : null}
+          {!isRecording && enableKeyboardShortcut
+            ? <span style={shortcutStyle}> Ctrl/⌘+Shift+K</span>
+            : null}
         </button>
         {isRecording ? (
           <span role="status" aria-live="polite" style={recordingStyle}>

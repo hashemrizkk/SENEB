@@ -29,7 +29,7 @@ export const clinicianEditSchema = z.object({
   raw_text: z.string().max(1_000).nullable(),
   priority: z.enum(["urgent", "important", "normal"]).nullable(),
   status: z.enum(["new", "triaged", "seen"]),
-  note: z.string().trim().max(4_000),
+  note: z.string().trim().max(4_000).optional(),
   reason: z.string().trim().max(500),
 }).strict();
 
@@ -48,7 +48,9 @@ type PatientSnapshot = {
   created_at: string | null;
   diabetes_type: string | null;
   last_hba1c_date: string | null;
+  last_kidney_labs_date: string | null;
   last_foot_exam_date: string | null;
+  last_eye_exam_date: string | null;
   last_bp_date: string | null;
   next_visit_date: string | null;
   edited_by: string | null;
@@ -134,7 +136,8 @@ function readPatient(
     .prepare<[number], PatientSnapshot>(
       `SELECT id, name, age, phone, email, self_description, reference_code,
               request_id, consent_at, created_at, diabetes_type,
-              last_hba1c_date, last_foot_exam_date, last_bp_date, next_visit_date,
+              last_hba1c_date, last_kidney_labs_date, last_foot_exam_date,
+              last_eye_exam_date, last_bp_date, next_visit_date,
               edited_by, edited_at
        FROM patients WHERE id = ?`,
     )
@@ -172,7 +175,9 @@ function snapshotFor(
       created_at: patient.created_at,
       diabetes_type: patient.diabetes_type,
       last_hba1c_date: patient.last_hba1c_date,
+      last_kidney_labs_date: patient.last_kidney_labs_date,
       last_foot_exam_date: patient.last_foot_exam_date,
+      last_eye_exam_date: patient.last_eye_exam_date,
       last_bp_date: patient.last_bp_date,
       next_visit_date: patient.next_visit_date,
     },
@@ -517,7 +522,7 @@ export function listDoctorQueue(
 }
 
 export type SaveClinicianEditResult =
-  | { ok: true; record: ReviewIntake }
+  | { ok: true; record: ReviewIntake; noteChanged: boolean }
   | { ok: false; conflict: true };
 
 export function saveClinicianEdit(
@@ -525,6 +530,7 @@ export function saveClinicianEdit(
   intakeId: number,
   staffName: string,
   edit: ClinicianEdit,
+  previousNote: string | null,
   now = new Date(),
 ): SaveClinicianEditResult {
   const normalizedName = staffName.trim();
@@ -534,6 +540,8 @@ export function saveClinicianEdit(
   if (current.version !== data.version) return { ok: false, conflict: true };
   const previousPatient = readPatient(db, current.patient_id);
   if (!previousPatient) throw new Error("Patient not found.");
+  const note = data.note ?? "";
+  const noteChanged = Boolean(note) && note !== (previousNote ?? "");
 
   const flags = redFlags(data.fields);
   const timestamp = now.toISOString();
@@ -563,7 +571,8 @@ export function saveClinicianEdit(
       Object.keys(newIntake)
         .filter((key) => key in current && newIntake[key as keyof IntakeSnapshot] !== current[key as keyof IntakeSnapshot])
         .map((key) => `intake.${key}`),
-    );
+    )
+    .concat(noteChanged ? ["notes.note_text"] : []);
   const revisionReason = [
     data.reason || null,
     data.priority !== current.priority && data.priority !== null
@@ -615,7 +624,7 @@ export function saveClinicianEdit(
       isBackfill: false,
       editedAt: timestamp,
     });
-    if (data.note) {
+    if (noteChanged) {
       db.prepare(
         `INSERT INTO notes (
            patient_id, note_text, check_result_json, override_reason,
@@ -623,7 +632,7 @@ export function saveClinicianEdit(
          ) VALUES (?, ?, ?, ?, ?, ?)`,
       ).run(
         current.patient_id,
-        data.note,
+        note,
         `intake:${intakeId}`,
         data.reason || null,
         normalizedName,
@@ -635,7 +644,7 @@ export function saveClinicianEdit(
   const record = getDoctorPatientRecord(db, current.patient_id);
   const saved = record?.intakes.find((intake) => intake.id === intakeId);
   if (!saved) throw new Error("Saved intake could not be reloaded.");
-  return { ok: true, record: saved };
+  return { ok: true, record: saved, noteChanged };
 }
 
 export function createPatientRevisionOne(

@@ -1,10 +1,16 @@
-import { NextResponse } from "next/server";
-import db, { getPatientRecord } from "@/lib/db";
+import { after, NextResponse } from "next/server";
+import db, {
+  getLatestClinicianNote,
+  getPatientRecord,
+  saveFollowupPlanDraft,
+} from "@/lib/db";
 import {
   clinicianEditSchema,
   requestDoctorSession,
   saveClinicianEdit,
 } from "@/lib/doctor-review";
+import { generateFollowupPlanDraft } from "@/lib/followup-plan-drafts";
+import { draftFollowupPlan, hasSummaryProviderConfigured } from "@/lib/llm";
 import { hasSameOrigin, readJsonBody } from "@/lib/requestGuards";
 
 export const runtime = "nodejs";
@@ -33,8 +39,61 @@ export async function PUT(
   const session = requestDoctorSession(request);
   if (!session) return reply("Sign in is required.", 401);
   try {
-    const result = saveClinicianEdit(db, intakeId, session.name, parsed.data);
-    if (result.ok) return NextResponse.json({ ok: true, record: result.record });
+    const previousNote = getLatestClinicianNote(db, intakeId);
+    const result = saveClinicianEdit(
+      db,
+      intakeId,
+      session.name,
+      parsed.data,
+      previousNote,
+    );
+    if (result.ok) {
+      if (result.noteChanged && parsed.data.note) {
+        const note = parsed.data.note;
+        const patientRecord = getPatientRecord(result.record.patient_id);
+        const intake = patientRecord?.intakes.find((item) => item.id === intakeId);
+        if (patientRecord && intake) {
+          const payload = {
+            patient: {
+              age: patientRecord.patient.age,
+              diabetes_type: patientRecord.patient.diabetes_type,
+              next_visit_date: patientRecord.patient.next_visit_date,
+            },
+            intake: {
+              answers: intake.fields,
+              flags: intake.flags,
+              patient_text: intake.raw_text,
+            },
+            doctor_note: parsed.data.note,
+          };
+          after(() =>
+            generateFollowupPlanDraft(
+              {
+                intakeId,
+                noteChanged: true,
+                note,
+                existingDate: patientRecord.patient.next_visit_date,
+                patientDates: patientRecord.patient,
+                payload,
+              },
+              {
+                providerConfigured: hasSummaryProviderConfigured(),
+                generate: draftFollowupPlan,
+                save: (id, note, plan, mode) =>
+                  saveFollowupPlanDraft(db, id, note, plan, mode),
+              },
+            ),
+          );
+        } else {
+          console.error("Automatic follow-up draft could not load the saved intake.");
+        }
+      }
+      return NextResponse.json({
+        ok: true,
+        record: result.record,
+        noteChanged: result.noteChanged,
+      });
+    }
     const current = getPatientRecordForIntake(intakeId);
     return NextResponse.json({
       ok: false,

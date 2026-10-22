@@ -2,17 +2,16 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import db, {
   cancelQueuedRecap,
+  getFollowupPlanDraft,
   getPatientRecord,
+  saveFollowupPlanDraft,
   saveEncounterClose,
 } from "@/lib/db";
-import {
-  createFollowupPlanSchema,
-  mockFollowupPlan,
-} from "@/lib/followup-plan";
+import { createFollowupPlanSchema } from "@/lib/followup-plan";
+import { generateEncounterDraft } from "@/lib/encounter-draft";
 import { hasSummaryProviderConfigured, draftFollowupPlan, draftPatientRecap } from "@/lib/llm";
 import { createRecapMessage, createReminderMessage } from "@/lib/messaging";
 import { requestDoctorSession } from "@/lib/doctor-review";
-import { ar } from "@/lib/strings.ar";
 import { hasSameOrigin, isRateLimited, readJsonBody } from "@/lib/requestGuards";
 
 export const runtime = "nodejs";
@@ -89,6 +88,11 @@ export async function POST(
         age: record.patient.age,
         diabetes_type: record.patient.diabetes_type,
         next_visit_date: record.patient.next_visit_date,
+        last_hba1c_date: record.patient.last_hba1c_date,
+        last_kidney_labs_date: record.patient.last_kidney_labs_date,
+        last_foot_exam_date: record.patient.last_foot_exam_date,
+        last_eye_exam_date: record.patient.last_eye_exam_date,
+        last_bp_date: record.patient.last_bp_date,
       },
       intake: {
         answers: intake.fields,
@@ -99,31 +103,30 @@ export async function POST(
     };
     const mockMode = !hasSummaryProviderConfigured();
     try {
-      const [planResult, recapResult] = mockMode
-        ? [
-            { output: mockFollowupPlan(), model: "mock" },
-            { output: { recap: "تمت مراجعة ملاحظات الزيارة من فريق العيادة." }, model: "mock" },
-          ]
-        : await Promise.all([
-            draftFollowupPlan(
-              llmPayload,
-              parsed.data.note,
-              record.patient.next_visit_date,
-            ),
-            draftPatientRecap(parsed.data.note),
-          ]);
-      const plan = createFollowupPlanSchema(
-        parsed.data.note,
-        record.patient.next_visit_date,
-      ).parse(planResult.output);
-      const recapText = z.string().trim().min(1).max(440).parse(recapResult.output.recap);
-      const preview = `${ar.visitRecapPrefix} ${recapText}\n${ar.emergencyNotice}\n${ar.clinicReviewNote}`;
+      const savedPlanDraft = getFollowupPlanDraft(db, intakeId, parsed.data.note);
+      const draft = await generateEncounterDraft(
+        {
+          note: parsed.data.note,
+          existingDate: record.patient.next_visit_date,
+          patientDates: record.patient,
+          savedDraft: savedPlanDraft,
+          providerConfigured: !mockMode,
+          payload: llmPayload,
+        },
+        {
+          generatePlan: draftFollowupPlan,
+          generateRecap: draftPatientRecap,
+        },
+      );
+      if (!savedPlanDraft) {
+        saveFollowupPlanDraft(db, intakeId, parsed.data.note, draft.plan, draft.mode);
+      }
       return NextResponse.json({
         ok: true,
-        mode: mockMode ? "mock" : "llm",
-        plan,
-        recap: recapText,
-        preview,
+        mode: draft.mode,
+        plan: draft.plan,
+        recap: draft.recap,
+        preview: draft.preview,
         recapEligible: Boolean(record.patient.consent_at && record.patient.phone),
       });
     } catch (error: unknown) {
@@ -149,6 +152,9 @@ export async function POST(
       consentAt: record.patient.consent_at,
       phone: record.patient.phone,
       recap: recapText.data,
+      returnPrecautions: planResult.data.return_precautions,
+      nextVisitDate: planResult.data.next_visit_date ?? record.patient.next_visit_date,
+      patientInstructions: planResult.data.patient_instructions,
     });
     const reminderMessage = planResult.data.next_visit_date
       ? createReminderMessage({

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import type { InputMethod } from "./intake.ts";
 import { migrateInputMethodCheck } from "./db-migrations.ts";
@@ -61,6 +62,24 @@ const patientColumns = db
   .all();
 const patientColumnNames = new Set(patientColumns.map((row) => row.name));
 
+export function migratePatientFollowupDates(database: Database.Database): void {
+  const existingColumns = new Set(
+    database
+      .prepare<[], { name: string }>("SELECT name FROM pragma_table_info('patients')")
+      .all()
+      .map((column) => column.name),
+  );
+  for (const [column, declaration] of [
+    ["last_kidney_labs_date", "TEXT"],
+    ["last_eye_exam_date", "TEXT"],
+  ] as const) {
+    if (!existingColumns.has(column)) {
+      database.exec(`ALTER TABLE patients ADD COLUMN ${column} ${declaration}`);
+      existingColumns.add(column);
+    }
+  }
+}
+
 const patientMigrations: [string, string][] = [
   ["email", "ALTER TABLE patients ADD COLUMN email TEXT"],
   ["self_description", "ALTER TABLE patients ADD COLUMN self_description TEXT"],
@@ -78,6 +97,7 @@ db.transaction(() => {
   for (const [columnName, sql] of patientMigrations) {
     if (!patientColumnNames.has(columnName)) db.exec(sql);
   }
+  migratePatientFollowupDates(db);
 
   db.exec("UPDATE patients SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL");
   db.exec(
@@ -127,6 +147,20 @@ db.transaction(() => {
   `);
 })();
 
+export function migrateFollowupPlanDrafts(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS followup_plan_drafts (
+      intake_id INTEGER PRIMARY KEY REFERENCES intakes(id) ON DELETE CASCADE,
+      note_hash TEXT NOT NULL,
+      plan_json TEXT NOT NULL,
+      generation_mode TEXT NOT NULL CHECK (generation_mode IN ('mock', 'llm')),
+      created_at TEXT NOT NULL
+    )
+  `);
+}
+
+migrateFollowupPlanDrafts(db);
+
 // ----- Types -----
 
 export type Patient = {
@@ -136,7 +170,9 @@ export type Patient = {
   phone: string | null;
   diabetes_type: string | null;
   last_hba1c_date: string | null;
+  last_kidney_labs_date: string | null;
   last_foot_exam_date: string | null;
+  last_eye_exam_date: string | null;
   last_bp_date: string | null;
   next_visit_date: string | null;
   edited_by: string | null;
@@ -193,6 +229,68 @@ export type PatientRecord = {
   latestIntake: PatientIntakeRecord | null;
 };
 
+export type StoredFollowupPlanDraft = {
+  intake_id: number;
+  plan_json: string;
+  generation_mode: "mock" | "llm";
+  created_at: string;
+};
+
+export function getLatestClinicianNote(database: Database.Database, intakeId: number): string | null {
+  const note = database.prepare<[number], { note_text: string | null }>(
+    `SELECT n.note_text
+     FROM notes n JOIN intakes i ON i.patient_id = n.patient_id
+     WHERE i.id = ? AND n.edited_by IS NOT NULL
+       AND n.check_result_json = 'intake:' || i.id
+     ORDER BY n.created_at DESC, n.id DESC LIMIT 1`,
+  ).get(intakeId);
+  return note?.note_text ?? null;
+}
+
+function noteHash(note: string): string {
+  return createHash("sha256").update(note).digest("hex");
+}
+
+export function getFollowupPlanDraft(
+  database: Database.Database,
+  intakeId: number,
+  expectedNote?: string,
+): StoredFollowupPlanDraft | null {
+  const currentNote = getLatestClinicianNote(database, intakeId);
+  if (!currentNote || (expectedNote !== undefined && currentNote !== expectedNote)) return null;
+  const draft = database.prepare<[number], StoredFollowupPlanDraft & { note_hash: string }>(
+    `SELECT intake_id, note_hash, plan_json, generation_mode, created_at
+     FROM followup_plan_drafts WHERE intake_id = ?`,
+  ).get(intakeId);
+  return draft?.note_hash === noteHash(currentNote) ? draft : null;
+}
+
+export function saveFollowupPlanDraft(
+  database: Database.Database,
+  intakeId: number,
+  note: string,
+  plan: FollowupPlan,
+  generationMode: "mock" | "llm",
+  now = new Date(),
+): boolean {
+  if (!note.trim() || getLatestClinicianNote(database, intakeId) !== note) return false;
+  database.prepare(
+    `INSERT INTO followup_plan_drafts (
+       intake_id, note_hash, plan_json, generation_mode, created_at
+     ) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(intake_id) DO UPDATE SET
+       note_hash = excluded.note_hash,
+       plan_json = excluded.plan_json,
+       generation_mode = excluded.generation_mode,
+       created_at = excluded.created_at`,
+  ).run(intakeId, noteHash(note), JSON.stringify(plan), generationMode, now.toISOString());
+  return true;
+}
+
+export function deleteFollowupPlanDraft(database: Database.Database, intakeId: number): void {
+  database.prepare("DELETE FROM followup_plan_drafts WHERE intake_id = ?").run(intakeId);
+}
+
 export type QueueFilter = ReviewFilter;
 
 export function getPatientRecord(patientId: number): PatientRecord | null {
@@ -209,7 +307,8 @@ export function getPatient(id: number): Patient | undefined {
   return db
     .prepare<[number], Patient>(
       `SELECT id, name, age, phone, diabetes_type, last_hba1c_date,
-              last_foot_exam_date, last_bp_date, next_visit_date,
+              last_kidney_labs_date, last_foot_exam_date, last_eye_exam_date,
+              last_bp_date, next_visit_date,
               edited_by, edited_at
        FROM patients WHERE id = ?`,
     )
@@ -220,7 +319,8 @@ export function listPatients(): Patient[] {
   return db
     .prepare<[], Patient>(
       `SELECT id, name, age, phone, diabetes_type, last_hba1c_date,
-              last_foot_exam_date, last_bp_date, next_visit_date,
+              last_kidney_labs_date, last_foot_exam_date, last_eye_exam_date,
+              last_bp_date, next_visit_date,
               edited_by, edited_at
        FROM patients ORDER BY id`,
     )
@@ -344,6 +444,7 @@ export function latestCaseSummaries(
 export function createPatient(data: {
   name: string;
   phone: string;
+  age?: number | null;
   request_id?: string | null;
   email?: string | null;
   self_description?: string | null;
@@ -354,11 +455,12 @@ export function createPatient(data: {
   const result = db
     .prepare(
       `INSERT INTO patients (
-        name, phone, request_id, email, self_description, reference_code, consent_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        name, age, phone, request_id, email, self_description, reference_code, consent_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       data.name,
+      data.age ?? null,
       data.phone,
       data.request_id ?? null,
       data.email ?? null,
@@ -492,8 +594,9 @@ export function saveEncounterClose(input: {
       status: intake.status,
       note: input.note,
       reason: "Encounter closed; follow-up plan confirmed.",
-    }, now);
+    }, getLatestClinicianNote(db, input.intakeId), now);
     if (!saveResult.ok) return { ok: false as const, conflict: true as const };
+    deleteFollowupPlanDraft(db, input.intakeId);
 
     const timestamp = now.toISOString();
     db.prepare(

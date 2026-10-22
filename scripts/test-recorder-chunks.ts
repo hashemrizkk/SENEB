@@ -116,9 +116,30 @@ async function run(): Promise<void> {
     insertDictationAtCursor("typed after", "spoken", 6, 6),
     { value: "typed spoken after", cursor: 13 },
   );
+  const dictatedDraftFields = [
+    ["Existing instructions.", "Add a reminder."],
+    ["Check blood sugar.", "Check twice daily."],
+    ["Increase metformin.", "Take with food."],
+    ["Return if symptoms worsen.", "Call the clinic."],
+    ["Monitor at home.", "Record each reading."],
+    ["Follow-up recap.", "Visit next month."],
+  ] as const;
+  for (const [existingText, dictatedText] of dictatedDraftFields) {
+    const inserted = insertDictationAtCursor(
+      existingText,
+      dictatedText,
+      existingText.length,
+      existingText.length,
+    );
+    assert.ok(inserted.value.startsWith(existingText));
+    assert.ok(inserted.value.endsWith(dictatedText));
+    assert.ok(inserted.value.includes(existingText));
+    assert.ok(inserted.value.includes(dictatedText));
+    assert.equal(inserted.cursor, inserted.value.length);
+  }
   assert.equal(inaudibleSegment(3), "[inaudible segment 4]");
 
-  console.log("PASS  chunk rollover, sequence ordering, cursor insertion, and failure placeholder");
+  console.log("PASS  chunk ordering and cursor insertion preserve existing text across editable draft fields");
 }
 
 await run();

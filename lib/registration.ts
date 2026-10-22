@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ar } from "./strings.ar.ts";
+import { surveySubmissionSchema } from "./survey/convert.ts";
 
 /**
  * ONE schema for the browser AND the server.
@@ -126,6 +127,15 @@ export const registrationSchema = z.object({
   // so a filled honeypot gets a silent { ok: true } instead of a 400.
   website: z.string().max(200).optional(),
   request_id: z.string().regex(UUID_PATTERN, ar.register.errors.requestId),
+  survey: surveySubmissionSchema.optional(),
+}).superRefine((data, context) => {
+  if (data.survey && data.email === "") {
+    context.addIssue({
+      code: "custom",
+      path: ["email"],
+      message: ar.register.errors.emailRequired,
+    });
+  }
 });
 
 export type RegistrationData = z.infer<typeof registrationSchema>;

@@ -7,6 +7,7 @@ import {
   type MessageOutbox,
   type OutboxMessage,
 } from "../lib/messaging.ts";
+import { composeRecapBody } from "../lib/recap-content.ts";
 
 class MemoryOutbox implements MessageOutbox {
   messages: OutboxMessage[] = [];
@@ -75,6 +76,30 @@ assert.equal(createRecapMessage({
   phone: "01000000000",
   recap: "متابعة",
 }), null);
+const returnPrecautions = "ارجع فورًا عند ألم الصدر أو صعوبة التنفس.";
+const expandedRecap = createRecapMessage({
+  patientId: 14,
+  consentAt: "2026-10-01T00:00:00Z",
+  phone: "01000000000",
+  recap: "ملخص الزيارة. ".repeat(14),
+  returnPrecautions,
+  nextVisitDate: "2026-11-01",
+  patientInstructions: "اتبع التعليمات المكتوبة. ".repeat(20),
+});
+assert.ok(expandedRecap);
+assert.ok(expandedRecap.body.length <= 600);
+assert.ok(expandedRecap.body.includes(returnPrecautions), "return precautions must remain verbatim");
+assert.ok(expandedRecap.body.includes("موعد المتابعة القادم: 2026-11-01"));
+assert.ok(expandedRecap.body.includes("اتبع التعليمات المكتوبة."));
+assert.match(expandedRecap.body, /🚨/);
+const expandedPreview = composeRecapBody({
+  recap: "ملخص",
+  returnPrecautions,
+  nextVisitDate: "2026-11-01",
+  patientInstructions: "اتبع التعليمات.",
+});
+assert.ok(expandedPreview.includes(returnPrecautions));
+assert.ok(expandedPreview.includes("موعد المتابعة القادم: 2026-11-01"));
 
 const reminder = reminderSchedule("2026-11-01", 3);
 assert.equal(reminder, "2026-10-29T00:00:00.000Z");

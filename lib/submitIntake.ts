@@ -13,7 +13,11 @@ export type { InputMethod } from "./intake";
 export type TapAnswers = Partial<
   Pick<
     IntakeFields,
-    "missed_doses" | "hypoglycemia_episodes" | "foot_problem" | "vision_change"
+    | "missed_doses"
+    | "hypoglycemia_episodes"
+    | "foot_problem"
+    | "vision_change"
+    | "emergency_symptoms_mentioned"
   >
 >;
 
@@ -43,6 +47,9 @@ export function mergeFields(
   if (answers.foot_problem != null) merged.foot_problem = answers.foot_problem;
   if (answers.vision_change != null) {
     merged.vision_change = answers.vision_change;
+  }
+  if (answers.emergency_symptoms_mentioned != null) {
+    merged.emergency_symptoms_mentioned = answers.emergency_symptoms_mentioned;
   }
 
   const parsed = intakeFieldsSchema.safeParse(merged);
@@ -99,12 +106,14 @@ export function saveIntake(data: {
   fields: IntakeFields;
   flags: RedFlagResult;
   meta: IntakeMeta;
+  priorityOverride?: "urgent" | "important" | null;
 }): number {
-  const priority = autoPriorityMetadata(
+  const automatic = autoPriorityMetadata(
     data.fields,
     data.raw_text,
     data.meta.needs_review,
   );
+  const priority = data.priorityOverride ?? automatic.priority;
   return insertIntakeWithRevision({
     patient_id: data.patient_id,
     input_method: data.input_method,
@@ -112,8 +121,11 @@ export function saveIntake(data: {
     structured_json: JSON.stringify(data.fields),
     red_flags_json: JSON.stringify(data.flags),
     meta_json: JSON.stringify(data.meta),
-    priority: priority.priority,
-    revision_reason: priority.revision_reason,
+    priority,
+    revision_reason:
+      data.priorityOverride != null
+        ? "Priority source: survey rules."
+        : automatic.revision_reason,
   });
 }
 

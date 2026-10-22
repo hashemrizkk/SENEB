@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import { migrateInputMethodCheck } from "../lib/db-migrations.ts";
 import {
   authenticateDoctor,
+  clinicianEditSchema,
   createDoctorSession,
   failedLoginIsLimited,
   getDoctorPatientRecord,
@@ -34,7 +35,9 @@ function createLegacyDatabase(): Database.Database {
       created_at TEXT,
       diabetes_type TEXT,
       last_hba1c_date TEXT,
+      last_kidney_labs_date TEXT,
       last_foot_exam_date TEXT,
+      last_eye_exam_date TEXT,
       last_bp_date TEXT,
       next_visit_date TEXT
     );
@@ -88,6 +91,107 @@ function check(condition: unknown, message: string): asserts condition {
   assert.ok(condition, message);
 }
 
+function testClinicianNotePersistence(): void {
+  const database = createLegacyDatabase();
+  try {
+    migrateDoctorReview(database);
+    migrateInputMethodCheck(database);
+    database.prepare(
+      `INSERT INTO notes (
+         patient_id, note_text, check_result_json, edited_by, created_at
+       ) VALUES (?, ?, ?, ?, ?)`,
+    ).run(1, "Original clinician note", "intake:1", "Dr Test", "2025-01-01T11:00:00Z");
+
+    const baseEdit = {
+      patient: {
+        name: "Test Patient",
+        phone: "01012345678",
+        email: "",
+        self_description: "",
+      },
+      fields: intakeFieldsSchema.parse({
+        missed_doses: false,
+        hypoglycemia_episodes: 1,
+        hypoglycemia_symptoms: null,
+        foot_problem: false,
+        vision_change: false,
+        emergency_symptoms_mentioned: null,
+        symptoms_text: null,
+      }),
+      raw_text: "Original patient text",
+      priority: "urgent" as const,
+      status: "seen" as const,
+      reason: "",
+    };
+    const readNotes = () => database.prepare(
+      "SELECT note_text FROM notes WHERE check_result_json = 'intake:1' ORDER BY id",
+    ).all() as { note_text: string }[];
+
+    const statusOnly = clinicianEditSchema.parse({ ...baseEdit, version: 1 });
+    const firstSave = saveClinicianEdit(
+      database, 1, "Dr Test", statusOnly, "Original clinician note",
+    );
+    assert.equal(firstSave.ok, true);
+    if (!firstSave.ok) throw new Error("The status-only edit unexpectedly conflicted.");
+    assert.equal(firstSave.noteChanged, false);
+    assert.equal(readNotes()[0]?.note_text, "Original clinician note");
+
+    const emptyNote = clinicianEditSchema.parse({ ...baseEdit, version: 2, note: "" });
+    const emptySave = saveClinicianEdit(
+      database, 1, "Dr Test", emptyNote, "Original clinician note",
+    );
+    assert.equal(emptySave.ok, true);
+    if (!emptySave.ok) throw new Error("The empty-note edit unexpectedly conflicted.");
+    assert.equal(emptySave.noteChanged, false);
+    assert.equal(readNotes()[0]?.note_text, "Original clinician note");
+
+    const changedNote = clinicianEditSchema.parse({
+      ...baseEdit,
+      version: 3,
+      note: "New clinician note",
+    });
+    const changedSave = saveClinicianEdit(
+      database, 1, "Dr Test", changedNote, "Original clinician note",
+    );
+    assert.equal(changedSave.ok, true);
+    if (!changedSave.ok) throw new Error("The changed-note edit unexpectedly conflicted.");
+    assert.equal(changedSave.noteChanged, true);
+    assert.deepEqual(readNotes().map((row) => row.note_text), [
+      "Original clinician note",
+      "New clinician note",
+    ]);
+    const changedFields = JSON.parse(
+      changedSave.record.revisions[3]!.changed_fields_json,
+    ) as string[];
+    assert.ok(changedFields.includes("notes.note_text"));
+
+    const omittedNote = clinicianEditSchema.parse({ ...baseEdit, version: 4 });
+    const omittedSave = saveClinicianEdit(
+      database, 1, "Dr Test", omittedNote, "New clinician note",
+    );
+    assert.equal(omittedSave.ok, true);
+    if (!omittedSave.ok) throw new Error("The omitted-note edit unexpectedly conflicted.");
+    assert.equal(omittedSave.noteChanged, false);
+    const laterEmptyNote = clinicianEditSchema.parse({
+      ...baseEdit,
+      version: 5,
+      note: "",
+    });
+    const laterEmptySave = saveClinicianEdit(
+      database, 1, "Dr Test", laterEmptyNote, "New clinician note",
+    );
+    assert.equal(laterEmptySave.ok, true);
+    if (!laterEmptySave.ok) throw new Error("The later empty-note edit unexpectedly conflicted.");
+    assert.equal(laterEmptySave.noteChanged, false);
+    assert.deepEqual(readNotes().map((row) => row.note_text), [
+      "Original clinician note",
+      "New clinician note",
+    ]);
+  } finally {
+    database.close();
+  }
+}
+
 function testInputMethodMigration(): void {
   const database = new Database(":memory:");
   database.pragma("foreign_keys = ON");
@@ -139,6 +243,7 @@ function testInputMethodMigration(): void {
 const db = createLegacyDatabase();
 try {
   testInputMethodMigration();
+  testClinicianNotePersistence();
   migrateDoctorReview(db);
   let record = getDoctorPatientRecord(db, 1);
   check(record, "legacy patient should load after migration");
@@ -300,7 +405,9 @@ try {
     note: "N".repeat(3_000),
     reason: "Test edit",
   };
-  const saved = saveClinicianEdit(db, 1, "Dr Test", edit, new Date("2025-01-02T10:00:00Z"));
+  const saved = saveClinicianEdit(
+    db, 1, "Dr Test", edit, null, new Date("2025-01-02T10:00:00Z"),
+  );
   assert.equal(saved.ok, true);
   if (!saved.ok) throw new Error("The valid clinician edit unexpectedly conflicted.");
   assert.equal(saved.record.version, 2);
@@ -319,7 +426,7 @@ try {
   }
   assert.equal(saved.record.doctorNotes[0]?.note_text, "N".repeat(3_000));
 
-  const stale = saveClinicianEdit(db, 1, "Dr Test", edit);
+  const stale = saveClinicianEdit(db, 1, "Dr Test", edit, null);
   assert.deepEqual(stale, { ok: false, conflict: true });
 
   console.log("Doctor workflow tests passed: migration, queue import, revisions, edits, conflicts, and sessions.");

@@ -88,9 +88,11 @@ function isStatus(value: string): value is PatientIntakeRecord["status"] {
 export default function ReviewEditForm({
   intake,
   patient,
+  followupDraftAvailable,
 }: {
   intake: PatientIntakeRecord;
   patient: PatientContact;
+  followupDraftAvailable: boolean;
 }) {
   const router = useRouter();
   const [name, setName] = useState(patient.name);
@@ -101,7 +103,10 @@ export default function ReviewEditForm({
   const [rawText, setRawText] = useState(intake.raw_text ?? "");
   const [status, setStatus] = useState(intake.status);
   const [priority, setPriority] = useState(intake.priority ?? "");
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(
+    intake.doctorNotes[intake.doctorNotes.length - 1]?.note_text ?? "",
+  );
+  const [draftReady, setDraftReady] = useState(followupDraftAvailable);
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
@@ -133,7 +138,14 @@ export default function ReviewEditForm({
       const result: unknown = await response.json();
       if (response.ok) {
         setMessage("Changes saved and added to revision history.");
-        setNote("");
+        if (
+          result !== null &&
+          typeof result === "object" &&
+          "noteChanged" in result &&
+          result.noteChanged === true
+        ) {
+          setDraftReady(true);
+        }
         setReason("");
         router.refresh();
       } else if (
@@ -235,6 +247,7 @@ export default function ReviewEditForm({
         version={intake.version}
         note={note}
         existingDate={patient.next_visit_date}
+        followupDraftAvailable={draftReady || followupDraftAvailable}
       />
       {message ? <p role="status">{message}</p> : null}
       {conflictVersion !== null ? <p>Latest server version: {conflictVersion}.</p> : null}

@@ -4,6 +4,7 @@ import { listQueue, type QueueFilter } from "@/lib/db";
 import { flagLabel } from "@/lib/questions";
 import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
 import DoctorQueueRefresh from "./DoctorQueueRefresh";
+import { ar } from "@/lib/strings.ar";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +67,13 @@ export default async function DoctorPage({
                   <strong>{record.patient_name}</strong>
                   <br />
                   <small>{record.reference_code ?? "No reference code"}</small>
+                  {record.meta?.survey ? (
+                    <p>
+                      <span aria-label="FINDRISC screening band">
+                        FINDRISC · {ar.survey.bandNames[record.meta.survey.band]}
+                      </span>
+                    </p>
+                  ) : null}
                 </td>
                 <td>{record.created_at ?? "Unknown"}</td>
                 <td>

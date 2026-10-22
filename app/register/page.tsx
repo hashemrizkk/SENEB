@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import TapQuestions, {
   type TapAnswersState,
   type TapQuestion,
@@ -22,6 +22,13 @@ import {
   registrationQuestions,
   registrationTextQuestions,
 } from "@/lib/questions";
+import {
+  clearSurveyHandoff,
+  getServerSurveyHandoff,
+  getSurveyHandoff,
+  subscribeSurveyHandoff,
+} from "@/lib/survey/handoff";
+import { surveyRedFlags } from "@/lib/survey/redflags";
 
 const TOTAL_STEPS = 4;
 const FIELD_ORDER = ["full_name", "phone", "email"];
@@ -75,6 +82,16 @@ function readReply(raw: unknown): ServerReply {
 
 export default function RegisterPage() {
   const [step, setStep] = useState(1);
+  const surveyHandoff = useSyncExternalStore(
+    subscribeSurveyHandoff,
+    getSurveyHandoff,
+    getServerSurveyHandoff,
+  );
+  const [completionContext, setCompletionContext] = useState({
+    screening: false,
+    urgent: false,
+  });
+  const [descriptionTouched, setDescriptionTouched] = useState(false);
   const [form, setForm] = useState({
     full_name: "",
     phone: "",
@@ -108,6 +125,16 @@ export default function RegisterPage() {
 
   const refs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  const descriptionValue =
+    surveyHandoff && !descriptionTouched
+      ? surveyHandoff.clarification
+      : form.self_description;
+  const isSurveyRegistration = surveyHandoff !== null || completionContext.screening;
+  const surveyUrgent =
+    (surveyHandoff
+      ? surveyRedFlags(surveyHandoff.survey.symptoms).urgent
+      : completionContext.urgent);
+
   function announce(messages: Record<string, string>): void {
     const first = FIELD_ORDER.concat("consent").find((key) => messages[key]);
     setLiveMessage(first ? messages[first] : "");
@@ -136,7 +163,9 @@ export default function RegisterPage() {
       setForm((current) => ({ ...current, phone: phone.data }));
     }
 
-    if (form.email.trim() !== "") {
+    if (isSurveyRegistration && form.email.trim() === "") {
+      found.email = ar.register.errors.emailRequired;
+    } else if (form.email.trim() !== "") {
       const email = emailSchema.safeParse(form.email);
       if (!email.success) found.email = email.error.issues[0].message;
     }
@@ -186,11 +215,11 @@ export default function RegisterPage() {
       full_name: form.full_name,
       phone: form.phone,
       email: form.email,
-      self_description: form.self_description,
+      self_description: descriptionValue,
       answers,
       notes: form.notes,
       input_method: deriveInputMethod({
-        texts: [form.self_description, form.notes],
+        texts: [descriptionValue, form.notes],
         transcriptPieces: [voicePieces.self_description, voicePieces.notes],
         editedAfterAppend: [
           voiceTextEdited.self_description,
@@ -201,6 +230,7 @@ export default function RegisterPage() {
       consent,
       website,
       request_id: activeRequestId,
+      ...(surveyHandoff ? { survey: surveyHandoff.survey } : {}),
     };
 
     const parsed = registrationSchema.safeParse(payload);
@@ -249,6 +279,11 @@ export default function RegisterPage() {
       setAnswers(emptyAnswers());
       setConsent(false);
       setWebsite("");
+      setCompletionContext({
+        screening: Boolean(surveyHandoff),
+        urgent: surveyUrgent,
+      });
+      clearSurveyHandoff();
     } catch {
       const offline = typeof navigator !== "undefined" && !navigator.onLine;
       setSubmitError(
@@ -265,7 +300,15 @@ export default function RegisterPage() {
     }
   }
 
-  if (done) return <SuccessScreen referenceCode={referenceCode} />;
+  if (done) {
+    return (
+      <SuccessScreen
+        referenceCode={referenceCode}
+        screening={isSurveyRegistration}
+        urgent={surveyUrgent}
+      />
+    );
+  }
 
   const canSubmit = !sending;
 
@@ -381,6 +424,17 @@ export default function RegisterPage() {
       </p>
       <p className="reg-emergency" role="note">{ar.emergencyNotice}</p>
       <p className="reg-clinic-note" role="note">{ar.clinicReviewNote}</p>
+      {isSurveyRegistration ? (
+        <>
+          <p className="reg-banner" role="note">{ar.survey.screeningNotice}</p>
+          <p className="reg-banner" role="note">{ar.survey.conversionIntro}</p>
+          {surveyUrgent ? (
+            <p className="reg-emergency" role="alert">
+              <strong>{ar.survey.urgentTitle}</strong> {ar.survey.urgentText}
+            </p>
+          ) : null}
+        </>
+      ) : null}
 
       {/* Honeypot: off-screen, not focusable, not read by screen readers. */}
       <input
@@ -458,7 +512,9 @@ export default function RegisterPage() {
 
           <div className="reg-field">
             <label className="reg-label" htmlFor="email">
-              {ar.register.email}
+              {isSurveyRegistration
+                ? ar.survey.emailRequiredLabel
+                : ar.register.email}
             </label>
             <input
               id="email"
@@ -470,8 +526,13 @@ export default function RegisterPage() {
               type="email"
               inputMode="email"
               autoComplete="email"
-              placeholder={ar.register.emailPlaceholder}
+              placeholder={
+                isSurveyRegistration
+                  ? ar.survey.emailRequiredPlaceholder
+                  : ar.register.emailPlaceholder
+              }
               value={form.email}
+              required={isSurveyRegistration}
               aria-invalid={Boolean(errors.email)}
               aria-describedby={errors.email ? "email-error" : undefined}
               onChange={(event) =>
@@ -512,8 +573,9 @@ export default function RegisterPage() {
               id="self_description"
               className="reg-textarea"
               maxLength={300}
-              value={form.self_description}
+              value={descriptionValue}
               onChange={(event) => {
+                setDescriptionTouched(true);
                 if (voicePieces.self_description.length) {
                   setVoiceTextEdited((current) => ({
                     ...current,
@@ -533,22 +595,19 @@ export default function RegisterPage() {
               transcript={descriptionTranscript}
               onTranscriptChange={setDescriptionTranscript}
               onAppend={(value, speechPieces) => {
+                setDescriptionTouched(true);
                 setVoicePieces((current) => ({
                   ...current,
                   self_description: [...current.self_description, ...speechPieces],
                 }));
                 setForm((current) => ({
                   ...current,
-                  self_description: appendTranscript(
-                    current.self_description,
-                    value,
-                    300,
-                  ),
+                  self_description: appendTranscript(descriptionValue, value, 300),
                 }));
               }}
             />
             <p className="reg-counter">
-              {ar.register.charCount(form.self_description.length, 300)}
+              {ar.register.charCount(descriptionValue.length, 300)}
             </p>
           </div>
 
@@ -597,7 +656,7 @@ export default function RegisterPage() {
           <h1 className="reg-h1">{ar.register.step4Title}</h1>
 
           <ReviewList
-            form={{ ...form, answers }}
+            form={{ ...form, self_description: descriptionValue, answers }}
             questions={QUESTIONS}
             onEdit={(target) => setStep(target)}
           />
@@ -611,7 +670,11 @@ export default function RegisterPage() {
               aria-describedby={errors.consent ? "consent-error" : undefined}
               onChange={(event) => setConsent(event.target.checked)}
             />
-            <span>{ar.register.consent}</span>
+            <span>
+              {isSurveyRegistration
+                ? ar.survey.conversionConsent
+                : ar.register.consent}
+            </span>
           </label>
           {errors.consent ? (
             <p className="reg-error" id="consent-error">

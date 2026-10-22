@@ -159,6 +159,11 @@ export const flagLabels: Record<string, string> = {
   [flagRules.visionChange]: "تغيير في النظر",
   [flagRules.missedDoses]: "نسيان جرعات الدواء",
   [flagRules.possibleEmergency]: "احتمال حالة طارئة — يلزم مراجعة أولًا",
+  survey_extreme_thirst: "استبيان: عطش شديد مُبلّغ عنه",
+  survey_rapid_weight_loss: "استبيان: نقصان وزن سريع مُبلّغ عنه",
+  survey_blurred_vision: "استبيان: تشوش نظر مُبلّغ عنه",
+  survey_vomiting: "استبيان: قيء مُبلّغ عنه",
+  survey_confusion: "استبيان: تشوش أو ارتباك مُبلّغ عنه",
 };
 
 export const unansweredLabels: Record<string, string> = {

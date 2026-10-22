@@ -17,6 +17,8 @@ import {
   type TapAnswers,
 } from "@/lib/submitIntake";
 import { generateSummarySafely } from "@/lib/summary-background";
+import { prepareSurveyConversion } from "@/lib/survey/convert";
+import { redFlags } from "@/lib/rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,6 +58,9 @@ export async function POST(request: Request): Promise<Response> {
   const parsed = registrationSchema.safeParse(raw);
   if (!parsed.success) return errorResponse("invalid", 400);
   const data = parsed.data;
+  const surveyConversion = data.survey
+    ? prepareSurveyConversion(data.survey)
+    : null;
 
   const previousCode = getRegistrationReferenceCode(data.request_id);
   if (previousCode) {
@@ -79,6 +84,23 @@ export async function POST(request: Request): Promise<Response> {
     vision_change: data.answers.vision_change,
   };
   const prepared = await prepareIntake(freeText, registrationAnswers);
+  if (surveyConversion) {
+    prepared.fields.vision_change =
+      surveyConversion.intakeAnswers.vision_change ??
+      prepared.fields.vision_change;
+    prepared.fields.emergency_symptoms_mentioned =
+      surveyConversion.intakeAnswers.emergency_symptoms_mentioned ??
+      prepared.fields.emergency_symptoms_mentioned;
+    const updatedFlags = redFlags(prepared.fields);
+    prepared.flags = {
+      ...updatedFlags,
+      flags: [...updatedFlags.flags, ...surveyConversion.redFlagCodes],
+    };
+    prepared.meta = {
+      ...prepared.meta,
+      survey: surveyConversion.metadata,
+    };
+  }
 
   try {
     const registration = db.transaction(() => {
@@ -96,6 +118,7 @@ export async function POST(request: Request): Promise<Response> {
       const patientId = createPatient({
         name: data.full_name,
         phone: data.phone,
+        age: surveyConversion?.metadata.answers.age ?? null,
         request_id: data.request_id,
         email: data.email || null,
         self_description: data.self_description || null,
@@ -111,6 +134,9 @@ export async function POST(request: Request): Promise<Response> {
         fields: prepared.fields,
         flags: prepared.flags,
         meta: prepared.meta,
+        ...(surveyConversion?.priorityOverride
+          ? { priorityOverride: surveyConversion.priorityOverride }
+          : {}),
       });
 
       return { code, patientId, intakeId };
