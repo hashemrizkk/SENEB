@@ -1,18 +1,28 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import db, {
+  buildAfterWorkRatingInput,
   cancelQueuedRecap,
   getFollowupPlanDraft,
   getPatientRecord,
+  hasAfterWorkRating,
   saveFollowupPlanDraft,
   saveEncounterClose,
+  saveAfterWorkRating,
 } from "@/lib/db";
 import { createFollowupPlanSchema } from "@/lib/followup-plan";
 import { generateEncounterDraft } from "@/lib/encounter-draft";
-import { hasSummaryProviderConfigured, draftFollowupPlan, draftPatientRecap } from "@/lib/llm";
+import {
+  draftFollowupPlan,
+  draftPatientRecap,
+  generateAfterWorkRating,
+  hasSummaryProviderConfigured,
+  verifyAfterWorkRatingQuotes,
+} from "@/lib/llm";
 import { createRecapMessage, createReminderMessage } from "@/lib/messaging";
 import { requestDoctorSession } from "@/lib/doctor-review";
 import { hasSameOrigin, isRateLimited, readJsonBody } from "@/lib/requestGuards";
+import { afterWorkRatingSchema } from "@/lib/summary-types";
 
 export const runtime = "nodejs";
 
@@ -46,6 +56,46 @@ function recordForIntake(intakeId: number) {
   const record = row ? getPatientRecord(row.patient_id) : null;
   const intake = record?.intakes.find((item) => item.id === intakeId);
   return record && intake ? { record, intake } : null;
+}
+
+function scheduleAfterWorkRating(intakeId: number, note: string): void {
+  try {
+    after(async () => {
+      try {
+        const safeNote = /requestedSchema/i.test(note) ? "" : note;
+        const context = buildAfterWorkRatingInput(db, intakeId, safeNote);
+        if (!context || hasAfterWorkRating(db, intakeId, note)) return;
+        const generated = await generateAfterWorkRating(context.input);
+        if (!generated) return;
+        const output = afterWorkRatingSchema.safeParse(
+          verifyAfterWorkRatingQuotes(generated.output, safeNote),
+        );
+        if (!output.success) {
+          console.error("After-work rating output did not pass validation.");
+          return;
+        }
+        const mode = generated.model === "fallback"
+          ? "fallback"
+          : generated.model === "mock"
+            ? "mock"
+            : "llm";
+        saveAfterWorkRating(db, {
+          patientId: context.patientId,
+          intakeId,
+          note,
+          output: output.data,
+          mode,
+          model: mode === "llm" ? generated.model : null,
+        });
+      } catch (error: unknown) {
+        const errorType = error instanceof Error ? error.constructor.name : "UnknownError";
+        console.error(`After-work rating failed (${errorType}).`);
+      }
+    });
+  } catch (error: unknown) {
+    const errorType = error instanceof Error ? error.constructor.name : "UnknownError";
+    console.error(`After-work rating scheduling failed (${errorType}).`);
+  }
 }
 
 export async function POST(
@@ -174,6 +224,7 @@ export async function POST(
       reminderScheduledAt: reminderMessage?.scheduled_at ?? null,
     });
     if (!result.ok) return reply("This intake changed. Refresh it before confirming.", 409);
+    scheduleAfterWorkRating(intakeId, parsed.data.note);
     return NextResponse.json({
       ok: true,
       recapQueued: result.recapQueued,

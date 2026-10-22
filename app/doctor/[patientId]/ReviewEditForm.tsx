@@ -7,6 +7,14 @@ import EncounterClose from "./EncounterClose";
 import type { PatientContact, PatientIntakeRecord } from "@/lib/db";
 import { intakeFieldsSchema, type IntakeFields } from "@/lib/intake";
 import { followupQuestions, questionLabel } from "@/lib/questions";
+import RatingCircle from "@/components/RatingCircle";
+
+type NoteRatingDisplay = {
+  rating: "green" | "yellow" | "red";
+  details: string[];
+  mode: "llm" | "mock" | "fallback";
+  note: string;
+};
 
 type EditableField = "missed_doses" | "hypoglycemia_episodes" | "foot_problem" | "vision_change";
 type LatestRecordPreview = {
@@ -89,10 +97,12 @@ export default function ReviewEditForm({
   intake,
   patient,
   followupDraftAvailable,
+  initialNoteRating,
 }: {
   intake: PatientIntakeRecord;
   patient: PatientContact;
   followupDraftAvailable: boolean;
+  initialNoteRating: NoteRatingDisplay | null;
 }) {
   const router = useRouter();
   const [name, setName] = useState(patient.name);
@@ -235,6 +245,14 @@ export default function ReviewEditForm({
         onChange={(event) => setNote(event.target.value)}
         maxLength={4000}
       />
+      {initialNoteRating && initialNoteRating.note === note ? (
+        <RatingCircle
+          rating={initialNoteRating.rating}
+          label="Note completeness"
+          details={initialNoteRating.details}
+          mode={initialNoteRating.mode}
+        />
+      ) : null}
       <DoctorDictation value={note} onChange={setNote} textareaRef={noteRef} />
       <label>Reason for changes (optional)<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} /></label>
       <p>

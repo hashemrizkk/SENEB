@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { requireDoctorSession } from "@/lib/doctor-review";
-import { listQueue, type QueueFilter } from "@/lib/db";
+import db, { latestAfterWorkRating, listQueue, type QueueFilter } from "@/lib/db";
 import { flagLabel } from "@/lib/questions";
 import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
 import DoctorQueueRefresh from "./DoctorQueueRefresh";
 import { ar } from "@/lib/strings.ar";
+import RatingCircle from "@/components/RatingCircle";
+import { afterWorkRatingSchema } from "@/lib/summary-types";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,21 @@ export default async function DoctorPage({
   const { filter: rawFilter } = await searchParams;
   const filter = selectedFilter(rawFilter);
   const records = listQueue(filter);
+  const profileRatings = new Map(records.map((record) => {
+    const stored = latestAfterWorkRating(db, record.patient_id);
+    const rating = stored
+      ? afterWorkRatingSchema.parse(JSON.parse(stored.payload_json))
+      : null;
+    return [record.patient_id, stored && rating
+      ? {
+          rating: rating.profile_rating,
+          mode: stored.mode,
+          details: rating.profile_gaps.map(
+            (gap) => `${gap.field} (${gap.importance}): ${gap.reason}`,
+          ),
+        }
+      : null] as const;
+  }));
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
@@ -61,7 +78,9 @@ export default async function DoctorPage({
             </tr>
           </thead>
           <tbody>
-            {records.map((record) => (
+            {records.map((record) => {
+              const profileRating = profileRatings.get(record.patient_id);
+              return (
               <tr key={record.id}>
                 <td>
                   <strong>{record.patient_name}</strong>
@@ -73,6 +92,14 @@ export default async function DoctorPage({
                         FINDRISC · {ar.survey.bandNames[record.meta.survey.band]}
                       </span>
                     </p>
+                  ) : null}
+                  {profileRating ? (
+                    <RatingCircle
+                      rating={profileRating.rating}
+                      label="Profile completeness"
+                      details={profileRating.details}
+                      mode={profileRating.mode}
+                    />
                   ) : null}
                 </td>
                 <td>{record.created_at ?? "Unknown"}</td>
@@ -97,7 +124,8 @@ export default async function DoctorPage({
                   <Link href={`/doctor/${record.patient_id}/summary`}>Case summary</Link>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

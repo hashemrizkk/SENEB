@@ -2,7 +2,12 @@ import Link from "next/link";
 import { after } from "next/server";
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import db, { getFollowupPlanDraft, getPatientRecord, type PatientIntakeRecord } from "@/lib/db";
+import db, {
+  getAfterWorkRatingForNote,
+  getFollowupPlanDraft,
+  getPatientRecord,
+  type PatientIntakeRecord,
+} from "@/lib/db";
 import { requireDoctorSession } from "@/lib/doctor-review";
 import { formatCairoDateTime } from "@/lib/date-time";
 import { flagLabel, followupQuestions, questionLabel } from "@/lib/questions";
@@ -13,6 +18,7 @@ import ReviewEditForm from "./ReviewEditForm";
 import { generateSummarySafely, summaryIsMissingOrStale } from "@/lib/summary-background";
 import { priorityForIntake } from "@/lib/intake-priority";
 import { indexedKey } from "@/lib/react-keys";
+import { afterWorkRatingSchema } from "@/lib/summary-types";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +107,25 @@ export default async function DoctorIntakePage({
   const followupDraftAvailable = intake
     ? getFollowupPlanDraft(db, intake.id) !== null
     : false;
+  const currentNote = intake?.doctorNotes[intake.doctorNotes.length - 1]?.note_text ?? "";
+  const storedNoteRating = intake
+    ? getAfterWorkRatingForNote(db, patientId, intake.id, currentNote)
+    : null;
+  const noteRating = storedNoteRating
+    ? afterWorkRatingSchema.parse(JSON.parse(storedNoteRating.payload_json))
+    : null;
+  const noteRatingDisplay = noteRating && storedNoteRating
+    ? {
+        rating: noteRating.note_rating,
+        mode: storedNoteRating.mode,
+        note: currentNote,
+        details: [
+          ...noteRating.note_missing_required.map((item) => `Missing required: ${item}`),
+          ...noteRating.note_missing_important.map((item) => `Missing important: ${item}`),
+          ...noteRating.note_suggestions.map((item) => `Suggestion: ${item}`),
+        ],
+      }
+    : null;
 
   return (
     <main style={{ maxWidth: 1000, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
@@ -204,6 +229,7 @@ export default async function DoctorIntakePage({
             intake={intake}
             patient={record.patient}
             followupDraftAvailable={followupDraftAvailable}
+            initialNoteRating={noteRatingDisplay}
           />
           <section>
             <h2>Revision history for this record</h2>
