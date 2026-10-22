@@ -96,7 +96,7 @@ export default async function DoctorPage({
                   {profileRating ? (
                     <RatingCircle
                       rating={profileRating.rating}
-                      label="Profile completeness"
+                      label="Profile completeness (record-based)"
                       details={profileRating.details}
                       mode={profileRating.mode}
                     />
