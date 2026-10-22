@@ -10,6 +10,23 @@ export default function HomePage() {
     >
       <div style={{ display: "grid", gap: "1rem" }}>
         <Link
+          href="/screening"
+          style={{
+            display: "inline-block",
+            minHeight: 48,
+            padding: "0.9rem 3rem",
+            borderRadius: 14,
+            background: "#0f6f5c",
+            color: "#fff",
+            fontSize: 20,
+            fontWeight: 700,
+            textDecoration: "none",
+            textAlign: "center",
+          }}
+        >
+          فحص مخاطر السكري
+        </Link>
+        <Link
           href="/register"
           style={{
             display: "inline-block",

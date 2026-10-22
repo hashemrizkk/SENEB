@@ -48,3 +48,46 @@ table { border-collapse: collapse; width: 100%; }
 caption { text-align: start; padding: var(--space-1); }
 th, td { border-bottom: 1px solid var(--border); padding: var(--space-1); text-align: start; vertical-align: top; }
 thead th, [scope="rowgroup"] { background: var(--surface-soft); }
+
+.screening-page { box-sizing: border-box; width: min(100% - 2rem, 760px); margin-inline: auto; padding: 1rem 0 2rem; color: #172521; font-size: 18px; line-height: 1.65; }
+.screening-page h1 { font-size: clamp(1.6rem, 7vw, 2.2rem); line-height: 1.25; }
+.screening-page h2 { font-size: 1.25rem; }
+.screening-page button, .screening-page select, .screening-page input { box-sizing: border-box; min-height: 48px; font: inherit; }
+.screening-page button { padding: .55rem .9rem; border: 1px solid #24584c; border-radius: .5rem; background: #0f6f5c; color: white; }
+.screening-page button:disabled { background: #e7ecea; color: #34433e; border-color: #68756f; }
+.screening-page a { color: #064e3b; }
+.screening-header, .screening-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; justify-content: space-between; }
+.screening-header { padding-block: .5rem 1rem; }
+.screening-header button { background: white; color: #173b32; }
+.screening-unwell { display: inline-flex; min-height: 48px; align-items: center; font-weight: 700; text-decoration-thickness: 2px; }
+.screening-choice { display: flex; gap: .75rem; align-items: center; padding: .5rem; margin-block: .25rem; }
+.screening-choice input { width: 1.4rem; height: 1.4rem; flex: none; }
+.screening-options { display: grid; gap: .75rem; }
+.screening-options button { min-height: 56px; text-align: start; background: white; color: #172521; border-color: #53665f; }
+.screening-measure { display: grid; gap: .8rem; }
+.screening-measure label { display: grid; gap: .3rem; }
+.screening-measure input, .screening-filters select { width: 100%; padding: .5rem; border: 1px solid #53665f; border-radius: .35rem; background: white; color: #172521; }
+.screening-demo, .screening-demo-label { padding: .5rem .75rem; border-inline-start: 4px solid #8a5b00; background: #fff7dd; color: #352500; }
+.screening-error { padding: .75rem; border: 2px solid #9b1c1c; background: #fff2f2; color: #6b1010; }
+.screening-safety { padding: 1rem; border: 3px solid #9b1c1c; border-radius: .75rem; background: #fff2f2; color: #4a0c0c; }
+.screening-band { padding: 1rem; border: 2px solid #365b55; border-radius: .75rem; }
+.screening-band-low { background: #e1f4ef; color: #124b3d; }
+.screening-band-elevated { background: #fff3d6; color: #593d00; }
+.screening-band-high { background: #e9eef4; color: #25394d; }
+.screening-progress { font-weight: 700; }
+.screening-back { margin-block-start: 1rem; background: white !important; color: #173b32 !important; }
+.screening-filters { display: grid; gap: .75rem; }
+.screening-filters label { display: grid; gap: .25rem; }
+.screening-location-list { list-style: none; padding: 0; display: grid; gap: 1rem; }
+.screening-location-list li { padding: 1rem; border: 1px solid var(--border); border-radius: var(--card-radius); }
+.screening-result-form { display: grid; gap: .75rem; margin-block: 1.5rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--card-radius); }
+.screening-result-form label { display: grid; gap: .25rem; }
+.screening-result-form input, .screening-result-form select { min-height: 48px; padding: .5rem; font: inherit; }
+.screening-staff-login, .screening-review-list form { display: grid; gap: .75rem; max-width: 520px; }
+.screening-staff-login label, .screening-review-list label { display: grid; gap: .25rem; }
+.screening-staff-login input, .screening-review-list select, .screening-review-list textarea { min-height: 48px; padding: .5rem; font: inherit; }
+.screening-review-list { list-style: none; padding: 0; display: grid; gap: 1rem; }
+.screening-review-list li, .screening-funnel-grid article { padding: 1rem; border: 1px solid var(--border); border-radius: var(--card-radius); }
+.screening-funnel-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: .75rem; }
+.screening-demo-label { border: 0; font-size: .8rem; font-weight: 500; }
+@media print { .screening-no-print { display: none !important; } .screening-page { width: auto; margin: 0; } }

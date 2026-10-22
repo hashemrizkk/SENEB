@@ -1,0 +1,17 @@
+{
+  "key": "redflags_placeholder_0_1",
+  "version": "0.1",
+  "status": "placeholder",
+  "source": "Starter safety checklist only; requires clinician approval before real use.",
+  "emergency_number": null,
+  "items": [
+    {"id":"chest_pain","en":"Chest pain","ar":"ألم في الصدر"},
+    {"id":"severe_shortness_of_breath","en":"Severe shortness of breath","ar":"ضيق شديد في التنفس"},
+    {"id":"confusion","en":"New confusion","ar":"تشوش ذهني جديد"},
+    {"id":"fainting","en":"Fainting","ar":"إغماء"},
+    {"id":"severe_vomiting","en":"Severe vomiting","ar":"قيء شديد"},
+    {"id":"severe_dehydration","en":"Signs of severe dehydration","ar":"علامات جفاف شديد"},
+    {"id":"rapid_breathing","en":"Rapid breathing","ar":"تنفس سريع"},
+    {"id":"pregnancy_severe_symptoms","en":"Pregnancy with severe symptoms","ar":"حمل مع أعراض شديدة"}
+  ]
+}

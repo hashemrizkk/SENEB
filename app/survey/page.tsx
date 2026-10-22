@@ -1,5 +1,5 @@
-import SurveyWizard from "@/components/survey/SurveyWizard";
+import { redirect } from "next/navigation";
 
 export default function SurveyPage() {
-  return <SurveyWizard />;
+  redirect("/screening");
 }

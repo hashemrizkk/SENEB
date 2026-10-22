@@ -1,0 +1,56 @@
+{
+  "key": "findrisc",
+  "name": "FINDRISC (Finnish Diabetes Risk Score)",
+  "version": "0.2",
+  "status": "placeholder",
+  "citation": "Lindström J, Tuomilehto J. The Diabetes Risk Score: A practical tool to predict type 2 diabetes risk. Diabetes Care. 2003;26(3):725–731. doi:10.2337/diacare.26.3.725.",
+  "source_url": "https://www.nice.org.uk/guidance/ph38/evidence/ep2-implementing-diabetes-prevention-programmes-jaakko-tuomilehto-pdf-435077533",
+  "official_current_source_url": "https://diabetes.fi/lahteet-ja-kayttoohjeet-kansansairauksien-riskitesti/",
+  "retrieved_at": "2026-10-22",
+  "license_note": "The public sources reviewed do not clearly state reproduction or translation terms for the questionnaire. Confirm permission with the rights holder before real-world use; translations here are plain-language adaptations for a demo and need clinician review.",
+  "validation_note": "Not validated or calibrated for the Egyptian population. Bands only.",
+  "source_version_note": "Uses the 8-item 0–26 form reproduced in NICE evidence materials. The Finnish Diabetes Association now presents a broader combined risk test; this is a documented legacy FINDRISC version, not a claim that FINDRISC is the current Finnish web questionnaire.",
+  "total_min": 0,
+  "total_max": 26,
+  "bands": [
+    { "id": "low", "min": 0, "max": 6 },
+    { "id": "slightly_elevated", "min": 7, "max": 11 },
+    { "id": "moderate", "min": 12, "max": 14 },
+    { "id": "high", "min": 15, "max": 20 },
+    { "id": "very_high", "min": 21, "max": 26 }
+  ],
+  "product_band_map": {
+    "low": ["low"],
+    "elevated": ["slightly_elevated", "moderate"],
+    "high": ["high", "very_high"]
+  },
+  "items": [
+    { "id": "age", "type": "choice", "question": { "en": "How old are you?", "ar": "كم عمرك؟" }, "options": [{"id":"under_45","en":"Under 45","ar":"أقل من 45","points":0},{"id":"45_54","en":"45–54","ar":"من 45 إلى 54","points":2},{"id":"55_64","en":"55–64","ar":"من 55 إلى 64","points":3},{"id":"65_plus","en":"65 or older","ar":"65 أو أكثر","points":4}] },
+    { "id": "sex", "type": "choice", "question": { "en": "Which sex category should be used for the waist measurement ranges on this form?", "ar": "أي فئة تُستخدم معك لتحديد نطاق محيط الخصر في هذا الاستبيان؟" }, "derived_only": true, "options": [{"id":"male","en":"Male","ar":"ذكر","points":0},{"id":"female","en":"Female","ar":"أنثى","points":0}] },
+    { "id": "bmi", "type": "derived_choice", "question": { "en": "What is your height and weight?", "ar": "ما طولك ووزنك؟" }, "raw_inputs": ["height_cm","weight_kg"], "persist_raw": false, "derived_input": {"kind":"bmi","height_cm":{"min":100,"max":250},"weight_kg":{"min":25,"max":300},"categories":[{"id":"under_25","max_exclusive":25},{"id":"25_30","min_inclusive":25,"max_exclusive":30},{"id":"30_plus","min_inclusive":30}]}, "options": [{"id":"under_25","en":"BMI under 25","ar":"مؤشر كتلة الجسم أقل من 25","points":0},{"id":"25_30","en":"BMI 25 to under 30","ar":"مؤشر كتلة الجسم من 25 إلى أقل من 30","points":1},{"id":"30_plus","en":"BMI 30 or higher","ar":"مؤشر كتلة الجسم 30 أو أكثر","points":3}] },
+    { "id": "waist", "type": "derived_choice", "question": { "en": "What is your waist circumference?", "ar": "ما محيط خصرك؟" }, "raw_inputs": ["waist_cm","sex"], "persist_raw": false, "derived_input": {"kind":"waist","waist_cm":{"min":40,"max":200},"categories":{"male":[{"id":"under_threshold","max_exclusive":94},{"id":"middle_range","min_inclusive":94,"max_inclusive":102},{"id":"above_threshold","min_exclusive":102}],"female":[{"id":"under_threshold","max_exclusive":80},{"id":"middle_range","min_inclusive":80,"max_inclusive":88},{"id":"above_threshold","min_exclusive":88}] }}, "options": [{"id":"under_threshold","en":"Below the lower range","ar":"أقل من النطاق الأول","points":0},{"id":"middle_range","en":"Within the middle range","ar":"ضمن النطاق الأوسط","points":3},{"id":"above_threshold","en":"Above the middle range","ar":"أعلى من النطاق الأوسط","points":4}] },
+    { "id": "activity", "type": "choice", "question": { "en": "Do you usually have at least 30 minutes of physical activity daily?", "ar": "هل تمارس عادةً نشاطًا بدنيًا لمدة 30 دقيقة على الأقل يوميًا؟" }, "options": [{"id":"yes","en":"Yes","ar":"نعم","points":0},{"id":"no","en":"No","ar":"لا","points":2}] },
+    { "id": "fruit_veg", "type": "choice", "question": { "en": "How often do you eat vegetables, fruit, or berries?", "ar": "كم مرة تتناول الخضروات أو الفاكهة؟" }, "options": [{"id":"daily","en":"Every day","ar":"كل يوم","points":0},{"id":"not_daily","en":"Not every day","ar":"ليس كل يوم","points":1}] },
+    { "id": "antihypertensive", "type": "choice", "question": { "en": "Have you regularly taken medicine for high blood pressure?", "ar": "هل تناولت بانتظام دواءً لارتفاع ضغط الدم؟" }, "options": [{"id":"no","en":"No","ar":"لا","points":0},{"id":"yes","en":"Yes","ar":"نعم","points":2}] },
+    { "id": "high_glucose", "type": "choice", "question": { "en": "Have you ever been told that your blood glucose was high?", "ar": "هل سبق أن قيل لك إن مستوى الجلوكوز في دمك مرتفع؟" }, "options": [{"id":"no","en":"No","ar":"لا","points":0},{"id":"yes","en":"Yes","ar":"نعم","points":5}] },
+    { "id": "family_history", "type": "choice", "question": { "en": "Has a relative been diagnosed with diabetes?", "ar": "هل شُخّص أحد أقاربك بالسكري؟" }, "options": [{"id":"none","en":"No","ar":"لا","points":0},{"id":"second_degree","en":"Grandparent, aunt, uncle, or cousin","ar":"جد أو جدة أو عم أو خال أو ابن عم","points":3},{"id":"first_degree","en":"Parent, sibling, or child","ar":"أحد الوالدين أو الإخوة أو الأبناء","points":5}] }
+  ],
+  "result_categories": {
+    "status": "placeholder",
+    "source_citation": "American Diabetes Association Professional Practice Committee. 2. Diagnosis and Classification of Diabetes: Standards of Care in Diabetes—2026. Diabetes Care. 2026;49(Suppl 1):S27–S49. doi:10.2337/dc26-s002.",
+    "source_url": "https://doi.org/10.2337/dc26-s002",
+    "retrieved_at": "2026-10-22",
+    "note": "Placeholders only; not diagnostic. Clinician review required. In the absence of unequivocal hyperglycemia, ADA requires confirmatory testing.",
+    "entry_validation": {
+      "status": "placeholder",
+      "note": "Entry and confirmation bounds are demo plausibility checks, not clinical advice; clinician approval required.",
+      "hba1c": { "percent": { "min": 2, "max": 20, "confirm_below": 4, "confirm_above": 15 } },
+      "fasting_glucose": {
+        "mg_dl": { "min": 20, "max": 1000, "confirm_below": 50, "confirm_above": 400 },
+        "mmol_l": { "min": 1, "max": 55.5, "confirm_below": 2.8, "confirm_above": 22.2 }
+      }
+    },
+    "hba1c": {"percent": {"within_expected_range":{"max_exclusive":5.7},"prediabetes_range":{"min_inclusive":5.7,"max_inclusive":6.4},"diabetes_range":{"min_inclusive":6.5,"max":20}}},
+    "fasting_glucose": {"mg_dl": {"within_expected_range":{"max_exclusive":100},"prediabetes_range":{"min_inclusive":100,"max_inclusive":125},"diabetes_range":{"min_inclusive":126,"max":1000}}, "mmol_l": {"within_expected_range":{"max_exclusive":5.6},"prediabetes_range":{"min_inclusive":5.6,"max_inclusive":6.9},"diabetes_range":{"min_inclusive":7.0,"max":55.5}}}
+  }
+}

@@ -1,0 +1,22 @@
+[
+  {"key":"landing","locale":"en","version":"0.1","status":"placeholder","body":"This short questionnaire cannot diagnose diabetes. It estimates risk from your answers. A blood test is the way to check."},
+  {"key":"landing","locale":"ar","version":"0.1","status":"placeholder","body":"هذا الاستبيان لا يشخّص السكري. يقدّر مستوى الخطر من إجاباتك. فحص الدم هو الطريقة للتحقق."},
+  {"key":"consent","locale":"en","version":"0.2","status":"placeholder","body":"Your answers are stored anonymously for this screening for up to 24 hours and can be deleted by starting over. Contact details are collected only if you separately agree to reminders or sharing. This text needs legal review."},
+  {"key":"consent","locale":"ar","version":"0.2","status":"placeholder","body":"تُحفظ إجاباتك دون اسم لهذا الفحص لمدة تصل إلى 24 ساعة، ويمكن حذفها عند البدء من جديد. لا تُجمع بيانات التواصل إلا بموافقة منفصلة للتذكير أو المشاركة. هذا النص يحتاج مراجعة قانونية."},
+  {"key":"contact_consent","locale":"en","version":"0.1","status":"placeholder","body":"I agree to share my contact details and screening summary with clinic staff so they can review it and contact me. This text needs legal review."},
+  {"key":"contact_consent","locale":"ar","version":"0.1","status":"placeholder","body":"أوافق على مشاركة بيانات التواصل وملخص الفحص مع فريق العيادة لمراجعته والتواصل معي. هذا النص يحتاج مراجعة قانونية."},
+  {"key":"emergency","locale":"en","version":"0.1","status":"placeholder","body":"If you feel very unwell, seek urgent care now. Call your local emergency number."},
+  {"key":"emergency","locale":"ar","version":"0.1","status":"placeholder","body":"إذا كنت تشعر بتوعك شديد، اطلب رعاية عاجلة الآن. اتصل برقم الطوارئ المحلي."},
+  {"key":"low_explanation","locale":"en","version":"0.1","status":"placeholder","body":"Your answers suggest a lower risk band. A blood test is the only way to check. Ask a clinician when routine retesting is right for you."},
+  {"key":"low_explanation","locale":"ar","version":"0.1","status":"placeholder","body":"تشير إجاباتك إلى فئة خطر أقل. فحص الدم هو الطريقة الوحيدة للتحقق. اسأل مختصًا عن موعد إعادة الفحص المعتاد."},
+  {"key":"test_recommended","locale":"en","version":"0.1","status":"placeholder","body":"Your answers suggest a higher risk band. A blood test (HbA1c or fasting glucose) is the next step. Find a testing location."},
+  {"key":"test_recommended","locale":"ar","version":"0.1","status":"placeholder","body":"تشير إجاباتك إلى فئة خطر أعلى. فحص الدم (HbA1c أو جلوكوز صائم) هو الخطوة التالية. ابحث عن مكان للفحص."},
+  {"key":"test_recommended_soon","locale":"en","version":"0.1","status":"placeholder","body":"Your answers suggest that a blood test soon is the next step. This is not a diagnosis. Find a testing location or share this summary with your doctor."},
+  {"key":"test_recommended_soon","locale":"ar","version":"0.1","status":"placeholder","body":"تشير إجاباتك إلى أن فحص الدم قريبًا هو الخطوة التالية. هذا ليس تشخيصًا. ابحث عن مكان للفحص أو شارك الملخص مع طبيبك."},
+  {"key":"result_review","locale":"en","version":"0.1","status":"placeholder","body":"This result is in a range doctors look at more closely. It is not a diagnosis. A clinician will review it."},
+  {"key":"result_review","locale":"ar","version":"0.1","status":"placeholder","body":"هذه النتيجة ضمن نطاق يراجعه الأطباء بعناية أكبر. هذه ليست نتيجة تشخيصية. سيراجعها مختص."},
+  {"key":"result_within_range","locale":"en","version":"0.1","status":"placeholder","body":"This result is within the expected range used by this draft screening rule. It is not a diagnosis. A clinician can review it if you have questions."},
+  {"key":"result_within_range","locale":"ar","version":"0.1","status":"placeholder","body":"تقع هذه النتيجة ضمن النطاق المتوقع وفق قاعدة الفحص المؤقتة. هذه ليست نتيجة تشخيصية. يمكن لمختص مراجعتها إذا كانت لديك أسئلة."},
+  {"key":"safe_fallback","locale":"en","version":"0.1","status":"placeholder","body":"A blood test is the way to check. If you feel very unwell, seek urgent care."},
+  {"key":"safe_fallback","locale":"ar","version":"0.1","status":"placeholder","body":"فحص الدم هو طريقة التحقق. إذا شعرت بتوعك شديد، اطلب رعاية عاجلة."}
+]

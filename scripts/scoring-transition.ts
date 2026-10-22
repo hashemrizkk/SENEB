@@ -1,0 +1,13 @@
+import nextEnv from "@next/env";
+nextEnv.loadEnvConfig(process.cwd());
+const db=await import("../lib/db.ts");
+const [, , action, versionId, username]=process.argv;
+if(!versionId||!username)throw new Error("Usage: node scripts/scoring-transition.ts approve|activate <version-id> <clinician-username>");
+const actor=db.screeningStaffUser(username);
+if(action==="approve"&&(!actor||!(actor.role==="clinician"||actor.role==="admin")))throw new Error("A configured clinician or admin account is required to approve.");
+if(action==="activate"&&(!actor||actor.role!=="admin"))throw new Error("A configured admin account is required to activate or roll back a scoring version.");
+if(!actor)throw new Error("The configured staff account was not found.");
+if(action==="approve")db.approveScoringVersion(versionId,actor.id);
+else if(action==="activate")db.activateScoringVersion(versionId,actor.id);
+else throw new Error("Choose approve or activate.");
+console.log(`${action} completed for scoring version ${versionId} by configured staff user ${actor.username}.`);

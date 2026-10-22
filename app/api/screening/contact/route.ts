@@ -1,0 +1,9 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { saveScreeningContact } from "@/lib/db";
+import { getSessionFromRequest } from "@/lib/screening/session-auth";
+import { hasSameOrigin } from "@/lib/requestGuards";
+import { emailSchema, fullNameSchema, phoneSchema } from "@/lib/registration";
+import contentBlocks from "@/data/screening/content-blocks.json";
+const schema=z.object({consent:z.literal(true),name:fullNameSchema,phone:phoneSchema.or(z.literal("")).nullable(),email:emailSchema.nullable(),preferred_channel:z.enum(["phone","email"])}).strict().refine((data)=>Boolean(data.phone||data.email),{message:"Provide a phone or email."}).refine((data)=>data.preferred_channel==="phone"?Boolean(data.phone):Boolean(data.email),{message:"Choose an available contact method."});
+export async function POST(request:Request):Promise<Response>{if(!hasSameOrigin(request))return NextResponse.json({error:"Invalid origin."},{status:403});const session=getSessionFromRequest(request);if(!session||session.status!=="completed")return NextResponse.json({error:"Complete screening before sharing contact details."},{status:409});const parsed=schema.safeParse(await request.json().catch(()=>null));if(!parsed.success)return NextResponse.json({error:"Give contact consent and provide a valid phone or email."},{status:400});const locale=session.locale==="ar"?"ar":"en";const block=contentBlocks.find((item)=>item.key==="contact_consent"&&item.locale===locale);try{saveScreeningContact({sessionId:String(session.id),name:parsed.data.name,phone:parsed.data.phone||null,email:parsed.data.email||null,preferredChannel:parsed.data.preferred_channel,legalText:block?.body??"Consent wording requires legal review.",legalVersion:`results-sharing-${block?.version??"placeholder"}`});return NextResponse.json({ok:true});}catch{return NextResponse.json({error:"Contact details could not be saved."},{status:503});}}

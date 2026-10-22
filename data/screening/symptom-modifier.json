@@ -1,0 +1,13 @@
+{
+  "key": "classic_diabetes_symptoms_0_1",
+  "version": "0.1",
+  "status": "placeholder",
+  "source": "Placeholder symptom modifier for demo; requires clinician approval.",
+  "items": [
+    {"id":"increased_thirst","en":"Have you felt much thirstier than usual?","ar":"هل شعرت بعطش أكثر من المعتاد؟"},
+    {"id":"frequent_urination","en":"Have you needed to urinate more often than usual?","ar":"هل احتجت إلى التبول أكثر من المعتاد؟"},
+    {"id":"unexplained_weight_loss","en":"Have you lost weight without trying?","ar":"هل فقدت وزنًا دون قصد؟"},
+    {"id":"blurred_vision","en":"Have you had blurred vision?","ar":"هل عانيت من تشوش الرؤية؟"}
+  ],
+  "rule": "Any yes changes recommendation to test_recommended_soon. This is not a diagnosis or emergency rule."
+}

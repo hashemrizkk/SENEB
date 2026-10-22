@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import type { InputMethod } from "./intake.ts";
 import { migrateInputMethodCheck } from "./db-migrations.ts";
@@ -144,6 +144,269 @@ export function migrateVisitSessions(database: Database.Database): void {
 }
 
 migrateVisitSessions(db);
+
+export function migrateScreening(database: Database.Database): void {
+  const tableExists = (name: string) => Boolean(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
+  const columns = new Set((database.prepare("PRAGMA table_info(patients)").all() as { name: string }[]).map((column) => column.name));
+  database.transaction(() => {
+    if (!columns.has("screening_session_id")) database.exec("ALTER TABLE patients ADD COLUMN screening_session_id TEXT");
+    const ddl = [
+      `CREATE TABLE IF NOT EXISTS anonymous_sessions (id TEXT PRIMARY KEY,token_hash TEXT UNIQUE,created_at TEXT NOT NULL,locale TEXT NOT NULL CHECK(locale IN ('ar','en')),status TEXT NOT NULL CHECK(status IN ('started','consented','in_progress','completed','safety_escalated','abandoned')),last_step TEXT,completed_at TEXT,scoring_version_id TEXT,redflag_ruleset_id TEXT,expires_at TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS consent_records (id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES anonymous_sessions(id),purpose TEXT NOT NULL CHECK(purpose IN ('screening','contact','results_sharing')),legal_text_version TEXT NOT NULL,legal_text_hash TEXT NOT NULL,granted INTEGER NOT NULL CHECK(granted IN (0,1)),granted_at TEXT,withdrawn_at TEXT)`,
+      `CREATE TABLE IF NOT EXISTS scoring_versions (id TEXT PRIMARY KEY,instrument_key TEXT NOT NULL,version_label TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('draft','approved','active','retired')),config_json TEXT NOT NULL,config_hash TEXT NOT NULL,source_citation TEXT NOT NULL,source_url TEXT NOT NULL,retrieved_at TEXT NOT NULL,license_note TEXT NOT NULL,validation_note TEXT NOT NULL,created_by TEXT NOT NULL,approved_by TEXT,approved_at TEXT,activated_at TEXT,created_at TEXT NOT NULL,UNIQUE(instrument_key,version_label))`,
+      `CREATE TABLE IF NOT EXISTS redflag_rulesets (id TEXT PRIMARY KEY,version_label TEXT NOT NULL UNIQUE,status TEXT NOT NULL CHECK(status IN ('draft','approved','active','retired')),rules_json TEXT NOT NULL,emergency_number TEXT,created_by TEXT NOT NULL,approved_by TEXT,approved_at TEXT,activated_at TEXT,created_at TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS content_blocks (id TEXT PRIMARY KEY,key TEXT NOT NULL,locale TEXT NOT NULL CHECK(locale IN ('ar','en')),version TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('placeholder','approved')),body TEXT NOT NULL,approved_by TEXT,approved_at TEXT,UNIQUE(key,locale,version))`,
+      `CREATE TABLE IF NOT EXISTS survey_responses (id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES anonymous_sessions(id),question_id TEXT NOT NULL,option_id TEXT NOT NULL,points INTEGER NOT NULL,answered_at TEXT NOT NULL,UNIQUE(session_id,question_id))`,
+      `CREATE TABLE IF NOT EXISTS risk_assessments (id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES anonymous_sessions(id),scoring_version_id TEXT NOT NULL REFERENCES scoring_versions(id),total_points INTEGER NOT NULL,band TEXT NOT NULL CHECK(band IN ('low','elevated','high')),breakdown_json TEXT NOT NULL,symptom_modifier_triggered INTEGER NOT NULL CHECK(symptom_modifier_triggered IN (0,1)),computed_at TEXT NOT NULL,UNIQUE(session_id))`,
+      `CREATE TABLE IF NOT EXISTS recommendations (id TEXT PRIMARY KEY,assessment_id TEXT NOT NULL REFERENCES risk_assessments(id),kind TEXT NOT NULL CHECK(kind IN ('test_recommended_soon','test_recommended','routine_info','safety')),content_block_keys_json TEXT NOT NULL,created_at TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS safety_escalations (id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES anonymous_sessions(id),ruleset_id TEXT NOT NULL REFERENCES redflag_rulesets(id),rule_ids_json TEXT NOT NULL,source TEXT NOT NULL CHECK(source IN ('gate','unwell_button')),triggered_at TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS test_locations (id TEXT PRIMARY KEY,name TEXT NOT NULL,type TEXT NOT NULL CHECK(type IN ('lab','clinic','pharmacy')),city TEXT NOT NULL,area TEXT NOT NULL,address TEXT NOT NULL,phone TEXT NOT NULL,hours_text TEXT NOT NULL,tests_offered_json TEXT NOT NULL,booking_url TEXT,active INTEGER NOT NULL CHECK(active IN (0,1)),is_demo_data INTEGER NOT NULL CHECK(is_demo_data IN (0,1)))`,
+      `CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES anonymous_sessions(id),location_id TEXT NOT NULL REFERENCES test_locations(id),status TEXT NOT NULL CHECK(status IN ('clicked','self_reported_booked','self_reported_completed','cancelled')),created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS contact_details (id TEXT PRIMARY KEY,session_id TEXT NOT NULL UNIQUE REFERENCES anonymous_sessions(id),name TEXT,phone TEXT,email TEXT,preferred_channel TEXT,consent_id TEXT NOT NULL REFERENCES consent_records(id),created_at TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS lab_results (id TEXT PRIMARY KEY,session_id TEXT NOT NULL REFERENCES anonymous_sessions(id),test_type TEXT NOT NULL CHECK(test_type IN ('hba1c','fasting_glucose')),value REAL NOT NULL,unit TEXT NOT NULL,taken_on TEXT NOT NULL,entered_by TEXT NOT NULL CHECK(entered_by IN ('self','navigator','clinician')),category TEXT NOT NULL,categorization_version_id TEXT NOT NULL REFERENCES scoring_versions(id),verified INTEGER NOT NULL CHECK(verified IN (0,1)),created_at TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS clinical_reviews (id TEXT PRIMARY KEY,lab_result_id TEXT NOT NULL UNIQUE REFERENCES lab_results(id),status TEXT NOT NULL CHECK(status IN ('new','in_review','completed')),outcome TEXT CHECK(outcome IN ('follow_up_visit','repeat_test','no_action','unable_to_contact','entered_care')),note TEXT,reviewer_user_id TEXT,created_at TEXT NOT NULL,completed_at TEXT)`,
+      `CREATE TABLE IF NOT EXISTS staff_users (id TEXT PRIMARY KEY,username TEXT NOT NULL UNIQUE,role TEXT NOT NULL CHECK(role IN ('navigator','clinician','admin')),password_hash TEXT NOT NULL,password_salt TEXT NOT NULL,created_at TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT,at TEXT NOT NULL,actor_type TEXT NOT NULL CHECK(actor_type IN ('system','staff','anonymous')),actor_id TEXT,action TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT,detail_json TEXT NOT NULL,prev_hash TEXT NOT NULL,hash TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS analytics_events (id TEXT PRIMARY KEY,session_id TEXT REFERENCES anonymous_sessions(id),event TEXT NOT NULL,step TEXT,props_json TEXT NOT NULL,at TEXT NOT NULL)`,
+    ];
+    const names = ["anonymous_sessions","consent_records","scoring_versions","redflag_rulesets","content_blocks","survey_responses","risk_assessments","recommendations","safety_escalations","test_locations","bookings","contact_details","lab_results","clinical_reviews","staff_users","audit_log","analytics_events"];
+    ddl.forEach((sql, index) => { if (!tableExists(names[index])) database.exec(sql); });
+    const responseColumns = new Set((database.prepare("PRAGMA table_info(survey_responses)").all() as {name:string}[]).map((column)=>column.name));
+    if (!responseColumns.has("points")) database.exec("ALTER TABLE survey_responses ADD COLUMN points INTEGER NOT NULL DEFAULT 0");
+    database.exec("CREATE INDEX IF NOT EXISTS idx_screen_sessions_status ON anonymous_sessions(status,created_at)");
+    database.exec("CREATE INDEX IF NOT EXISTS idx_screen_reviews_status ON clinical_reviews(status,created_at)");
+    database.exec(`CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log BEGIN SELECT RAISE(ABORT,'audit_log is append-only'); END`);
+    database.exec(`CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log BEGIN SELECT RAISE(ABORT,'audit_log is append-only'); END`);
+    database.exec(`CREATE TRIGGER IF NOT EXISTS scoring_config_immutable BEFORE UPDATE OF config_json,config_hash ON scoring_versions WHEN OLD.status IN ('approved','active','retired') BEGIN SELECT RAISE(ABORT,'approved scoring config is immutable'); END`);
+    database.exec(`CREATE TRIGGER IF NOT EXISTS redflags_immutable BEFORE UPDATE OF rules_json,emergency_number ON redflag_rulesets WHEN OLD.status IN ('approved','active','retired') BEGIN SELECT RAISE(ABORT,'approved red-flag rules are immutable'); END`);
+  })();
+}
+
+migrateScreening(db);
+const screeningWarningGlobal = globalThis as typeof globalThis & { screeningClinicalWarningLogged?: boolean };
+if (!screeningWarningGlobal.screeningClinicalWarningLogged) {
+  screeningWarningGlobal.screeningClinicalWarningLogged = true;
+  console.warn("SCREENING PLACEHOLDERS: FINDRISC form and cutpoints; symptom modifier; red-flag rules; blood-test categories; Arabic/English content; legal consent; emergency number (unset). Clinician/legal review is required before real use.");
+}
+
+export function appendScreeningAudit(input: { actorType: "system" | "staff" | "anonymous"; actorId: string | null; action: string; entityType: string; entityId: string | null; detail?: Record<string, unknown> }, database: Database.Database = db): void {
+  const previous = database.prepare("SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1").get() as { hash: string } | undefined;
+  const prevHash = previous?.hash ?? "0".repeat(64);
+  const at = new Date().toISOString(); const detailJson = JSON.stringify(input.detail ?? {});
+  const payload = JSON.stringify({ at, actor_type: input.actorType, actor_id: input.actorId, action: input.action, entity_type: input.entityType, entity_id: input.entityId, detail_json: detailJson, prev_hash: prevHash });
+  const hash = createHash("sha256").update(prevHash + payload).digest("hex");
+  database.prepare("INSERT INTO audit_log(at,actor_type,actor_id,action,entity_type,entity_id,detail_json,prev_hash,hash) VALUES (?,?,?,?,?,?,?,?,?)").run(at, input.actorType, input.actorId, input.action, input.entityType, input.entityId, detailJson, prevHash, hash);
+}
+
+export function verifyScreeningAudit(database: Database.Database = db): { ok: boolean; checked: number; errorRow: number | null } {
+  const rows = database.prepare("SELECT id,at,actor_type,actor_id,action,entity_type,entity_id,detail_json,prev_hash,hash FROM audit_log ORDER BY id").all() as { id: number; at: string; actor_type: string; actor_id: string | null; action: string; entity_type: string; entity_id: string | null; detail_json: string; prev_hash: string; hash: string }[];
+  let previous = "0".repeat(64);
+  for (const row of rows) {
+    const payload = JSON.stringify({ at: row.at, actor_type: row.actor_type, actor_id: row.actor_id, action: row.action, entity_type: row.entity_type, entity_id: row.entity_id, detail_json: row.detail_json, prev_hash: row.prev_hash });
+    const hash = createHash("sha256").update(previous + payload).digest("hex");
+    if (row.prev_hash !== previous || row.hash !== hash) return { ok: false, checked: row.id, errorRow: row.id };
+    previous = row.hash;
+  }
+  return { ok: true, checked: rows.length, errorRow: null };
+}
+
+export function createAnonymousScreeningSession(input: { tokenHash: string; locale: "ar" | "en"; consentVersion: string; consentHash: string }, database: Database.Database = db): { sessionId: string; scoringVersionId: string | null; redflagRulesetId: string | null } {
+  const scoring = database.prepare("SELECT id FROM scoring_versions WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get() as { id: string } | undefined ?? database.prepare("SELECT id FROM scoring_versions WHERE status='draft' ORDER BY created_at DESC LIMIT 1").get() as {id:string}|undefined;
+  const rules = database.prepare("SELECT id FROM redflag_rulesets WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get() as { id: string } | undefined ?? database.prepare("SELECT id FROM redflag_rulesets WHERE status='draft' ORDER BY created_at DESC LIMIT 1").get() as {id:string}|undefined;
+  const id = randomUUID(); const now = new Date().toISOString();
+  database.transaction(() => {
+    database.prepare("INSERT INTO anonymous_sessions(id,token_hash,created_at,locale,status,last_step,scoring_version_id,redflag_ruleset_id,expires_at) VALUES (?,?,?,?,?,?,?,?,?)").run(id,input.tokenHash,now,input.locale,"consented","redflag_gate",scoring?.id ?? null,rules?.id ?? null,new Date(Date.now()+24*60*60*1000).toISOString());
+    database.prepare("INSERT INTO consent_records(id,session_id,purpose,legal_text_version,legal_text_hash,granted,granted_at) VALUES (?,?,?,?,?,1,?)").run(randomUUID(),id,"screening",input.consentVersion,input.consentHash,now);
+    appendScreeningAudit({ actorType:"anonymous",actorId:id,action:"consent_given",entityType:"screening_session",entityId:id },database);
+  })();
+  return { sessionId:id, scoringVersionId:scoring?.id ?? null, redflagRulesetId:rules?.id ?? null };
+}
+
+export function getAnonymousScreeningSession(tokenHash: string, database: Database.Database = db): Record<string, unknown> | undefined {
+  return database.prepare("SELECT * FROM anonymous_sessions WHERE token_hash=? AND expires_at>?").get(tokenHash,new Date().toISOString()) as Record<string, unknown> | undefined;
+}
+
+export function saveScreeningAnswers(sessionId: string, answers: { questionId: string; optionId: string; points: number }[], step: string, database: Database.Database = db): void {
+  const upsert = database.prepare("INSERT INTO survey_responses(id,session_id,question_id,option_id,points,answered_at) VALUES (?,?,?,?,?,?) ON CONFLICT(session_id,question_id) DO UPDATE SET option_id=excluded.option_id,points=excluded.points,answered_at=excluded.answered_at");
+  database.transaction(() => {
+    const now = new Date().toISOString();
+    for (const answer of answers) upsert.run(randomUUID(),sessionId,answer.questionId,answer.optionId,answer.points,now);
+    database.prepare("UPDATE anonymous_sessions SET status='in_progress',last_step=? WHERE id=? AND status IN ('consented','in_progress')").run(step,sessionId);
+  })();
+}
+
+export function getScreeningResponses(sessionId: string, database: Database.Database = db): { question_id:string;option_id:string;points:number }[] {
+  return database.prepare("SELECT question_id,option_id,points FROM survey_responses WHERE session_id=? ORDER BY question_id").all(sessionId) as {question_id:string;option_id:string;points:number}[];
+}
+
+export function escalateScreening(sessionId: string, rulesetId: string, ruleIds: string[], source: "gate"|"unwell_button", database: Database.Database = db): void {
+  database.transaction(() => {
+    const now = new Date().toISOString();
+    database.prepare("UPDATE anonymous_sessions SET status='safety_escalated',last_step='safety' WHERE id=?").run(sessionId);
+    database.prepare("INSERT INTO safety_escalations(id,session_id,ruleset_id,rule_ids_json,source,triggered_at) VALUES (?,?,?,?,?,?)").run(randomUUID(),sessionId,rulesetId,JSON.stringify(ruleIds),source,now);
+    appendScreeningAudit({ actorType:"anonymous",actorId:sessionId,action:"safety_escalated",entityType:"screening_session",entityId:sessionId,detail:{source,rule_count:ruleIds.length} },database);
+  })();
+}
+
+export function activeScoringVersion(database: Database.Database = db): { id:string;version_label:string;status:string;config_json:string }|undefined {
+  return database.prepare("SELECT id,version_label,status,config_json FROM scoring_versions WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get() as {id:string;version_label:string;status:string;config_json:string}|undefined ?? database.prepare("SELECT id,version_label,status,config_json FROM scoring_versions WHERE status='draft' ORDER BY created_at DESC LIMIT 1").get() as {id:string;version_label:string;status:string;config_json:string}|undefined;
+}
+export function scoringVersionById(id:string,database:Database.Database=db):{id:string;version_label:string;status:string;config_json:string}|undefined {
+  return database.prepare("SELECT id,version_label,status,config_json FROM scoring_versions WHERE id=?").get(id) as {id:string;version_label:string;status:string;config_json:string}|undefined;
+}
+export function activeRedflagRuleset(database: Database.Database = db): { id:string;rules_json:string;emergency_number:string|null }|undefined {
+  return database.prepare("SELECT id,rules_json,emergency_number FROM redflag_rulesets WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get() as {id:string;rules_json:string;emergency_number:string|null}|undefined ?? database.prepare("SELECT id,rules_json,emergency_number FROM redflag_rulesets WHERE status='draft' ORDER BY created_at DESC LIMIT 1").get() as {id:string;rules_json:string;emergency_number:string|null}|undefined;
+}
+export function redflagRulesetById(id:string,database:Database.Database=db):{id:string;rules_json:string;emergency_number:string|null;status:string}|undefined {
+  return database.prepare("SELECT id,rules_json,emergency_number,status FROM redflag_rulesets WHERE id=?").get(id) as {id:string;rules_json:string;emergency_number:string|null;status:string}|undefined;
+}
+export function getContentBlock(key:string,locale:"ar"|"en",database:Database.Database=db): { body:string;status:string }|undefined {
+  return database.prepare("SELECT body,status FROM content_blocks WHERE key=? AND locale=? ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END,version DESC LIMIT 1").get(key,locale) as {body:string;status:string}|undefined;
+}
+export function completeScreeningAssessment(input:{sessionId:string;scoringVersionId:string;total:number;band:string;breakdown:unknown;symptomModifier:boolean;recommendationKind:string;contentKeys:string[]},database:Database.Database=db):string {
+  const assessmentId=randomUUID();const now=new Date().toISOString();
+  database.transaction(()=>{
+    database.prepare("INSERT INTO risk_assessments(id,session_id,scoring_version_id,total_points,band,breakdown_json,symptom_modifier_triggered,computed_at) VALUES (?,?,?,?,?,?,?,?)").run(assessmentId,input.sessionId,input.scoringVersionId,input.total,input.band,JSON.stringify(input.breakdown),input.symptomModifier?1:0,now);
+    database.prepare("INSERT INTO recommendations(id,assessment_id,kind,content_block_keys_json,created_at) VALUES (?,?,?,?,?)").run(randomUUID(),assessmentId,input.recommendationKind,JSON.stringify(input.contentKeys),now);
+    database.prepare("UPDATE anonymous_sessions SET status='completed',last_step='result',completed_at=? WHERE id=? AND status='in_progress'").run(now,input.sessionId);
+    appendScreeningAudit({actorType:"system",actorId:null,action:"screening_completed",entityType:"screening_session",entityId:input.sessionId},database);
+  })();
+  return assessmentId;
+}
+export function recordScreeningEvent(input:{sessionId:string|null;event:string;step:string|null;props?:Record<string,unknown>},database:Database.Database=db):void {
+  const allowed=new Set(["screening_started","consent_given","redflag_gate_shown","safety_escalated","question_answered","screening_completed","result_viewed","locations_viewed","booking_clicked","booking_self_reported","test_completed_self_reported","result_entered","result_abnormal","review_created","review_completed","entered_care"]);
+  if(!allowed.has(input.event))throw new RangeError("Unknown analytics event.");
+  const props=input.props??{};if(Object.keys(props).some((key)=>/name|phone|email|ip|user.?agent|answer|text/i.test(key)))throw new RangeError("Analytics properties cannot contain personal data or answers.");
+  database.prepare("INSERT INTO analytics_events(id,session_id,event,step,props_json,at) VALUES (?,?,?,?,?,?)").run(randomUUID(),input.sessionId,input.event,input.step,JSON.stringify(props),new Date().toISOString());
+}
+export function listScreeningLocations(city?:string,testType?:string,database:Database.Database=db):Record<string,unknown>[] {
+  const locations=database.prepare("SELECT * FROM test_locations WHERE active=1 ORDER BY city,name").all() as Record<string,unknown>[];
+  return locations.filter((location)=>!city||location.city===city).filter((location)=>!testType||(JSON.parse(String(location.tests_offered_json)) as string[]).includes(testType));
+}
+export function createScreeningBooking(sessionId:string,locationId:string,database:Database.Database=db):string {
+  const exists=database.prepare("SELECT id FROM test_locations WHERE id=? AND active=1").get(locationId);if(!exists)throw new RangeError("Testing location is unavailable.");
+  const id=randomUUID();const now=new Date().toISOString();database.prepare("INSERT INTO bookings(id,session_id,location_id,status,created_at,updated_at) VALUES (?,?,?,'clicked',?,?)").run(id,sessionId,locationId,now,now);appendScreeningAudit({actorType:"anonymous",actorId:sessionId,action:"booking_clicked",entityType:"booking",entityId:id},database);return id;
+}
+export function latestScreeningBooking(sessionId:string,database:Database.Database=db):{id:string;status:string}|undefined {
+  return database.prepare("SELECT id,status FROM bookings WHERE session_id=? ORDER BY created_at DESC LIMIT 1").get(sessionId) as {id:string;status:string}|undefined;
+}
+export function updateLatestScreeningBooking(sessionId:string,status:"self_reported_booked"|"self_reported_completed",database:Database.Database=db):void {
+  const booking=latestScreeningBooking(sessionId,database);if(!booking)throw new RangeError("No booking is available.");const now=new Date().toISOString();database.prepare("UPDATE bookings SET status=?,updated_at=? WHERE id=? AND session_id=?").run(status,now,booking.id,sessionId);recordScreeningEvent({sessionId,event:status==="self_reported_booked"?"booking_self_reported":"test_completed_self_reported",step:"locations",props:{verification:"self_reported"}},database);
+}
+export function getScreeningSummary(sessionId:string,database:Database.Database=db):Record<string,unknown>|undefined {
+  return database.prepare("SELECT a.*,v.version_label,r.kind AS recommendation_kind,r.content_block_keys_json,s.locale FROM risk_assessments a JOIN scoring_versions v ON v.id=a.scoring_version_id JOIN recommendations r ON r.assessment_id=a.id JOIN anonymous_sessions s ON s.id=a.session_id WHERE a.session_id=?").get(sessionId) as Record<string,unknown>|undefined;
+}
+export function saveScreeningLabResult(input:{sessionId:string;testType:"hba1c"|"fasting_glucose";value:number;unit:string;takenOn:string;category:string;versionId:string;enteredBy:"self"|"navigator"|"clinician";verified:boolean},database:Database.Database=db):{resultId:string;reviewId:string|null} {
+  return database.transaction(()=>{const resultId=randomUUID();const now=new Date().toISOString();database.prepare("INSERT INTO lab_results(id,session_id,test_type,value,unit,taken_on,entered_by,category,categorization_version_id,verified,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(resultId,input.sessionId,input.testType,input.value,input.unit,input.takenOn,input.enteredBy,input.category,input.versionId,input.verified?1:0,now);let reviewId:string|null=null;
+    if(input.category!=="within_expected_range"||input.enteredBy==="self"){reviewId=randomUUID();database.prepare("INSERT INTO clinical_reviews(id,lab_result_id,status,created_at) VALUES (?,?,'new',?)").run(reviewId,resultId,now);recordScreeningEvent({sessionId:input.sessionId,event:"review_created",step:"result_entry",props:{category:input.category,unverified:!input.verified}},database);}
+    recordScreeningEvent({sessionId:input.sessionId,event:"result_entered",step:"result_entry",props:{test_type:input.testType,category:input.category,unverified:!input.verified}},database);if(input.category!=="within_expected_range")recordScreeningEvent({sessionId:input.sessionId,event:"result_abnormal",step:"result_entry",props:{test_type:input.testType,category:input.category}},database);
+    appendScreeningAudit({actorType:input.enteredBy==="self"?"anonymous":"staff",actorId:input.enteredBy==="self"?input.sessionId:null,action:"screening_result_entered",entityType:"lab_result",entityId:resultId,detail:{test_type:input.testType,category:input.category,verified:input.verified}},database);return {resultId,reviewId};
+  })();
+}
+export function screeningReviewQueue(database:Database.Database=db):Record<string,unknown>[] {
+  return database.prepare("SELECT cr.id AS review_id,cr.status,cr.outcome,cr.note,cr.created_at,CAST(julianday('now')-julianday(cr.created_at) AS INTEGER) AS age_days,lr.id AS result_id,lr.test_type,lr.value,lr.unit,lr.taken_on,lr.category,lr.verified,rs.band,ss.created_at AS session_created_at,ss.last_step FROM clinical_reviews cr JOIN lab_results lr ON lr.id=cr.lab_result_id JOIN anonymous_sessions ss ON ss.id=lr.session_id LEFT JOIN risk_assessments rs ON rs.session_id=ss.id WHERE cr.status!='completed' ORDER BY cr.created_at ASC").all() as Record<string,unknown>[];
+}
+export function updateScreeningReview(input:{reviewId:string;actorId:string;outcome:"follow_up_visit"|"repeat_test"|"no_action"|"unable_to_contact"|"entered_care";note:string;enterCare?:{age:number;diabetesType:"type_2"|"other"}},database:Database.Database=db):number|null {
+  return database.transaction(()=>{const now=new Date().toISOString();let patientId:number|null=null;
+    if(input.outcome==="entered_care"){
+      if(!input.enterCare)throw new RangeError("Age and diabetes type are required.");
+      const context=database.prepare("SELECT lr.session_id FROM clinical_reviews cr JOIN lab_results lr ON lr.id=cr.lab_result_id WHERE cr.id=? AND cr.status!='completed'").get(input.reviewId) as {session_id:string}|undefined;
+      if(!context)throw new RangeError("Review is unavailable or already completed.");
+      const contact=database.prepare("SELECT c.name,c.phone,c.email FROM contact_details c JOIN consent_records r ON r.id=c.consent_id WHERE c.session_id=? AND r.purpose='contact' AND r.granted=1 AND r.withdrawn_at IS NULL").get(context.session_id) as {name:string|null;phone:string|null;email:string|null}|undefined;
+      if(!contact||!contact.name||(!contact.phone&&!contact.email))throw new RangeError("Contact consent and contact details are required before entering care.");
+      const patient=database.prepare("INSERT INTO patients(name,age,phone,email,consent_at,created_at,diabetes_type,screening_session_id) VALUES (?,?,?,?,?,?,?,?)").run(contact.name,input.enterCare.age,contact.phone,contact.email,now,now,input.enterCare.diabetesType,context.session_id);patientId=Number(patient.lastInsertRowid);
+      const fields={missed_doses:null,hypoglycemia_episodes:null,hypoglycemia_symptoms:null,foot_problem:null,vision_change:null,emergency_symptoms_mentioned:null,symptoms_text:null};
+      savePatientIntake(database,{patient_id:patientId,input_method:"tap",raw_text:null,structured_json:JSON.stringify(fields),red_flags_json:JSON.stringify(redFlags(fields)),meta_json:null},now,{source:"clinician",editedBy:input.actorId,reason:"Screening clinician entered the person into the existing follow-up workflow."});
+      recordScreeningEvent({sessionId:context.session_id,event:"entered_care",step:"care_entry"},database);
+    }
+    const changed=database.prepare("UPDATE clinical_reviews SET status='completed',outcome=?,note=?,reviewer_user_id=?,completed_at=? WHERE id=? AND status!='completed'").run(input.outcome,input.note,input.actorId,now,input.reviewId);if(changed.changes!==1)throw new RangeError("Review is unavailable or already completed.");
+    appendScreeningAudit({actorType:"staff",actorId:input.actorId,action:input.outcome==="entered_care"?"screening_person_entered_care":"screening_review_completed",entityType:input.outcome==="entered_care"?"patient":"clinical_review",entityId:input.outcome==="entered_care"?String(patientId):input.reviewId,detail:{outcome:input.outcome,note_present:Boolean(input.note.trim())}},database);return patientId;
+  })();
+}
+export function screeningFunnelMetrics(database:Database.Database=db):{total:number;completed:number;tested:number;reviewed:number;enteredCare:number;dropout:Array<{step:string;count:number}>;bands:Array<{band:string;count:number}>;safety:number;versions:Array<{version:string;count:number}>} {
+ const countEvent=(event:string)=>Number((database.prepare("SELECT COUNT(DISTINCT session_id) AS count FROM analytics_events WHERE event=?").get(event) as {count:number}).count);
+ const counts=database.prepare("SELECT COUNT(*) AS total FROM anonymous_sessions WHERE id NOT LIKE 'demo-screening-%'").get() as {total:number};
+ const dropout=database.prepare("SELECT COALESCE(last_step,'not_started') AS step,COUNT(*) AS count FROM anonymous_sessions WHERE status IN ('started','consented','in_progress','abandoned') GROUP BY last_step ORDER BY count DESC").all() as {step:string;count:number}[];
+ const bands=database.prepare("SELECT band,COUNT(*) AS count FROM risk_assessments GROUP BY band ORDER BY band").all() as {band:string;count:number}[];
+ const versions=database.prepare("SELECT v.version_label AS version,COUNT(a.id) AS count FROM scoring_versions v LEFT JOIN risk_assessments a ON a.scoring_version_id=v.id GROUP BY v.id ORDER BY count DESC").all() as {version:string;count:number}[];
+ return {total:counts.total,completed:countEvent("screening_completed"),tested:countEvent("test_completed_self_reported"),reviewed:countEvent("review_created"),enteredCare:countEvent("entered_care"),dropout,bands,safety:Number((database.prepare("SELECT COUNT(*) AS count FROM safety_escalations").get() as {count:number}).count),versions};
+}
+export function updateScreeningStatus(sessionId:string,status:"abandoned"|"in_progress",lastStep:string,database:Database.Database=db):void {
+  database.prepare("UPDATE anonymous_sessions SET status=?,last_step=? WHERE id=? AND status NOT IN ('safety_escalated','completed')").run(status,lastStep,sessionId);
+}
+export function setScreeningLocale(sessionId:string,locale:"ar"|"en",database:Database.Database=db):void {
+  database.prepare("UPDATE anonymous_sessions SET locale=? WHERE id=?").run(locale,sessionId);
+}
+export function saveScreeningContact(input:{sessionId:string;name:string;phone:string|null;email:string|null;preferredChannel:"phone"|"email";legalText:string;legalVersion:string},database:Database.Database=db):void {
+  const now=new Date().toISOString();const contactConsentId=randomUUID();const sharingConsentId=randomUUID();const legalHash=createHash("sha256").update(input.legalText).digest("hex");
+  database.transaction(()=>{const saveConsent=database.prepare("INSERT INTO consent_records(id,session_id,purpose,legal_text_version,legal_text_hash,granted,granted_at) VALUES (?,?,?,?,?,1,?)");saveConsent.run(contactConsentId,input.sessionId,"contact",input.legalVersion,legalHash,now);saveConsent.run(sharingConsentId,input.sessionId,"results_sharing",input.legalVersion,legalHash,now);database.prepare("INSERT INTO contact_details(id,session_id,name,phone,email,preferred_channel,consent_id,created_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET name=excluded.name,phone=excluded.phone,email=excluded.email,preferred_channel=excluded.preferred_channel,consent_id=excluded.consent_id,created_at=excluded.created_at").run(randomUUID(),input.sessionId,input.name,input.phone,input.email,input.preferredChannel,contactConsentId,now);appendScreeningAudit({actorType:"anonymous",actorId:input.sessionId,action:"results_sharing_consent_given",entityType:"screening_session",entityId:input.sessionId},database);})();
+}
+export function screeningContact(sessionId:string,database:Database.Database=db):{name:string|null;phone:string|null;email:string|null;consent_id:string}|undefined {
+  return database.prepare("SELECT c.name,c.phone,c.email,c.consent_id FROM contact_details c JOIN consent_records r ON r.id=c.consent_id WHERE c.session_id=? AND r.purpose='contact' AND r.granted=1 AND r.withdrawn_at IS NULL").get(sessionId) as {name:string|null;phone:string|null;email:string|null;consent_id:string}|undefined;
+}
+export function withdrawScreeningContactConsent(sessionId:string,database:Database.Database=db):void {
+  database.transaction(()=>{const now=new Date().toISOString();const changed=database.prepare("UPDATE consent_records SET withdrawn_at=? WHERE session_id=? AND purpose IN ('contact','results_sharing') AND granted=1 AND withdrawn_at IS NULL").run(now,sessionId);if(changed.changes===0)throw new RangeError("No active contact consent was found.");database.prepare("DELETE FROM contact_details WHERE session_id=?").run(sessionId);appendScreeningAudit({actorType:"anonymous",actorId:sessionId,action:"results_sharing_consent_withdrawn",entityType:"screening_session",entityId:sessionId},database);})();
+}
+
+export function insertScoringVersion(input:{id:string;instrumentKey:string;versionLabel:string;configJson:string;configHash:string;sourceCitation:string;sourceUrl:string;retrievedAt:string;licenseNote:string;validationNote:string;createdBy:string},database:Database.Database=db):string {
+  const existing=database.prepare("SELECT id FROM scoring_versions WHERE instrument_key=? AND version_label=?").get(input.instrumentKey,input.versionLabel) as {id:string}|undefined;if(existing)return existing.id;
+  database.prepare("INSERT INTO scoring_versions(id,instrument_key,version_label,status,config_json,config_hash,source_citation,source_url,retrieved_at,license_note,validation_note,created_by,created_at) VALUES (?,?,?,'draft',?,?,?,?,?,?,?,?,?)").run(input.id,input.instrumentKey,input.versionLabel,input.configJson,input.configHash,input.sourceCitation,input.sourceUrl,input.retrievedAt,input.licenseNote,input.validationNote,input.createdBy,new Date().toISOString());
+  appendScreeningAudit({actorType:"staff",actorId:input.createdBy,action:"scoring_version_created",entityType:"scoring_version",entityId:input.id,detail:{status:"draft"}},database);return input.id;
+}
+export function insertRedflagRuleset(input:{id:string;versionLabel:string;rulesJson:string;emergencyNumber:string|null;createdBy:string},database:Database.Database=db):string {
+  const existing=database.prepare("SELECT id FROM redflag_rulesets WHERE version_label=?").get(input.versionLabel) as {id:string}|undefined;if(existing)return existing.id;
+  database.prepare("INSERT INTO redflag_rulesets(id,version_label,status,rules_json,emergency_number,created_by,created_at) VALUES (?,?,'draft',?,?,?,?)").run(input.id,input.versionLabel,input.rulesJson,input.emergencyNumber,input.createdBy,new Date().toISOString());
+  appendScreeningAudit({actorType:"staff",actorId:input.createdBy,action:"redflag_ruleset_created",entityType:"redflag_ruleset",entityId:input.id,detail:{status:"draft"}},database);return input.id;
+}
+export function insertContentBlock(input:{id:string;key:string;locale:"ar"|"en";version:string;status:"placeholder"|"approved";body:string},database:Database.Database=db):void {
+  database.prepare("INSERT OR IGNORE INTO content_blocks(id,key,locale,version,status,body) VALUES (?,?,?,?,?,?)").run(input.id,input.key,input.locale,input.version,input.status,input.body);
+}
+export function insertTestLocation(input:{id:string;name:string;type:"lab"|"clinic"|"pharmacy";city:string;area:string;address:string;phone:string;hoursText:string;testsOffered:string[];bookingUrl:string|null;active:boolean;isDemoData:boolean},database:Database.Database=db):void {
+  database.prepare("INSERT OR IGNORE INTO test_locations(id,name,type,city,area,address,phone,hours_text,tests_offered_json,booking_url,active,is_demo_data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").run(input.id,input.name,input.type,input.city,input.area,input.address,input.phone,input.hoursText,JSON.stringify(input.testsOffered),input.bookingUrl,input.active?1:0,input.isDemoData?1:0);
+}
+export function insertScreeningStaffUser(input:{id:string;username:string;role:"navigator"|"clinician"|"admin";passwordHash:string;salt:string},database:Database.Database=db):void {
+  database.prepare("INSERT OR IGNORE INTO staff_users(id,username,role,password_hash,password_salt,created_at) VALUES (?,?,?,?,?,?)").run(input.id,input.username,input.role,input.passwordHash,input.salt,new Date().toISOString());
+}
+export function screeningStaffUser(username:string,database:Database.Database=db):{id:string;username:string;role:string;password_hash:string;password_salt:string}|undefined {
+  return database.prepare("SELECT id,username,role,password_hash,password_salt FROM staff_users WHERE username=?").get(username) as {id:string;username:string;role:string;password_hash:string;password_salt:string}|undefined;
+}
+export function screeningStaffUserById(id:string,database:Database.Database=db):{id:string;username:string;role:string}|undefined {
+  return database.prepare("SELECT id,username,role FROM staff_users WHERE id=?").get(id) as {id:string;username:string;role:string}|undefined;
+}
+export function approveScoringVersion(id:string,approverId:string,database:Database.Database=db):void {
+  const version=database.prepare("SELECT status FROM scoring_versions WHERE id=?").get(id) as {status:string}|undefined;if(!version||version.status!=="draft")throw new RangeError("Only a draft scoring version can be approved.");
+  const now=new Date().toISOString();database.prepare("UPDATE scoring_versions SET status='approved',approved_by=?,approved_at=? WHERE id=?").run(approverId,now,id);appendScreeningAudit({actorType:"staff",actorId:approverId,action:"scoring_version_approved",entityType:"scoring_version",entityId:id},database);
+}
+export function activateScoringVersion(id:string,actorId:string,database:Database.Database=db):void {
+  const version=database.prepare("SELECT status,approved_by FROM scoring_versions WHERE id=?").get(id) as {status:string;approved_by:string|null}|undefined;if(!version||!(["approved","retired"].includes(version.status)&&version.approved_by))throw new RangeError("Only an approved scoring version can be activated or restored.");
+  database.transaction(()=>{database.prepare("UPDATE scoring_versions SET status='retired' WHERE status='active'").run();database.prepare("UPDATE scoring_versions SET status='active',activated_at=? WHERE id=?").run(new Date().toISOString(),id);appendScreeningAudit({actorType:"staff",actorId,action:"scoring_version_activated",entityType:"scoring_version",entityId:id},database);})();
+}
+export function seedFakeScreeningFunnel(scoringVersionId:string|null,rulesetId:string|null,database:Database.Database=db):number {
+  const already=database.prepare("SELECT COUNT(*) AS count FROM anonymous_sessions WHERE id LIKE 'demo-screening-%'").get() as {count:number};if(already.count)return already.count;
+  const events=["screening_started","consent_given","redflag_gate_shown","question_answered","screening_completed","result_viewed","locations_viewed","booking_clicked","test_completed_self_reported","result_entered","result_abnormal","review_created","review_completed","entered_care"] as const;
+  for(let i=0;i<60;i+=1){const id=`demo-screening-${String(i+1).padStart(3,"0")}`;const now=new Date(Date.now()-i*3600_000).toISOString();const completed=i<48;const tested=i<30;const reviewed=i<18;const entered=i<10;database.prepare("INSERT INTO anonymous_sessions(id,created_at,locale,status,last_step,completed_at,scoring_version_id,redflag_ruleset_id,expires_at) VALUES (?,?,? ,?,?, ?,?,?,?)").run(id,now,i%2?"ar":"en",completed?"completed":"in_progress",completed?"result":"questionnaire",completed?now:null,scoringVersionId,rulesetId,new Date(Date.now()+24*3600_000).toISOString());
+    if(scoringVersionId&&completed){const assessmentId=`demo-assessment-${i+1}`;const band=i%3===0?"low":i%3===1?"elevated":"high";database.prepare("INSERT INTO risk_assessments(id,session_id,scoring_version_id,total_points,band,breakdown_json,symptom_modifier_triggered,computed_at) VALUES (?,?,?,?,?,?,0,?)").run(assessmentId,id,scoringVersionId,[4,10,16][i%3],band,"[]",now);database.prepare("INSERT INTO recommendations(id,assessment_id,kind,content_block_keys_json,created_at) VALUES (?,?,?,?,?)").run(`demo-recommendation-${i+1}`,assessmentId,band==="low"?"routine_info":"test_recommended",JSON.stringify([band==="low"?"low_explanation":"test_recommended"]),now);}
+    const steps=completed?events.slice(0,5):events.slice(0,Math.max(1,i%5));if(tested)steps.push("locations_viewed","booking_clicked","test_completed_self_reported","result_entered");if(reviewed)steps.push("result_abnormal","review_created","review_completed");if(entered)steps.push("entered_care");for(const event of new Set(steps))database.prepare("INSERT INTO analytics_events(id,session_id,event,step,props_json,at) VALUES (?,?,?,?,?,?)").run(randomUUID(),id,event,event==="question_answered"?"questionnaire":null,"{}",now);
+  }
+  return 60;
+}
+export function deleteScreeningSessionData(sessionId:string,actorType:"staff"|"anonymous"="anonymous",actorId:string="anonymous",database:Database.Database=db):void {
+  database.transaction(()=>{
+    const exists=database.prepare("SELECT 1 FROM anonymous_sessions WHERE id=?").get(sessionId);if(!exists)throw new RangeError("Screening session was not found.");
+    appendScreeningAudit({actorType,actorId,action:"screening_session_deleted",entityType:"screening_session",entityId:sessionId},database);
+    database.prepare("DELETE FROM clinical_reviews WHERE lab_result_id IN (SELECT id FROM lab_results WHERE session_id=?)").run(sessionId);
+    database.prepare("DELETE FROM lab_results WHERE session_id=?").run(sessionId);
+    database.prepare("DELETE FROM recommendations WHERE assessment_id IN (SELECT id FROM risk_assessments WHERE session_id=?)").run(sessionId);
+    database.prepare("DELETE FROM risk_assessments WHERE session_id=?").run(sessionId);
+    database.prepare("DELETE FROM survey_responses WHERE session_id=?").run(sessionId);
+    database.prepare("DELETE FROM bookings WHERE session_id=?").run(sessionId);
+    database.prepare("DELETE FROM contact_details WHERE session_id=?").run(sessionId);
+    database.prepare("DELETE FROM safety_escalations WHERE session_id=?").run(sessionId);
+    database.prepare("DELETE FROM consent_records WHERE session_id=?").run(sessionId);
+    database.prepare("DELETE FROM analytics_events WHERE session_id=?").run(sessionId);
+    database.prepare("DELETE FROM anonymous_sessions WHERE id=?").run(sessionId);
+  })();
+}
 
 export type SessionRole = "doctor" | "patient" | "other" | "unattributed";
 export function createVisitSession(input: { patientId: number; actorRole: string; actorName: string; method?: "voice" | "pasted"; consent: boolean }, database: Database.Database = db): number {

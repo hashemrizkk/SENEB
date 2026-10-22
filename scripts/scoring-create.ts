@@ -1,0 +1,12 @@
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import nextEnv from "@next/env";
+nextEnv.loadEnvConfig(process.cwd());
+const db=await import("../lib/db.ts");
+const [, , configPath, username, versionLabel]=process.argv;
+if(!configPath||!username||!versionLabel)throw new Error("Usage: npm run scoring:create -- <config.json> <staff-username> <version-label>");
+const actor=db.screeningStaffUser(username);if(!actor)throw new Error("The configured staff user was not found.");
+const text=readFileSync(configPath,"utf8");const config=JSON.parse(text) as {key?:string;citation?:string;source_url?:string;retrieved_at?:string;license_note?:string;validation_note?:string};
+if(!config.key||!config.citation||!config.source_url)throw new Error("Config must include an instrument key, citation, and source URL.");
+const id=db.insertScoringVersion({id:randomUUID(),instrumentKey:config.key,versionLabel,configJson:text,configHash:createHash("sha256").update(text).digest("hex"),sourceCitation:config.citation,sourceUrl:config.source_url,retrievedAt:config.retrieved_at??new Date().toISOString().slice(0,10),licenseNote:config.license_note??"Unspecified",validationNote:config.validation_note??"Requires clinician review.",createdBy:actor.id});
+console.log(`Created draft scoring version ${id}.`);

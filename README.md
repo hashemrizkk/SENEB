@@ -154,15 +154,18 @@ need to preserve local data.
 ## Routes
 
 - `/register` - patient registration and first follow-up
-- `/survey` - standalone Arabic AUSDRISK diabetes-screening questionnaire; optionally submit answers with an email address and explicit email consent for nurse review; it is not an ER triage tool
+- `/screening` - Arabic-first anonymous risk-band funnel with a safety gate and test navigation; clinical content is a placeholder
+- `/survey` - redirects to `/screening`; the old AUSDRISK submission endpoints and nurse queue remain for previously submitted demo records
 - `/voice-demo` - browser voice-input demo with synthetic phrases and approximate CER
 - `/api/register` and `/api/intake` - validated, same-origin POST endpoints
 - `/api/voice/transcribe` - same-origin, size-limited Gemini audio transcription endpoint
 - `/api/health` - database availability check
 - `/doctor/login` - staff sign-in
 - `/doctor` - intake review queue with new, triaged, and all filters
-- `/nurse/login` - separate nurse sign-in
-- `/nurse` - private survey-review queue; nurses choose and audit a patient action
+- `/nurse/login` and `/nurse` - legacy nurse review for previously submitted survey records
+- `/staff` - demo-grade screening staff sign-in
+- `/staff/reviews` and `/staff/funnel` - screening clinician review queue and synthetic funnel metrics
+- `/screening/locations` and `/screening/summary` - demo testing locations and printable referral summary
 - `/doctor/[patientId]?intakeId=<id>` - patient record, follow-up history,
   selected intake details, editable questionnaire, staff notes, status/priority,
   and revision history
@@ -173,76 +176,19 @@ need to preserve local data.
 The patient screens never show flags or medical interpretation. Red flags and
 unanswered questions are computed by plain code on the server.
 
-### Survey scoring and limits
+### Screening funnel — Phase 1 demo
 
-The standalone survey does not navigate to `/register` or prefill a form. It
-does not send or save answers unless the patient supplies contact details and
-explicitly consents to clinic review and email contact. Submitted surveys
-appear in the separate nurse queue; they are not sent to the doctor queue. The
-LLM does not score, interpret, or triage survey answers.
-The 2023 community study reported a cutoff
-of 9 or more for screening abnormal glycemia and 13 or more for screening
-undiagnosed diabetes. These are research screening thresholds, not diagnoses
-or emergency-department criteria. Incomplete answers remain `null` and make
-the clinician-side result incomplete; the patient never sees a score or
-classification. The clinic team reviews submitted answers and makes care
-decisions. Existing stored FINDRISC records remain readable as legacy data.
+The former `/survey` page now redirects to the replacement `/screening` funnel. The legacy AUSDRISK APIs and nurse queue remain available for earlier demo submissions, but are no longer the patient entry point. The replacement uses a data-driven 0–26 FINDRISC form, deterministic scoring, risk bands only, a red-flag gate, a symptom modifier, demo test locations, printable summaries, and unverified result entry to a clinician queue. The screening and result paths do not call an LLM.
 
-- Farag et al., *Arabic version of the Australian type 2 diabetes risk
-  assessment tool (AUSDRISK): translation and validation* (2022),
-  https://doi.org/10.1186/s13104-022-06200-2
-- Farag et al., *Prevalence and predictors of undiagnosed type 2 diabetes and
-  pre-diabetes among adult Egyptians: a community-based survey* (2023),
-  https://doi.org/10.1186/s12889-023-15819-0
+This is not a diagnosis or emergency service. The 8-item FINDRISC form is the legacy version reproduced in [NICE evidence materials](https://www.nice.org.uk/guidance/ph38/evidence/ep2-implementing-diabetes-prevention-programmes-jaakko-tuomilehto-pdf-435077533), based on Lindström and Tuomilehto (2003; [DOI](https://doi.org/10.2337/diacare.26.3.725)). The Finnish Diabetes Association's current page now describes a broader combined test. Reproduction and translation terms were not clear in the reviewed public sources. The tool is not validated or calibrated for the Egyptian population. Bands only.
 
-  In the 2023 study (719 adults), the ≥13 cutoff for undiagnosed diabetes had
-  86.11% sensitivity, 73.35% specificity, and AUC 0.887; the ≥9 cutoff for
-  abnormal glycemia had 80.73% sensitivity, 58.06% specificity, and AUC 0.767.
-  These study estimates are not guarantees for an individual or for every clinic
-  population. A score below a cutoff must not be used to reassure someone that
-  they do not have diabetes, and this tool must not be used to rule out an ER
-  visit. Unanswered items remain `null`; neither patients nor nurses receive an
-automated emergency classification.
+### Screening safety, placeholder items, and limits
 
-### Nurse survey review and email
+FINDRISC points and cutpoints, product band mapping, symptom modifier, red-flag checklist, emergency number, test-result categories, all Arabic/English patient wording, consent text, and demo locations are placeholders requiring clinician, legal, or rights-holder review. No clinical item is approved by default. An emergency phone number remains unset; the screen instructs users to call their local emergency number. All test locations and funnel seed records are fake. Self-entered results are unverified and routed for clinician review. The result is not a diagnosis; clinicians must make medical decisions.
 
-The nurse reviews the answers and records one of three human-selected actions:
-urgent ER referral, prompt clinical assessment, or no ER referral from this
-review. These are the nurse's recorded decisions, not an LLM result or a
-validated emergency triage protocol; in particular, no ER referral does not
-rule out an emergency. AUSDRISK contains no acute-symptom assessment, so the
-nurse must confirm a separate assessment using the clinic's approved process
-before recording an action. The prototype supplies no ER protocol. The patient
-always sees the static emergency contact notice, and the survey is never
-presented as an ER assessment tool.
+See [SCREENING.md](SCREENING.md) for setup, source and licensing notes, roles, privacy/deletion, scoring scripts, and current limitations. See [SCREENING-DEMO.md](SCREENING-DEMO.md) for the read-aloud demo. Set `SCREENING_*_USERNAME` / `SCREENING_*_PASSWORD` values in `.env.local` to seed demo staff users. Staff authentication is demo-grade and not production-ready.
 
-The patient must separately consent before survey and email details are stored.
-The result email is sent only after a nurse records it. Sending uses Resend's
-transactional email API; it stays disabled until `RESEND_API_KEY` and a verified
-`RESEND_FROM_EMAIL` are configured on the server. The email contains only the
-nurse's selected action and emergency safety wording, not survey answers or
-scores. Its subject is generic to avoid exposing health details in inbox
-previews. Provider acceptance does not confirm delivery. Never put the API key
-in browser code, source control, or this README.
-
-Resend currently lists a free transactional tier (3,000 emails/month, capped
-at 100/day); limits and eligibility may change. A verified domain is required
-for sending. Check the current [Resend pricing](https://resend.com/pricing) and
-[verified-domain docs](https://resend.com/docs/dashboard/domains/introduction).
-
-To exercise the workflow with synthetic data:
-
-1. Set `NURSE_NAME`, `NURSE_PASSWORD`, and `SESSION_SECRET` in `.env.local`.
-2. To enable email, also set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` using a
-   Resend API key and sender address on a verified domain. Keep the API key
-   secret and restart the server.
-3. Open `/survey`, use fictional details and an email you control, and check
-   the email-consent box before submitting.
-4. Sign in at `/nurse/login`, confirm the submission, choose an action, confirm
-   the separate assessment, then use **Save and email patient**. Without
-   Resend configuration, only **Save decision** is available.
-5. Use synthetic survey data only. Check the recipient inbox and provider
-   dashboard; provider acceptance is not proof the email arrived.
+The screening funnel collects contact details only under separate results-sharing consent. Test completion is not verified, and there is no reminder delivery or laboratory integration. A clinician can create a new patient and blank intake from a review when contact consent exists; the person's follow-up workflow is then visible in `/doctor`. Phase 2 has not started.
 
 ## Doctor review workflow
 
