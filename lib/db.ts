@@ -560,6 +560,7 @@ export function createPatient(data: {
   name: string;
   phone: string;
   age?: number | null;
+  next_visit_date?: string | null;
   request_id?: string | null;
   email?: string | null;
   self_description?: string | null;
@@ -570,13 +571,15 @@ export function createPatient(data: {
   const result = db
     .prepare(
       `INSERT INTO patients (
-        name, age, phone, request_id, email, self_description, reference_code, consent_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        name, age, phone, next_visit_date, request_id, email, self_description,
+        reference_code, consent_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       data.name,
       data.age ?? null,
       data.phone,
+      data.next_visit_date ?? null,
       data.request_id ?? null,
       data.email ?? null,
       data.self_description ?? null,
@@ -645,6 +648,7 @@ export function saveRecordedFollowup(
     requestId: string;
     staffName: string;
     note: string;
+    input_method: InputMethod;
     fields: IntakeFields;
     plan: FollowupPlan;
     recapBody: string | null;
@@ -699,7 +703,7 @@ export function saveRecordedFollowup(
       database,
       {
         patient_id: input.patientId,
-        input_method: note ? "typed" : "tap",
+        input_method: input.input_method,
         raw_text: note || null,
         structured_json: JSON.stringify(input.fields),
         red_flags_json: JSON.stringify(flags),
@@ -745,9 +749,15 @@ export function saveRecordedFollowup(
       timestamp,
       null,
     );
-    database.prepare("UPDATE patients SET next_visit_date = ? WHERE id = ?")
-      .run(input.plan.next_visit_date, input.patientId);
-    if (record.patient.next_visit_date !== input.plan.next_visit_date) {
+    if (input.plan.next_visit_date !== null) {
+      database.prepare("UPDATE patients SET next_visit_date = ? WHERE id = ?")
+        .run(input.plan.next_visit_date, input.patientId);
+    }
+    if (
+      input.plan.next_visit_date !== null &&
+      record.patient.next_visit_date !== null &&
+      record.patient.next_visit_date !== input.plan.next_visit_date
+    ) {
       database.prepare(
         "UPDATE messages SET status = 'canceled' WHERE patient_id = ? AND kind = 'reminder' AND status = 'queued'",
       ).run(input.patientId);
@@ -841,14 +851,6 @@ export function latestMessages(limit = 50): StoredOutboxMessage[] {
      FROM messages m JOIN patients p ON p.id = m.patient_id
      ORDER BY m.id DESC LIMIT ?`,
   ).all(limit);
-}
-
-export function cancelQueuedRecap(patientId: number, messageId: number): boolean {
-  const result = db.prepare(
-    `UPDATE messages SET status = 'canceled'
-     WHERE id = ? AND patient_id = ? AND kind = 'recap' AND status = 'queued'`,
-  ).run(messageId, patientId);
-  return result.changes === 1;
 }
 
 export default db;

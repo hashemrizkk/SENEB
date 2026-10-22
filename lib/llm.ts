@@ -24,7 +24,6 @@ import {
   type ProviderAttempt,
 } from "./provider-fallback.ts";
 import { createFollowupPlanSchema } from "./followup-plan.ts";
-import { structuredPrompt } from "./llm-prompt.ts";
 import { verifyQuote } from "./text-normalize.ts";
 
 const GEMINI_MODEL = "gemini-3.8-flash";

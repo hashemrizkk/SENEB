@@ -7,6 +7,7 @@ import {
 } from "./followup-plan.ts";
 import {
   intakeFieldsSchema,
+  inputMethodSchema,
   type IntakeFields,
 } from "./intake.ts";
 import {
@@ -35,6 +36,7 @@ export const extractFollowupRequestSchema = baseInputSchema.extend({
 export const confirmFollowupRequestSchema = baseInputSchema.extend({
   action: z.literal("confirm"),
   request_id: z.string().uuid(),
+  input_method: inputMethodSchema.default("typed"),
   fields: intakeFieldsSchema,
   plan: z.unknown(),
   recap: z.string().trim().min(1).max(440),

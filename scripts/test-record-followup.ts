@@ -12,6 +12,8 @@ import {
 import { intakeFieldsSchema, type IntakeFields } from "../lib/intake.ts";
 import { createFollowupPlanSchema, type FollowupPlan } from "../lib/followup-plan.ts";
 import type { prepareIntake } from "../lib/submitIntake.ts";
+import { createReminderMessage } from "../lib/messaging.ts";
+import { deriveInputMethod } from "../lib/voice-utils.ts";
 
 const previousDatabasePath = process.env.HACKATHON_DB_PATH;
 const testDirectory = mkdtempSync(path.join(tmpdir(), "st17-record-followup-"));
@@ -25,11 +27,20 @@ try {
   const patientId = databaseModule.createPatient({
     name: "Follow-up test patient",
     phone: "01000000000",
-    consent_at: "2026-01-01T00:00:00.000Z",
+      next_visit_date: "2026-11-15",
+      consent_at: "2026-01-01T00:00:00.000Z",
   });
   const patientRecord = databaseModule.getPatientRecord(patientId);
   assert.ok(patientRecord);
   const patient = patientRecord.patient;
+  const existingReminderId = databaseModule.enqueueOutboxMessage({
+    patient_id: patientId,
+    kind: "reminder",
+    body: "Existing visit reminder",
+    status: "queued",
+    scheduled_at: "2026-11-12T00:00:00.000Z",
+    sent_at: null,
+  });
   const tapAnswers = {
     missed_doses: null,
     hypoglycemia_episodes: null,
@@ -56,6 +67,13 @@ try {
     },
   })) satisfies typeof prepareIntake;
   const note = "Follow-up visit completed; review again in 4 weeks. No medication changes.";
+  const inputMethod = deriveInputMethod({
+    texts: [note],
+    transcriptPieces: [[note]],
+    editedAfterAppend: [false],
+    maxChars: [4_000],
+  });
+  assert.equal(inputMethod, "voice");
   const extractionInput = {
     patient_id: patientId,
     tap_answers: tapAnswers,
@@ -97,6 +115,7 @@ try {
     ...extractionInput,
     action: "confirm",
     request_id: randomUUID(),
+    input_method: inputMethod,
     fields: emptyFields,
     plan: validPlan,
     recap: "Your clinic follow-up is recorded.",
@@ -113,12 +132,23 @@ try {
         requestId: data.request_id,
         staffName: "Dr Test",
         note: data.note,
+        input_method: data.input_method,
         fields: data.fields,
         plan: data.plan,
         recapBody: data.recap,
         recapScheduledAt: "2026-01-01T00:00:00.000Z",
-        reminderBody: null,
-        reminderScheduledAt: null,
+        reminderBody: data.plan.next_visit_date
+          ? createReminderMessage({
+              patientId,
+              visitDate: data.plan.next_visit_date,
+            }).body
+          : null,
+        reminderScheduledAt: data.plan.next_visit_date
+          ? createReminderMessage({
+              patientId,
+              visitDate: data.plan.next_visit_date,
+            }).scheduled_at
+          : null,
         now: new Date("2026-01-01T00:00:00.000Z"),
       }),
     afterSaved: (intakeId: number, savedNote: string) =>
@@ -130,6 +160,16 @@ try {
   assert.equal(saved.recapQueued, true);
   assert.equal(ratingCalls.length, 1, "a saved note schedules its after-work rating");
   assert.equal(databaseModule.latestIntakeForPatient(patientId)?.id, saved.intakeId);
+  assert.equal(databaseModule.getPatient(patientId)?.next_visit_date, "2026-11-15");
+  assert.equal(
+    databaseModule.latestMessages(500).find((message) => message.id === existingReminderId)?.status,
+    "queued",
+  );
+  assert.equal(databaseModule.getPatientRecord(patientId)?.intakes.length, 1);
+  assert.equal(
+    databaseModule.getPatientRecord(patientId)?.latestIntake?.input_method,
+    "voice",
+  );
   assert.deepEqual(
     databaseModule.getPatientRecord(patientId)?.intakes.find((intake) => intake.id === saved.intakeId)?.fields,
     emptyFields,
@@ -138,6 +178,7 @@ try {
   assert.equal(databaseModule.latestMessages(500).filter(
     (message) => message.patient_id === patientId && message.kind === "recap" && message.status === "queued",
   ).length, baselineRecaps + 1);
+  console.log("PASS  null plan date preserves existing appointment and queued reminder; voice input method is saved");
   const repeated = confirmRecordFollowup(confirmInput, patient.next_visit_date, saveDependencies);
   assert.ok(repeated?.duplicate);
   assert.equal(repeated.intakeId, saved.intakeId);
@@ -147,6 +188,48 @@ try {
     (message) => message.patient_id === patientId && message.kind === "recap" && message.status === "queued",
   ).length, baselineRecaps + 1);
   console.log("PASS  confirm persists one intake, plan, recap, and rating call; retries are idempotent");
+
+  const datedNote = "Follow-up completed. Review on 2026-12-01.";
+  const datedPlan = createFollowupPlanSchema(datedNote, "2026-11-15").parse({
+    ...validPlan,
+    followup_interval_weeks: null,
+    next_visit_date: "2026-12-01",
+  });
+  const datedInput = confirmFollowupRequestSchema.parse({
+    ...confirmInput,
+    request_id: randomUUID(),
+    input_method: "typed",
+    note: datedNote,
+    plan: datedPlan,
+  });
+  const datedSaved = confirmRecordFollowup(datedInput, "2026-11-15", saveDependencies);
+  assert.ok(datedSaved);
+  assert.equal(datedSaved.duplicate, false);
+  assert.equal(datedSaved.reminderQueued, true);
+  assert.equal(databaseModule.getPatient(patientId)?.next_visit_date, "2026-12-01");
+  const remindersAfterDateChange = databaseModule.latestMessages(500).filter(
+    (message) => message.patient_id === patientId && message.kind === "reminder",
+  );
+  assert.equal(
+    remindersAfterDateChange.find((message) => message.id === existingReminderId)?.status,
+    "canceled",
+  );
+  assert.equal(
+    remindersAfterDateChange.filter((message) => message.status === "queued").length,
+    1,
+  );
+  assert.equal(
+    remindersAfterDateChange.filter((message) => message.status === "queued" && message.body.includes("2026-12-01")).length,
+    1,
+  );
+  const repeatedDatedSave = confirmRecordFollowup(datedInput, "2026-11-15", saveDependencies);
+  assert.ok(repeatedDatedSave?.duplicate);
+  const remindersAfterRetry = databaseModule.latestMessages(500).filter(
+    (message) => message.patient_id === patientId && message.kind === "reminder",
+  );
+  assert.equal(remindersAfterRetry.filter((message) => message.status === "queued").length, 1);
+  assert.equal(databaseModule.getPatientRecord(patientId)?.intakes.length, 2);
+  console.log("PASS  non-null date updates appointment, replaces old reminder once, and retries create no duplicates");
 
   const unsupportedPlan = {
     ...validPlan,
@@ -162,7 +245,7 @@ try {
     null,
     "intervals absent from the note are rejected",
   );
-  assert.equal(databaseModule.latestIntakeForPatient(patientId)?.id, saved.intakeId);
+  assert.equal(databaseModule.latestIntakeForPatient(patientId)?.id, datedSaved.intakeId);
   console.log("PASS  unsupported follow-up intervals are rejected before save");
 
   const providerFailureBaseline = databaseModule.latestIntakeForPatient(patientId)?.id;

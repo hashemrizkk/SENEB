@@ -11,7 +11,7 @@ import {
 } from "@/lib/followup-plan";
 import { intakeFieldsSchema, type IntakeFields } from "@/lib/intake";
 import { followupQuestions } from "@/lib/questions";
-import { appendTranscript } from "@/lib/voice-utils";
+import { appendTranscript, deriveInputMethod } from "@/lib/voice-utils";
 import { ar } from "@/lib/strings.ar";
 
 type AnswerKey = "missed_doses" | "hypoglycemia_episodes" | "foot_problem" | "vision_change";
@@ -73,6 +73,8 @@ export default function RecordFollowupForm({
   const [fields, setFields] = useState<IntakeFields | null>(null);
   const [note, setNote] = useState("");
   const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [voicePieces, setVoicePieces] = useState<string[]>([]);
+  const [voiceTextEdited, setVoiceTextEdited] = useState(false);
   const [draft, setDraft] = useState<PlanDraft | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
   const [busy, setBusy] = useState(false);
@@ -156,6 +158,12 @@ export default function RecordFollowupForm({
           action: "confirm",
           patient_id: patient.id,
           request_id: requestId,
+          input_method: deriveInputMethod({
+            texts: [note],
+            transcriptPieces: [voicePieces],
+            editedAfterAppend: [voiceTextEdited],
+            maxChars: [4_000],
+          }),
           tap_answers: answers,
           note,
           fields,
@@ -200,6 +208,8 @@ export default function RecordFollowupForm({
     setFields(null);
     setNote("");
     setVoiceTranscript("");
+    setVoicePieces([]);
+    setVoiceTextEdited(false);
     setDraft(null);
     setStep(1);
     setRequestId(null);
@@ -262,7 +272,10 @@ export default function RecordFollowupForm({
                 value={note}
                 maxLength={4_000}
                 disabled={uncertain}
-                onChange={(event) => setNote(event.target.value)}
+                onChange={(event) => {
+                  if (voicePieces.length > 0) setVoiceTextEdited(true);
+                  setNote(event.target.value);
+                }}
                 style={{ boxSizing: "border-box", display: "block", marginBlock: 8, minHeight: 140, padding: 10, width: "100%" }}
               />
               <VoiceInput
@@ -271,7 +284,10 @@ export default function RecordFollowupForm({
                 maxChars={4_000}
                 transcript={voiceTranscript}
                 onTranscriptChange={setVoiceTranscript}
-                onAppend={(text) => setNote((current) => appendTranscript(current, text, 4_000))}
+                onAppend={(text) => {
+                  if (text.trim()) setVoicePieces((current) => [...current, text]);
+                  setNote((current) => appendTranscript(current, text, 4_000));
+                }}
                 direction="rtl"
               />
               <p>{note.length}/4000</p>

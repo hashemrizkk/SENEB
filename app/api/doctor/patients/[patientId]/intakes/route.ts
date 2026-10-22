@@ -114,6 +114,7 @@ export async function POST(
             requestId: data.request_id,
             staffName: session.name,
             note: data.note,
+            input_method: data.input_method,
             fields: data.fields,
             plan: data.plan,
             recapBody: recapMessage?.body ?? null,
