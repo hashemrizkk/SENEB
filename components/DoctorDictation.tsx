@@ -18,12 +18,21 @@ type DoctorDictationProps = {
 };
 
 const MAX_WAV_BYTES = 4 * 1024 * 1024;
-const REQUEST_TIMEOUT_MS = 50_000;
+const REQUEST_TIMEOUT_MS = 255_000;
 const LANGUAGES: { code: VoiceLanguage; label: string }[] = [
   { code: "auto", label: "Auto" },
   { code: "ar-EG", label: "العربية" },
   { code: "en-US", label: "English" },
 ];
+
+class TranscriptionRequestError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+  }
+}
 
 function supported(): boolean {
   return (
@@ -181,7 +190,9 @@ export default function DoctorDictation({
 
   async function transcribeChunk(chunk: RecordedChunk): Promise<void> {
     let failure: unknown = null;
+    let attemptsMade = 0;
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      attemptsMade = attempt + 1;
       if (!mountedRef.current) return;
       const controller = new AbortController();
       activeRequestsRef.current.add(controller);
@@ -209,16 +220,25 @@ export default function DoctorDictation({
         });
         const result: unknown = await response.json().catch(() => null);
         if (!response.ok || !isTranscriptResponse(result)) {
-          throw new Error(
-            response.status === 413
-              ? "audio-too-large"
-              : result !== null &&
+          const errorCode = response.status === 413
+            ? "audio-too-large"
+            : result !== null &&
                   typeof result === "object" &&
                   "error" in result &&
                   typeof result.error === "string"
                 ? result.error
-                : "transcription-failed",
+                : "transcription-failed";
+          const retryable = response.status !== 413 && (
+            result !== null &&
+            typeof result === "object" &&
+            "retryable" in result &&
+            typeof result.retryable === "boolean"
+              ? result.retryable
+              : response.status === 408 ||
+                response.status === 429 ||
+                response.status >= 500
           );
+          throw new TranscriptionRequestError(errorCode, retryable);
         }
         if (!mountedRef.current) return;
         const transcript = result.transcript.trim();
@@ -233,6 +253,11 @@ export default function DoctorDictation({
         return;
       } catch (caught: unknown) {
         failure = caught;
+        const retryable = caught instanceof TranscriptionRequestError
+          ? caught.retryable
+          : !(caught instanceof Error && caught.message === "audio-too-large");
+        if (attempt === 0 && retryable) continue;
+        break;
       } finally {
         clearTimeout(timeout);
         activeRequestsRef.current.delete(controller);
@@ -241,7 +266,7 @@ export default function DoctorDictation({
     const detail =
       failure instanceof Error && failure.message === "audio-too-large"
         ? "A dictation chunk exceeded the audio size limit."
-        : "A dictation chunk could not be transcribed after one retry.";
+        : `A dictation chunk could not be transcribed${attemptsMade > 1 ? " after one retry" : ""}.`;
     if (!mountedRef.current) return;
     insertText(inaudibleSegment(chunk.sequence));
     failedRef.current = true;

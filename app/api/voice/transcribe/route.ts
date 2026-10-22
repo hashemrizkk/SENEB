@@ -4,19 +4,20 @@ import {
   isRateLimited,
 } from "@/lib/requestGuards";
 import {
-  buildTranscriptionPrompt,
+  classifySttFailure,
+  getSttTimeoutMs,
   isVoiceLanguage,
   isSupportedAudioType,
   mockVoiceTranscript,
   parseVoiceChunkMetadata,
-  readGeminiTranscript,
+  transcribeWithSttProviders,
   VoiceAudioValidationError,
   withValidatedGeminiWav,
 } from "@/lib/gemini-audio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 260;
 
 const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
 const MAX_REQUEST_BYTES = MAX_AUDIO_BYTES + 32 * 1024;
@@ -45,17 +46,31 @@ function geminiGenerationConfig(): Record<string, unknown> {
 const GEMINI_GENERATION_CONFIG = geminiGenerationConfig();
 let hasHandledVoiceRequest = false;
 
-function errorResponse(error: string, status: number): Response {
-  return NextResponse.json({ ok: false, error }, { status });
+function errorResponse(
+  error: string,
+  status: number,
+  retryable = false,
+  providerStatus?: number,
+): Response {
+  return NextResponse.json({
+    ok: false,
+    error,
+    retryable,
+    ...(providerStatus === undefined ? {} : { providerStatus }),
+  }, { status });
 }
 
 export async function POST(request: Request): Promise<Response> {
   const coldStart = !hasHandledVoiceRequest;
   hasHandledVoiceRequest = true;
-  console.info("Voice Gemini call context", {
+  const timeoutMs = getSttTimeoutMs();
+  console.info("Voice transcription call context", {
     model: GEMINI_MODEL,
     generationConfig: GEMINI_GENERATION_CONFIG,
-    retryOrFallback: false,
+    geminiConfigured: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY),
+    groqConfigured: Boolean(process.env.GROQ_API_KEY),
+    timeoutMs,
+    retryOrFallback: true,
     region: process.env.VERCEL_REGION ?? "local/unknown",
     coldStart,
   });
@@ -72,8 +87,9 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  const apiKey =
+  const geminiApiKey =
     process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  const groqApiKey = process.env.GROQ_API_KEY;
 
   let form: FormData;
   try {
@@ -133,7 +149,7 @@ export async function POST(request: Request): Promise<Response> {
       validatedAudio.type,
       MAX_AUDIO_BYTES,
       async () => {
-        if (!apiKey) {
+        if (!geminiApiKey && !groqApiKey) {
           return NextResponse.json({
             ok: true,
             transcript: mockVoiceTranscript(),
@@ -142,97 +158,37 @@ export async function POST(request: Request): Promise<Response> {
             ...(chunkMetadata.total === null ? {} : { total: chunkMetadata.total }),
           });
         }
-        let audioBase64: string | null = Buffer.from(await validatedAudio.arrayBuffer()).toString("base64");
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 45_000);
         const providerStartedAt = performance.now();
-
-        try {
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-            {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                "x-goog-api-key": apiKey,
-              },
-              body: JSON.stringify({
-                contents: [
-                  {
-                    parts: [
-                      {
-                        text: buildTranscriptionPrompt(language, mode),
-                      },
-                      {
-                        inline_data: {
-                          mime_type: validatedAudio.type.split(";")[0].trim().toLowerCase(),
-                          data: audioBase64,
-                        },
-                      },
-                    ],
-                  },
-                ],
-                generationConfig: GEMINI_GENERATION_CONFIG,
-              }),
-              signal: controller.signal,
-            },
+        const result = await transcribeWithSttProviders({
+          audio: validatedAudio,
+          language,
+          mode,
+          geminiApiKey,
+          groqApiKey,
+          model: GEMINI_MODEL,
+          generationConfig: GEMINI_GENERATION_CONFIG,
+          timeoutMs,
+        });
+        const providerMs = Math.round(performance.now() - providerStartedAt);
+        if (!result.ok) {
+          console.error(
+            `${result.provider} voice transcription failed (${result.error}, retryable=${result.retryable}).`,
           );
-
-          if (!response.ok) {
-            console.error(`Gemini voice transcription failed (HTTP ${response.status}).`);
-            if (response.status === 400) return errorResponse("unsupported-audio", 422);
-            if (response.status === 401 || response.status === 403) {
-              return errorResponse("gemini-auth-failed", 502);
-            }
-            if (response.status === 404) {
-              return errorResponse("gemini-model-unavailable", 502);
-            }
-            if (response.status === 429) return errorResponse("rate-limited", 429);
-            return errorResponse(
-              response.status >= 500 ? "provider-unavailable" : "transcription-failed",
-              502,
-            );
-          }
-
-          let result: unknown;
-          try {
-            result = await response.json();
-          } catch {
-            console.error("Gemini voice transcription returned invalid JSON.");
-            return errorResponse("transcription-failed", 502);
-          }
-          const providerMs = Math.round(performance.now() - providerStartedAt);
-          console.info("Voice server-to-Gemini round trip ms", providerMs);
-          if (result && typeof result === "object" && "usageMetadata" in result) {
-            console.info("Voice Gemini usageMetadata", result.usageMetadata);
-            const metadata = result.usageMetadata;
-            if (metadata && typeof metadata === "object" && "thoughtsTokenCount" in metadata) {
-              console.info("Voice Gemini thoughtsTokenCount", metadata.thoughtsTokenCount);
-            }
-          }
-          const transcript = readGeminiTranscript(result);
-          if (!transcript) return errorResponse("empty-transcript", 422);
-          return NextResponse.json({
-            ok: true,
-            transcript,
-            ...(chunkMetadata.sequence === null ? {} : { sequence: chunkMetadata.sequence }),
-            ...(chunkMetadata.total === null ? {} : { total: chunkMetadata.total }),
-            ...(process.env.NODE_ENV === "development"
-              ? { timings: { providerMs } }
-              : {}),
-          });
-        } catch (error: unknown) {
-          const errorType =
-            error instanceof Error ? error.constructor.name : "UnknownError";
-          console.error(`Gemini voice transcription request failed (${errorType}).`);
           return errorResponse(
-            controller.signal.aborted ? "transcription-timeout" : "transcription-failed",
-            controller.signal.aborted ? 504 : 502,
+            result.error,
+            result.status,
+            result.retryable,
+            result.providerStatus,
           );
-        } finally {
-          audioBase64 = null;
-          clearTimeout(timeout);
         }
+        console.info(`Voice transcription succeeded via ${result.provider} in ${providerMs}ms.`);
+        return NextResponse.json({
+          ok: true,
+          transcript: result.transcript,
+          ...(chunkMetadata.sequence === null ? {} : { sequence: chunkMetadata.sequence }),
+          ...(chunkMetadata.total === null ? {} : { total: chunkMetadata.total }),
+          ...(process.env.NODE_ENV === "development" ? { timings: { providerMs } } : {}),
+        });
       },
     );
   } catch (error: unknown) {
@@ -242,9 +198,14 @@ export async function POST(request: Request): Promise<Response> {
         error.code === "audio-too-large" ? 413 : 422,
       );
     }
-    const errorType = error instanceof Error ? error.constructor.name : "UnknownError";
-    console.error(`Gemini voice transcription request failed (${errorType}).`);
-    return errorResponse("transcription-failed", 502);
+    const failure = classifySttFailure(error);
+    console.error(`Voice transcription request failed (${failure.error}).`);
+    return errorResponse(
+      failure.error,
+      failure.status,
+      failure.retryable,
+      failure.providerStatus,
+    );
   } finally {
     form.delete("audio");
     audio = null;

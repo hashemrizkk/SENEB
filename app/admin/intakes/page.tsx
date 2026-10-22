@@ -5,6 +5,7 @@ import { intakeFieldsSchema, intakeMetaSchema } from "@/lib/intake";
 import { ar } from "@/lib/strings.ar";
 import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
 import { flagLabel, questionLabel, unansweredLabels } from "@/lib/questions";
+import { indexedKey } from "@/lib/react-keys";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +86,7 @@ export default async function AdminIntakesPage() {
               <h3>{ar.admin.flags}</h3>
               {flags?.flags.length ? (
                 <ul>
-                  {flags.flags.map((flag) => <li key={flag}>{flagLabel(flag)}</li>)}
+                  {flags.flags.map((flag, index) => <li key={indexedKey(flag, index)}>{flagLabel(flag)}</li>)}
                 </ul>
               ) : (
                 <p>{ar.admin.noFlags}</p>

@@ -6,6 +6,318 @@ const SUPPORTED_LANGUAGES = new Set(["auto", "ar-EG", "ar", "en-US"]);
 export type VoiceAudioError = "audio-too-large" | "unsupported-audio" | "bad-audio";
 export type VoiceLanguage = "auto" | "ar-EG" | "ar" | "en-US";
 export type VoiceTranscriptionMode = "transcription" | "dictation";
+export type SttProviderName = "Gemini" | "Groq";
+
+export const DEFAULT_STT_TIMEOUT_MS = 90_000;
+const MAX_STT_TIMEOUT_MS = 120_000;
+const GROQ_MODEL = "whisper-large-v3";
+
+export type SttTranscriptionResult =
+  | { ok: true; transcript: string; provider: SttProviderName }
+  | {
+      ok: false;
+      error: string;
+      status: number;
+      retryable: boolean;
+      provider: SttProviderName;
+      providerStatus?: number;
+    };
+
+class SttProviderError extends Error {
+  readonly code: string;
+  readonly status: number;
+  readonly retryable: boolean;
+  readonly providerStatus: number | undefined;
+
+  constructor(
+    code: string,
+    status: number,
+    retryable: boolean,
+    providerStatus?: number,
+  ) {
+    super(code);
+    this.code = code;
+    this.status = status;
+    this.retryable = retryable;
+    this.providerStatus = providerStatus;
+  }
+}
+
+class InvalidSttOutputError extends Error {}
+
+export function getSttTimeoutMs(
+  value: string | undefined = process.env.STT_TIMEOUT_MS,
+): number {
+  if (value === undefined) return DEFAULT_STT_TIMEOUT_MS;
+  if (!/^\d+$/.test(value)) return DEFAULT_STT_TIMEOUT_MS;
+  const timeoutMs = Number(value);
+  return Number.isSafeInteger(timeoutMs) &&
+    timeoutMs >= 1_000 &&
+    timeoutMs <= MAX_STT_TIMEOUT_MS
+    ? timeoutMs
+    : DEFAULT_STT_TIMEOUT_MS;
+}
+
+export function classifySttFailure(
+  error: unknown,
+  signal?: AbortSignal,
+): { error: string; status: number; retryable: boolean; providerStatus?: number } {
+  if (error instanceof SttProviderError) {
+    return {
+      error: error.code,
+      status: error.status,
+      retryable: error.retryable,
+      ...(error.providerStatus === undefined
+        ? {}
+        : { providerStatus: error.providerStatus }),
+    };
+  }
+  if (
+    signal?.aborted ||
+    (error instanceof Error &&
+      (error.name === "AbortError" || error.name === "TimeoutError"))
+  ) {
+    return { error: "transcription-timeout", status: 504, retryable: true };
+  }
+  if (error instanceof InvalidSttOutputError) {
+    return { error: "transcription-failed", status: 502, retryable: true };
+  }
+  if (error instanceof TypeError) {
+    return { error: "transcription-network-error", status: 503, retryable: true };
+  }
+  const status =
+    error !== null && typeof error === "object" && "status" in error &&
+    typeof error.status === "number"
+      ? error.status
+      : null;
+  if (status === 408 || status === 429 || (status !== null && status >= 500)) {
+    return {
+      error: status === 429 ? "rate-limited" : "provider-unavailable",
+      status: status === 429 ? 429 : 503,
+      retryable: true,
+    };
+  }
+  return {
+    error: "transcription-failed",
+    status: 502,
+    retryable: status === null,
+  };
+}
+
+function retryableStatus(status: number, body: string): boolean {
+  if (status === 408 || status === 429 || status === 401 || status >= 500) {
+    return true;
+  }
+  return status === 403 && /quota|resource[_ ]exhausted|rate.?limit/i.test(body);
+}
+
+function providerErrorCode(status: number): string {
+  if (status === 400) return "unsupported-audio";
+  if (status === 401 || status === 403) return "provider-auth-failed";
+  if (status === 404) return "provider-unavailable";
+  if (status === 429) return "rate-limited";
+  if (status >= 500) return "provider-unavailable";
+  return "transcription-failed";
+}
+
+function providerHttpStatus(status: number): number {
+  if (status === 400) return 422;
+  if (status === 429) return 429;
+  return 502;
+}
+
+async function withProviderTimeout<T>(
+  timeoutMs: number,
+  request: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await request(controller.signal);
+  } catch (error: unknown) {
+    const failure = classifySttFailure(error, controller.signal);
+    throw new SttProviderError(
+      failure.error,
+      failure.status,
+      failure.retryable,
+      failure.providerStatus,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function assertProviderResponse(response: Response): Promise<void> {
+  if (response.ok) return;
+  let body = "";
+  try {
+    body = await response.text();
+  } catch {
+    // The status alone is enough to classify an unreadable provider response.
+  }
+  throw new SttProviderError(
+    providerErrorCode(response.status),
+    providerHttpStatus(response.status),
+    retryableStatus(response.status, body),
+    response.status,
+  );
+}
+
+async function transcribeGemini(input: {
+  audio: Blob;
+  apiKey: string;
+  prompt: string;
+  model: string;
+  generationConfig: Record<string, unknown>;
+  timeoutMs: number;
+  fetchImpl: typeof fetch;
+}): Promise<string> {
+  const audioBase64 = Buffer.from(await input.audio.arrayBuffer()).toString("base64");
+  return withProviderTimeout(input.timeoutMs, async (signal) => {
+    const response = await input.fetchImpl(
+      `https://generativelanguage.googleapis.com/v1beta/models/${input.model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": input.apiKey,
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: input.prompt },
+              {
+                inline_data: {
+                  mime_type: input.audio.type.split(";")[0].trim().toLowerCase(),
+                  data: audioBase64,
+                },
+              },
+            ],
+          }],
+          generationConfig: input.generationConfig,
+        }),
+        signal,
+      },
+    );
+    await assertProviderResponse(response);
+    let result: unknown;
+    try {
+      result = await response.json();
+    } catch {
+      throw new InvalidSttOutputError();
+    }
+    const transcript = readGeminiTranscript(result);
+    if (!transcript) throw new InvalidSttOutputError();
+    return transcript;
+  });
+}
+
+async function transcribeGroq(input: {
+  audio: Blob;
+  apiKey: string;
+  prompt: string;
+  language: VoiceLanguage;
+  timeoutMs: number;
+  fetchImpl: typeof fetch;
+}): Promise<string> {
+  const form = new FormData();
+  form.append("file", input.audio, "voice.wav");
+  form.append("model", GROQ_MODEL);
+  form.append("prompt", input.prompt);
+  if (input.language === "ar" || input.language === "ar-EG") {
+    form.append("language", "ar");
+  } else if (input.language === "en-US") {
+    form.append("language", "en");
+  }
+  return withProviderTimeout(input.timeoutMs, async (signal) => {
+    const response = await input.fetchImpl(
+      "https://api.groq.com/openai/v1/audio/transcriptions",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${input.apiKey}` },
+        body: form,
+        signal,
+      },
+    );
+    await assertProviderResponse(response);
+    let result: unknown;
+    try {
+      result = await response.json();
+    } catch {
+      throw new InvalidSttOutputError();
+    }
+    if (
+      result === null ||
+      typeof result !== "object" ||
+      !("text" in result) ||
+      typeof result.text !== "string"
+    ) {
+      throw new InvalidSttOutputError();
+    }
+    const transcript = result.text.trim();
+    if (!transcript || transcript.length > 2_000) {
+      throw new InvalidSttOutputError();
+    }
+    return transcript;
+  });
+}
+
+export async function transcribeWithSttProviders(input: {
+  audio: Blob;
+  language: VoiceLanguage;
+  mode: VoiceTranscriptionMode;
+  geminiApiKey?: string;
+  groqApiKey?: string;
+  model: string;
+  generationConfig: Record<string, unknown>;
+  timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+}): Promise<SttTranscriptionResult> {
+  const prompt = buildTranscriptionPrompt(input.language, input.mode);
+  const timeoutMs = input.timeoutMs ?? getSttTimeoutMs();
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const providers = [
+    ...(input.geminiApiKey ? [{ provider: "Gemini" as const, apiKey: input.geminiApiKey }] : []),
+    ...(input.groqApiKey ? [{ provider: "Groq" as const, apiKey: input.groqApiKey }] : []),
+  ];
+
+  for (const { provider, apiKey } of providers) {
+    try {
+      const transcript = provider === "Gemini"
+        ? await transcribeGemini({
+            audio: input.audio,
+            apiKey,
+            prompt,
+            model: input.model,
+            generationConfig: input.generationConfig,
+            timeoutMs,
+            fetchImpl,
+          })
+        : await transcribeGroq({
+            audio: input.audio,
+            apiKey,
+            prompt,
+            language: input.language,
+            timeoutMs,
+            fetchImpl,
+          });
+      return { ok: true, transcript, provider };
+    } catch (error: unknown) {
+      const failure = classifySttFailure(error);
+      if (failure.retryable && provider === "Gemini" && providers.some((item) => item.provider === "Groq")) {
+        continue;
+      }
+      return { ok: false, ...failure, provider };
+    }
+  }
+  return {
+    ok: false,
+    error: "provider-unavailable",
+    status: 503,
+    retryable: true,
+    provider: "Gemini",
+  };
+}
 
 export function mockVoiceTranscript(): string {
   return "[MOCK] Dictation unavailable — transcription service is not configured.";

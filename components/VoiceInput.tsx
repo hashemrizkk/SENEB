@@ -73,6 +73,7 @@ function errorMessage(error: string): string {
     case "transcription-failed":
       return ar.voice.failed;
     case "gemini-auth-failed":
+    case "provider-auth-failed":
       return ar.voice.authFailed;
     case "gemini-model-unavailable":
       return ar.voice.modelUnavailable;
@@ -82,6 +83,7 @@ function errorMessage(error: string): string {
     case "recorder-failed":
       return ar.voice.recorderFailed;
     case "provider-unavailable":
+    case "transcription-network-error":
       return ar.voice.providerUnavailable;
     case "bad-origin":
       return ar.voice.badOrigin;
@@ -219,7 +221,7 @@ export default function VoiceInput({
       form.append("audio", wavAudio, "voice.wav");
       form.append("language", language);
       abortRef.current = controller;
-      const requestTimeout = setTimeout(() => controller.abort(), 50_000);
+      const requestTimeout = setTimeout(() => controller.abort(), 255_000);
 
       try {
         const uploadStartedAt = performance.now();

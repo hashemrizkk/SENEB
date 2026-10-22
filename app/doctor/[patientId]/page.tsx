@@ -12,6 +12,7 @@ import NewFollowupForm from "./NewFollowupForm";
 import ReviewEditForm from "./ReviewEditForm";
 import { generateSummarySafely, summaryIsMissingOrStale } from "@/lib/summary-background";
 import { priorityForIntake } from "@/lib/intake-priority";
+import { indexedKey } from "@/lib/react-keys";
 
 export const dynamic = "force-dynamic";
 
@@ -119,7 +120,7 @@ export default async function DoctorIntakePage({
                 <section aria-label="Suggested priority">
                   <p>Suggested priority: {suggestion.priority ?? "Not assigned"} · source: {latestRevision?.reason?.includes("Priority source: manual") ? "manual" : "auto (rules)"}</p>
                   {suggestion.reasons.length ? (
-                    <ul>{suggestion.reasons.map((reason) => <li key={reason.rule_id}>{reason.text}</li>)}</ul>
+                    <ul>{suggestion.reasons.map((reason, index) => <li key={indexedKey(reason.rule_id, index)}>{reason.text}</li>)}</ul>
                   ) : null}
                 </section>
               );
@@ -189,7 +190,7 @@ export default async function DoctorIntakePage({
             ) : null}
             <h3>Flags to review</h3>
             {intake.flags.flags.length ? (
-              <ul>{intake.flags.flags.map((flag) => <li key={flag}>{flagLabel(flag)}</li>)}</ul>
+              <ul>{intake.flags.flags.map((flag, index) => <li key={indexedKey(flag, index)}>{flagLabel(flag)}</li>)}</ul>
             ) : <p>No rule flags.</p>}
             {intake.unansweredCount ? <p>{intake.unansweredCount} unanswered questions.</p> : null}
             <h3>Submitted patient text</h3>

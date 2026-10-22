@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import {
   buildTranscriptionPrompt,
+  classifySttFailure,
+  DEFAULT_STT_TIMEOUT_MS,
+  getSttTimeoutMs,
   isSupportedAudioType,
   mockVoiceTranscript,
   parseVoiceChunkMetadata,
   readGeminiTranscript,
+  transcribeWithSttProviders,
   withValidatedGeminiWav,
   VoiceAudioValidationError,
 } from "../lib/gemini-audio.ts";
@@ -113,6 +117,195 @@ await test("preserves the legacy explicit transcription prompt", () => {
 
 await test("mock transcription is clearly labeled without contacting an STT provider", () => {
   assert.match(mockVoiceTranscript(), /^\[MOCK\]/);
+});
+
+await test("classifies aborts/timeouts and network errors as retryable", () => {
+  assert.deepEqual(
+    classifySttFailure(new DOMException("request aborted", "AbortError")),
+    { error: "transcription-timeout", status: 504, retryable: true },
+  );
+  assert.deepEqual(
+    classifySttFailure(new TypeError("network error")),
+    { error: "transcription-network-error", status: 503, retryable: true },
+  );
+});
+
+await test("reads STT timeout from the environment with a 90-second default", () => {
+  const previous = process.env.STT_TIMEOUT_MS;
+  try {
+    delete process.env.STT_TIMEOUT_MS;
+    assert.equal(getSttTimeoutMs(), DEFAULT_STT_TIMEOUT_MS);
+    process.env.STT_TIMEOUT_MS = "45000";
+    assert.equal(getSttTimeoutMs(), 45_000);
+    process.env.STT_TIMEOUT_MS = "not-a-number";
+    assert.equal(getSttTimeoutMs(), DEFAULT_STT_TIMEOUT_MS);
+  } finally {
+    if (previous === undefined) delete process.env.STT_TIMEOUT_MS;
+    else process.env.STT_TIMEOUT_MS = previous;
+  }
+});
+
+await test("falls back from retryable Gemini failure to Groq in order", async () => {
+  const calls: string[] = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    calls.push(url.includes("generativelanguage.googleapis.com") ? "Gemini" : "Groq");
+    if (url.includes("generativelanguage.googleapis.com")) {
+      return new Response("temporary provider error", { status: 503 });
+    }
+    assert.equal(url, "https://api.groq.com/openai/v1/audio/transcriptions");
+    assert.equal(init?.method, "POST");
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer fake-groq-key");
+    assert.ok(init?.body instanceof FormData);
+    const form = init.body;
+    assert.equal(form.get("model"), "whisper-large-v3");
+    assert.equal(form.get("language"), null, "auto mode should allow language detection");
+    assert.equal(
+      form.get("prompt"),
+      buildTranscriptionPrompt("auto", "dictation"),
+    );
+    const file = form.get("file");
+    assert.ok(file instanceof Blob);
+    assert.equal(file.type, "audio/wav");
+    return new Response(JSON.stringify({ text: "تجربة fallback" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const result = await transcribeWithSttProviders({
+    audio: makeWav(),
+    language: "auto",
+    mode: "dictation",
+    geminiApiKey: "fake-gemini-key",
+    groqApiKey: "fake-groq-key",
+    model: "gemini-test",
+    generationConfig: {},
+    timeoutMs: 1_000,
+    fetchImpl,
+  });
+  assert.deepEqual(calls, ["Gemini", "Groq"]);
+  assert.deepEqual(result, {
+    ok: true,
+    transcript: "تجربة fallback",
+    provider: "Groq",
+  });
+});
+
+await test("quick Gemini success preserves the existing single-provider path", async () => {
+  const calls: string[] = [];
+  const fetchImpl: typeof fetch = async (input) => {
+    calls.push(String(input).includes("generativelanguage.googleapis.com") ? "Gemini" : "Groq");
+    return new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: "quick transcript" }] } }],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const result = await transcribeWithSttProviders({
+    audio: makeWav(),
+    language: "auto",
+    mode: "dictation",
+    geminiApiKey: "fake-gemini-key",
+    groqApiKey: "fake-groq-key",
+    model: "gemini-test",
+    generationConfig: {},
+    timeoutMs: 1_000,
+    fetchImpl,
+  });
+  assert.deepEqual(calls, ["Gemini"]);
+  assert.deepEqual(result, {
+    ok: true,
+    transcript: "quick transcript",
+    provider: "Gemini",
+  });
+});
+
+await test("does not fall back on non-retryable Gemini client errors", async () => {
+  const calls: string[] = [];
+  const fetchImpl: typeof fetch = async (input) => {
+    calls.push(String(input).includes("generativelanguage.googleapis.com") ? "Gemini" : "Groq");
+    return new Response("invalid audio", { status: 400 });
+  };
+  const result = await transcribeWithSttProviders({
+    audio: makeWav(),
+    language: "auto",
+    mode: "dictation",
+    geminiApiKey: "fake-gemini-key",
+    groqApiKey: "fake-groq-key",
+    model: "gemini-test",
+    generationConfig: {},
+    timeoutMs: 1_000,
+    fetchImpl,
+  });
+  assert.deepEqual(calls, ["Gemini"]);
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.retryable, false);
+    assert.equal(result.error, "unsupported-audio");
+    assert.equal(result.status, 422);
+    assert.equal(result.providerStatus, 400);
+  }
+});
+
+await test("returns retryable timeout classification after the provider aborts", async () => {
+  const fetchImpl: typeof fetch = async (_input, init) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+      }, { once: true });
+    });
+  const result = await transcribeWithSttProviders({
+    audio: makeWav(),
+    language: "auto",
+    mode: "dictation",
+    geminiApiKey: "fake-gemini-key",
+    model: "gemini-test",
+    generationConfig: {},
+    timeoutMs: 5,
+    fetchImpl,
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error, "transcription-timeout");
+    assert.equal(result.retryable, true);
+    assert.equal(result.status, 504);
+  }
+});
+
+await test("a timed-out Gemini request falls through to Groq", async () => {
+  const calls: string[] = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("generativelanguage.googleapis.com")) {
+      calls.push("Gemini");
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+        }, { once: true });
+      });
+    }
+    calls.push("Groq");
+    return new Response(JSON.stringify({ text: "transcribed by fallback" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const result = await transcribeWithSttProviders({
+    audio: makeWav(),
+    language: "auto",
+    mode: "dictation",
+    geminiApiKey: "fake-gemini-key",
+    groqApiKey: "fake-groq-key",
+    model: "gemini-test",
+    generationConfig: {},
+    timeoutMs: 5,
+    fetchImpl,
+  });
+  assert.deepEqual(calls, ["Gemini", "Groq"]);
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.transcript, "transcribed by fallback");
 });
 
 await test("rejects wrong WAV format and inconsistent headers without provider invocation", async () => {
