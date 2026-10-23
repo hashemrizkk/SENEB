@@ -324,6 +324,16 @@ export function activeRedflagRuleset(database: Database.Database = db): { id:str
 export function redflagRulesetById(id:string,database:Database.Database=db):{id:string;rules_json:string;emergency_number:string|null;status:string}|undefined {
   return database.prepare("SELECT id,rules_json,emergency_number,status FROM redflag_rulesets WHERE id=?").get(id) as {id:string;rules_json:string;emergency_number:string|null;status:string}|undefined;
 }
+export function pinRedflagRulesetIfMissing(sessionId:string,rulesetId:string,database:Database.Database=db):string|null {
+  return database.transaction(()=>{
+    const session=database.prepare("SELECT redflag_ruleset_id FROM anonymous_sessions WHERE id=?").get(sessionId) as {redflag_ruleset_id:string|null}|undefined;
+    if(!session)return null;
+    if(session.redflag_ruleset_id)return session.redflag_ruleset_id;
+    database.prepare("UPDATE anonymous_sessions SET redflag_ruleset_id=? WHERE id=? AND redflag_ruleset_id IS NULL").run(rulesetId,sessionId);
+    const updated=database.prepare("SELECT redflag_ruleset_id FROM anonymous_sessions WHERE id=?").get(sessionId) as {redflag_ruleset_id:string|null}|undefined;
+    return updated?.redflag_ruleset_id??null;
+  })();
+}
 export function getContentBlock(key:string,locale:"ar"|"en",database:Database.Database=db): { body:string;status:string }|undefined {
   return database.prepare("SELECT body,status FROM content_blocks WHERE key=? AND locale=? ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END,version DESC LIMIT 1").get(key,locale) as {body:string;status:string}|undefined;
 }
