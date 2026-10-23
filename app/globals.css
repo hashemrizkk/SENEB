@@ -148,6 +148,103 @@ a { color: var(--accent-foreground); text-underline-offset: .18em; }
 .doctor-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; }
 .doctor-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block: 16px 24px; padding-block: 12px; border-block: 1px solid var(--card-border); }
 .doctor-nav a { display: inline-flex; min-block-size: 44px; align-items: center; padding-inline: 12px; border-radius: var(--radius-control); }
+.doctor-queue-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-block: 20px 24px; padding-block: 16px; border-block: 1px solid var(--card-border); }
+.doctor-filter-group { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px; border: 1px solid var(--card-border); border-radius: var(--radius-control); background: var(--surface-sunken); }
+.doctor-filter-link { display: inline-flex; min-block-size: 44px; align-items: center; justify-content: center; padding-inline: 18px; border-radius: 10px; color: var(--text); font-weight: 650; text-decoration: none; }
+.doctor-filter-link[aria-current="page"] { background: var(--surface); color: var(--primary-strong); box-shadow: var(--shadow-soft); }
+.doctor-recent-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.doctor-recent-links a { display: inline-flex; min-block-size: 44px; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--card-border); border-radius: var(--radius-control); background: var(--surface); color: var(--text); font-size: 15px; font-weight: 600; text-decoration: none; }
+.doctor-recent-links a span { color: var(--primary-strong); font-size: 20px; }
+.doctor-queue { margin-block-start: 20px; }
+.doctor-queue-caption { margin-block: 0 12px; color: var(--text-secondary); font-size: 15px; }
+.doctor-queue-groups, .doctor-record-list { display: grid; gap: 16px; }
+.doctor-priority-group { overflow: hidden; border: 1px solid var(--card-border); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-soft); }
+.doctor-priority-heading { display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px 16px; background: var(--surface-sunken); font-size: 17px; }
+.doctor-priority-urgent .doctor-priority-heading { background: var(--urgent-bg); color: var(--urgent-text); }
+.doctor-priority-important .doctor-priority-heading { background: var(--important-bg); color: var(--important-text); }
+.doctor-priority-normal .doctor-priority-heading { background: var(--normal-bg); color: var(--normal-text); }
+.doctor-priority-count { display: inline-grid; min-width: 28px; min-height: 28px; place-items: center; padding-inline: 6px; border-radius: var(--radius-pill); background: rgb(255 255 255 / 75%); font-size: 14px; }
+.doctor-record-list { padding: 12px; }
+.doctor-record-card { min-width: 0; padding: 18px; border: 1px solid var(--card-border); border-radius: var(--radius-control); background: var(--surface); }
+.doctor-record-top { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.doctor-record-identity h3 { margin: 0; font-size: 20px; line-height: 1.35; overflow-wrap: anywhere; }
+.doctor-record-identity small { display: inline-block; margin-block-start: 2px; color: var(--text-secondary); }
+.doctor-status-pill { display: inline-flex; min-height: 32px; align-items: center; padding: 3px 11px; border: 1px solid var(--card-border); border-radius: var(--radius-pill); background: var(--surface-sunken); color: var(--text-secondary); font-size: 14px; font-weight: 700; }
+.doctor-status-new { border-color: var(--important-border); background: var(--important-bg); color: var(--important-text); }
+.doctor-status-triaged { border-color: var(--info-border); background: var(--info-bg); color: var(--info-text); }
+.doctor-record-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-block: 16px; padding-block: 12px; border-block: 1px solid var(--card-border); }
+.doctor-record-meta > div, .doctor-record-review > div { display: grid; align-content: start; gap: 2px; }
+.doctor-record-meta span, .doctor-record-review > div > span { color: var(--text-secondary); font-size: 13px; }
+.doctor-record-meta strong, .doctor-record-review strong { font-size: 15px; }
+.doctor-record-meta small, .doctor-record-review small { color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
+.doctor-record-review { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; }
+.doctor-mock-notice { margin-block: 12px 0; padding: 8px 12px; border-radius: 10px; background: var(--important-bg); color: var(--important-text); font-size: 14px; }
+.doctor-survey-detail { margin-block: 12px 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-sunken); font-size: 14px; }
+.doctor-record-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-block-start: 16px; padding-block-start: 14px; border-block-start: 1px solid var(--card-border); }
+.doctor-record-actions a { display: inline-flex; min-height: 48px; align-items: center; justify-content: center; gap: 10px; padding: 9px 16px; border: 1px solid var(--card-border); border-radius: var(--radius-control); font-weight: 700; text-decoration: none; }
+.doctor-action-primary { background: var(--primary-strong); border-color: var(--primary-strong) !important; color: #fff; }
+.doctor-action-primary:hover { background: var(--primary-hover); color: #fff; }
+.doctor-action-primary span { font-size: 20px; }
+.doctor-action-secondary { background: var(--surface); color: var(--text); }
+.doctor-intake-shell { max-width: 1100px; }
+.doctor-back-link { margin-block: 0 10px; }
+.doctor-back-link a { display: inline-flex; min-height: 44px; align-items: center; gap: 8px; font-weight: 650; text-decoration: none; }
+.doctor-intake-hero { display: grid; gap: 16px; margin-block-end: 16px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--card-border); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-soft); }
+.doctor-intake-heading h1 { margin: 0; font-size: clamp(26px, 4vw, 34px); line-height: 1.25; overflow-wrap: anywhere; }
+.doctor-intake-heading > p:last-child { margin-block: 6px 0; color: var(--text-secondary); }
+.doctor-eyebrow { margin: 0 0 4px; color: var(--primary-strong); font-size: 13px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+.doctor-intake-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.doctor-intake-status-card { display: grid; align-content: center; gap: 4px; min-height: 76px; padding: 12px 14px; border: 1px solid var(--card-border); border-radius: var(--radius-control); background: var(--surface-sunken); }
+.doctor-intake-status-card > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.doctor-intake-status-card > strong { font-size: 16px; overflow-wrap: anywhere; }
+.doctor-state-new { border-color: var(--important-border); background: var(--important-bg); color: var(--important-text); }
+.doctor-state-triaged { border-color: var(--info-border); background: var(--info-bg); color: var(--info-text); }
+.doctor-state-seen { border-color: var(--success-border); background: var(--success-bg); color: var(--success-text); }
+.doctor-priority-urgent { border-color: var(--urgent-border); background: var(--urgent-bg); color: var(--urgent-text); }
+.doctor-priority-important { border-color: var(--important-border); background: var(--important-bg); color: var(--important-text); }
+.doctor-priority-normal { border-color: var(--normal-border); background: var(--normal-bg); color: var(--normal-text); }
+.doctor-priority-unassigned { background: var(--surface-sunken); }
+.doctor-suggested-priority { margin: 0; padding: 12px 14px; border-inline-start: 4px solid var(--info-border); border-radius: 10px; background: var(--info-bg); color: var(--info-text); }
+.doctor-suggested-priority > p { margin: 0; }
+.doctor-suggested-priority > p span { color: var(--text-secondary); font-size: 14px; }
+.doctor-suggested-priority ul { margin-block: 8px 0; }
+.doctor-intake-input-method { margin: 0; color: var(--text-secondary); font-size: 14px; }
+.doctor-intake-demographics { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding-block-start: 12px; border-block-start: 1px solid var(--card-border); font-size: 14px; }
+.doctor-intake-demographics > span { color: var(--text-secondary); }
+.doctor-intake-demographics > span strong { color: var(--text); }
+.doctor-intake-demographics a { margin-inline-start: auto; font-weight: 700; text-decoration: none; }
+.doctor-edit-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.doctor-edit-heading h2 { margin: 0; font-size: 21px; }
+.doctor-intake-edit-card { display: grid; gap: 16px; margin-block: 16px; padding: clamp(16px, 3vw, 24px); border: 1px solid var(--card-border); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-soft); scroll-margin-block-start: 76px; }
+.doctor-edit-heading { align-items: flex-end; }
+.doctor-edit-heading h2 { font-size: 22px; }
+.doctor-edit-safety-note { margin: -8px 0 0; color: var(--text-secondary); font-size: 14px; }
+.doctor-edit-priority-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 14px; border: 1px solid var(--card-border); border-radius: var(--radius-control); background: var(--surface-sunken); }
+.doctor-edit-priority-controls label, .doctor-edit-note-control { display: grid; min-width: 0; gap: 6px; font-weight: 650; }
+.doctor-edit-priority-controls label > span { color: var(--text-secondary); font-size: 14px; }
+.doctor-clinical-note-panel { display: grid; min-width: 0; gap: 14px; padding: 16px; border: 1px solid var(--card-border); border-radius: var(--radius-control); background: var(--surface); }
+.doctor-clinical-note-heading h3 { margin: 0; font-size: 20px; }
+.doctor-clinical-note-heading > p { margin: 4px 0 0; color: var(--text-secondary); font-size: 14px; }
+.doctor-clinical-note-panel .doctor-edit-priority-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.doctor-clinical-note-panel .doctor-edit-note-control { width: 100%; }
+.doctor-previous-notes { padding-block-start: 10px; border-block-start: 1px solid var(--card-border); }
+.doctor-previous-notes summary { min-height: 44px; align-content: center; color: var(--accent-foreground); font-weight: 650; cursor: pointer; }
+.doctor-previous-notes ol { display: grid; gap: 8px; padding-inline-start: 24px; }
+.doctor-previous-notes li { padding: 10px 12px; border-radius: 10px; background: var(--surface-sunken); }
+.doctor-previous-notes li p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.doctor-previous-notes li small { display: block; margin-block-start: 6px; color: var(--text-secondary); }
+.doctor-intake-edit-card > label { display: grid; gap: 6px; font-weight: 650; }
+.doctor-intake-edit-card input, .doctor-intake-edit-card select, .doctor-intake-edit-card textarea { width: 100%; }
+.doctor-edit-note-control textarea { min-height: 120px; resize: vertical; }
+.doctor-edit-note-control textarea::placeholder { color: var(--text-secondary); opacity: 1; }
+.doctor-intake-edit-card fieldset { min-width: 0; margin: 0; padding: 16px; }
+.doctor-intake-edit-card fieldset fieldset { margin-block-start: 12px; background: var(--surface); }
+.doctor-intake-edit-card legend { padding-inline: 6px; font-weight: 700; }
+.doctor-intake-edit-card [aria-pressed="true"] { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.doctor-save-top { min-height: 48px; padding-inline: 18px; font-weight: 700; }
+.doctor-save-bottom { justify-self: start; min-height: 48px; padding-inline: 20px; font-weight: 700; }
+.doctor-edit-jump { margin-block: 16px 0; }
+.doctor-edit-jump a { display: inline-flex; min-height: 44px; align-items: center; gap: 8px; font-weight: 650; }
 .doctor-nav button, .doctor-nav input[type="submit"] { padding-inline: 16px; }
 .doctor-card, .doctor-shell > section, .doctor-shell article {
   border: 1px solid var(--card-border);
@@ -274,6 +371,22 @@ a { color: var(--accent-foreground); text-underline-offset: .18em; }
   .doctor-shell > section { padding: 16px; }
   .doctor-nav { gap: 4px; }
   .doctor-nav a { padding-inline: 8px; }
+  .doctor-queue-tools { align-items: stretch; }
+  .doctor-filter-group { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .doctor-filter-link { padding-inline: 8px; }
+  .doctor-recent-links { display: grid; grid-template-columns: 1fr; }
+  .doctor-recent-links a { justify-content: space-between; }
+  .doctor-record-list { padding: 8px; }
+  .doctor-record-card { padding: 14px; }
+  .doctor-record-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .doctor-record-review { grid-template-columns: 1fr; }
+  .doctor-record-actions { display: grid; grid-template-columns: 1fr; }
+  .doctor-intake-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .doctor-intake-demographics { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .doctor-intake-demographics a { margin-inline-start: 0; }
+  .doctor-edit-priority-controls { grid-template-columns: 1fr; }
+  .doctor-clinical-note-panel .doctor-edit-priority-controls { grid-template-columns: 1fr; }
+  .doctor-save-top, .doctor-save-bottom { width: 100%; }
   .screening-page { width: min(100% - 24px, 720px); }
   .home-page { padding: 0 16px 32px; }
   .home-demo-banner { margin-inline: -16px; font-size: 13px; }

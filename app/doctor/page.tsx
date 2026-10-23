@@ -1,15 +1,12 @@
 import Link from "next/link";
-import { Fragment } from "react";
 import { requireDoctorSession } from "@/lib/doctor-review";
 import db, { getDemoWeekMetrics, latestAfterWorkRating, listQueue, type QueueFilter } from "@/lib/db";
 import { flagLabel } from "@/lib/questions";
-import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
 import DoctorQueueRefresh from "./DoctorQueueRefresh";
 import { ar } from "@/lib/strings.ar";
 import RatingCircle from "@/components/RatingCircle";
 import { afterWorkRatingSchema } from "@/lib/summary-types";
 import { surveyEmailReady } from "@/lib/survey-email";
-import { formatTimeSinceSubmission } from "@/lib/date-time";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +17,13 @@ function selectedFilter(value: string | undefined): QueueFilter {
 export default async function DoctorPage({
   searchParams,
 }: {
-  searchParams: Promise<{ filter?: string }>;
+  searchParams: Promise<{ filter?: string; lang?: string }>;
 }) {
   const session = await requireDoctorSession();
-  const { filter: rawFilter } = await searchParams;
+  const { filter: rawFilter, lang: rawLocale } = await searchParams;
+  const locale = rawLocale === "en" ? "en" : "ar";
+  const isArabic = locale === "ar";
+  const copy = isArabic ? ar.doctor : ar.doctor.en;
   const filter = selectedFilter(rawFilter);
   const records = listQueue(filter);
   const anyRecords = filter === "all" ? records.length > 0 : listQueue("all").length > 0;
@@ -31,8 +31,8 @@ export default async function DoctorPage({
   const configuredLlm = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
     ? "Gemini" : process.env.GROQ_API_KEY && process.env.GROQ_MODEL ? "Groq" : "mock";
   const groups = [
-    ["urgent", "Urgent", "▲"], ["important", "Important", "●"],
-    ["normal", "Normal", "○"], ["unknown", "Not enough information", "○"],
+    ["urgent", copy.urgent, "▲"], ["important", copy.important, "●"],
+    ["normal", copy.normal, "○"], ["unknown", copy.unknownPriority, "○"],
   ] as const;
   const profileRatings = new Map(records.map((record) => {
     const stored = latestAfterWorkRating(db, record.patient_id);
@@ -50,115 +50,103 @@ export default async function DoctorPage({
       : null] as const;
   }));
   return (
-    <><a className="skip-link" href="#doctor-content">Skip to content</a><main className="doctor-shell" id="doctor-content" tabIndex={-1}>
+    <><a className="skip-link" href="#doctor-content">{copy.skip}</a><main dir={isArabic ? "rtl" : "ltr"} lang={locale} className="doctor-shell" id="doctor-content" tabIndex={-1}>
       <header className="doctor-header">
         <div>
-          <h1>Doctor review queue</h1>
-          <p>Signed in as {session.name}. Review flags are decision support, not a diagnosis.</p>
+          <h1>{copy.title}</h1>
+          <p>{copy.signedIn(session.name)}</p>
         </div>
         <form action="/api/doctor/logout" method="post">
-          <button type="submit">Sign out</button>
+          <button type="submit">{copy.signOut}</button>
         </form>
       </header>
-      <DoctorQueueRefresh />
-      <p className="demo-metric">Demo metrics (last 7 days): {metrics.autoStructured} intakes auto-structured · {metrics.notesAutoRated} notes auto-rated</p>
-      <nav className="doctor-nav" aria-label="Queue filters">
-        {(["new", "triaged", "all"] as const).map((value) => (
-          <Link
-            key={value}
-            href={`/doctor?filter=${value}`}
-            aria-current={filter === value ? "page" : undefined}
-          >
-            {value === "new" ? "New" : value === "triaged" ? "Triaged" : "All"}
-          </Link>
-        ))}
-        <Link href="/admin/intakes">Recent intake details</Link>
-        <Link href="/admin/notes">Recent visit note checks</Link>
+      <DoctorQueueRefresh locale={locale} />
+      <p className="demo-metric">{copy.metrics(metrics.autoStructured, metrics.notesAutoRated)}</p>
+      <nav className="doctor-queue-tools" aria-label={copy.queueViews}>
+        <div className="doctor-filter-group" aria-label={copy.filterIntakes}>
+          {(["new", "triaged", "all"] as const).map((value) => (
+            <Link
+              className="doctor-filter-link"
+              key={value}
+              href={`/doctor?filter=${value}&lang=${locale}`}
+              aria-current={filter === value ? "page" : undefined}
+            >
+              {value === "new" ? copy.new : value === "triaged" ? copy.triaged : copy.all}
+            </Link>
+          ))}
+        </div>
+        <div className="doctor-recent-links" aria-label={copy.recentRecords}>
+          <Link href={`/admin/intakes?lang=${locale}`}>{copy.recentIntakes} <span aria-hidden="true">→</span></Link>
+          <Link href={`/admin/notes?lang=${locale}`}>{copy.recentNotes} <span aria-hidden="true">→</span></Link>
+        </div>
       </nav>
-      {records.length === 0 ? <p>{anyRecords ? "No intakes match this filter." : <>No intakes yet — share the registration link <Link href="/register">/register</Link>.</>}</p> : null}
-      <div style={{ overflowX: "auto" }}>
-        <table>
-          <caption>Patient intakes awaiting clinic review, grouped by staff priority</caption>
-          <thead>
-            <tr>
-              <th scope="col">Patient / reference</th>
-              <th scope="col">Submitted</th>
-              <th scope="col">Input method</th>
-              <th scope="col">Queue state</th>
-              <th scope="col">Priority</th>
-              <th scope="col">Review flags</th>
-              <th scope="col">Answers missing</th>
-              <th scope="col">Record</th>
-            </tr>
-          </thead>
-          <tbody>
+      {records.length === 0 ? <p>{anyRecords ? copy.emptyFiltered : <>{copy.empty} <Link href={`/register?lang=${locale}`}>/{copy.register.toLowerCase()}</Link>.</>}</p> : null}
+      <section className="doctor-queue" aria-label={copy.caption}>
+        <p className="doctor-queue-caption">{copy.caption}</p>
+        <div className="doctor-queue-groups">
             {groups.map(([priority, title, icon]) => {
               const groupRecords = records.filter((record) => (record.priority ?? "unknown") === priority);
               if (!groupRecords.length) return null;
-              return <Fragment key={priority}><tr><th colSpan={8} scope="rowgroup">{icon} {title} ({groupRecords.length})</th></tr>{groupRecords.map((record) => {
+              return <section className={`doctor-priority-group doctor-priority-${priority}`} key={priority} aria-labelledby={`priority-${priority}`}>
+                <h2 id={`priority-${priority}`} className="doctor-priority-heading"><span aria-hidden="true">{icon}</span> {title} <span className="doctor-priority-count">{groupRecords.length}</span></h2>
+                <div className="doctor-record-list">{groupRecords.map((record) => {
               const profileRating = profileRatings.get(record.patient_id);
               return (
-              <tr key={record.id}>
-                <td>
-                  <strong>{record.patient_name}</strong>
-                  {record.meta?.llm_mode === "mock" ? <p><strong>MOCK extraction — synthetic demo data.</strong></p> : null}
-                  <br />
-                  <small>{record.reference_code ?? "No reference code"}</small>
-                  {record.meta?.survey ? (
-                    <p>
-                      {"tool" in record.meta.survey
-                        ? record.meta.survey.screeningResult === "incomplete"
-                          ? `AUSDRISK Arabic · ${ar.survey.incomplete} (${record.meta.survey.total}/34)`
-                          : `AUSDRISK Arabic · ${record.meta.survey.total}/34 · ${
-                            ar.survey[record.meta.survey.riskBand]
-                          } · ${
-                            ar.survey[record.meta.survey.screeningResult === "below_cutoff"
-                              ? "belowCutoff"
-                              : record.meta.survey.screeningResult === "abnormal_glycemia_cutoff"
-                                ? "abnormalGlycemiaCutoff"
-                                : "diabetesCutoff"]
-                          }`
-                        : `Legacy FINDRISC · ${record.meta.survey.band}`}
-                    </p>
-                  ) : null}
-                  {profileRating ? (
-                    <RatingCircle
-                      rating={profileRating.rating}
-                      label="Profile completeness (record-based)"
-                      details={profileRating.details}
-                      mode={profileRating.mode}
-                    />
-                  ) : null}
-                </td>
-                <td>{record.created_at ?? "Unknown"}<br/><small>{formatTimeSinceSubmission(record.created_at)}</small></td>
-                <td>
-                  {inputMethodLabel(record.input_method)}
-                  {inputMethodNote(record.input_method) ? (
-                    <p>{inputMethodNote(record.input_method)}</p>
-                  ) : null}
-                </td>
-                <td>{record.status}</td>
-                <td>{icon} {title}</td>
-                <td>
-                  {record.flags.flags.length
-                    ? record.flags.flags.map(flagLabel).join(", ")
-                    : "None"}
-                  {record.edited ? <p>Edited by {record.edited_by}</p> : null}
-                </td>
-                <td>{record.unansweredCount}</td>
-                <td>
-                  <Link href={`/doctor/${record.patient_id}?intakeId=${record.id}`}>Review intake</Link>
-                  <br />
-                  <Link href={`/doctor/${record.patient_id}/summary`}>Case summary</Link>
-                </td>
-              </tr>
+              <article className="doctor-record-card" key={record.id}>
+                <div className="doctor-record-top">
+                  <div className="doctor-record-identity">
+                    <h3>{record.patient_name}</h3>
+                    <small>{record.reference_code ?? copy.referenceMissing}</small>
+                  </div>
+                  <span className={`doctor-status-pill doctor-status-${record.status}`}>{record.status === "new" ? copy.new : record.status === "triaged" ? copy.triaged : record.status}</span>
+                </div>
+                {record.meta?.llm_mode === "mock" ? <p className="doctor-mock-notice"><strong>{copy.mock}</strong></p> : null}
+                <div className="doctor-record-meta">
+                  <div><span>{copy.submitted}</span><strong>{copy.timeAgo(record.created_at)}</strong><small>{record.created_at ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(record.created_at)) : copy.unknownDate}</small></div>
+                  <div><span>{copy.inputMethod}</span><strong>{copy.inputMethods[record.input_method as keyof typeof copy.inputMethods] ?? copy.inputMethods.unknown}</strong>{record.input_method === "voice" || record.input_method === "mixed" ? <small>{copy.voiceNote}</small> : null}</div>
+                  <div><span>{copy.missingAnswers}</span><strong>{record.unansweredCount}</strong></div>
+                </div>
+                <div className="doctor-record-review">
+                  <div className="doctor-review-flags"><span>{copy.flags}</span><strong>{record.flags.flags.length ? record.flags.flags.map((flag) => copy.riskFlags[flag as keyof typeof copy.riskFlags] ?? flagLabel(flag)).join(isArabic ? "، " : ", ") : copy.noFlags}</strong>{record.edited ? <small>{copy.editedBy(record.edited_by ?? "")}</small> : null}</div>
+                  <div className="doctor-record-priority"><span>{copy.priority}</span><strong>{icon} {title}</strong></div>
+                </div>
+                {record.meta?.survey ? (
+                  <p className="doctor-survey-detail">
+                    {"tool" in record.meta.survey
+                      ? record.meta.survey.screeningResult === "incomplete"
+                        ? `AUSDRISK · ${isArabic ? ar.survey.incomplete : "Incomplete"} (${record.meta.survey.total}/34)`
+                        : `AUSDRISK · ${record.meta.survey.total}/34 · ${
+                          isArabic ? ar.survey[record.meta.survey.riskBand] : record.meta.survey.riskBand
+                        } · ${
+                          isArabic ? ar.survey[record.meta.survey.screeningResult === "below_cutoff"
+                            ? "belowCutoff"
+                            : record.meta.survey.screeningResult === "abnormal_glycemia_cutoff"
+                              ? "abnormalGlycemiaCutoff"
+                                : "diabetesCutoff"] : record.meta.survey.screeningResult.replaceAll("_", " ")
+                        }`
+                      : `Legacy FINDRISC · ${record.meta.survey.band}`}
+                  </p>
+                ) : null}
+                {profileRating ? (
+                  <RatingCircle
+                    rating={profileRating.rating}
+                    label={copy.profileCompleteness}
+                    details={profileRating.details}
+                    mode={profileRating.mode}
+                  />
+                ) : null}
+                <div className="doctor-record-actions">
+                  <Link className="doctor-action-primary" href={`/doctor/${record.patient_id}?intakeId=${record.id}&lang=${locale}`}>{copy.review} <span aria-hidden="true">→</span></Link>
+                  <Link className="doctor-action-secondary" href={`/doctor/${record.patient_id}/summary?lang=${locale}`}>{copy.caseSummary}</Link>
+                </div>
+              </article>
               );
-            })}</Fragment>;
+            })}</div>
+              </section>;
             })}
-          </tbody>
-        </table>
-      </div>
-      <footer className="demo-health">Status: DB ok · LLM provider {configuredLlm} · Email {surveyEmailReady() ? "ready" : "not configured"}</footer>
+        </div>
+      </section>
+      <footer className="demo-health">{copy.demo}: {copy.databaseOk} · {copy.llmProvider} {configuredLlm} · {surveyEmailReady() ? copy.emailReady : copy.emailNotConfigured}</footer>
     </main></>
   );
 }

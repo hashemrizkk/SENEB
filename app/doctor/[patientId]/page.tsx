@@ -12,11 +12,11 @@ import { requireDoctorSession } from "@/lib/doctor-review";
 import { formatCairoDateTime } from "@/lib/date-time";
 import { flagLabel, followupQuestions, questionLabel } from "@/lib/questions";
 import { intakeFieldsSchema } from "@/lib/intake";
+import { priorityForIntake } from "@/lib/intake-priority";
 import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
 import RecordFollowupForm from "./RecordFollowupForm";
 import ReviewEditForm from "./ReviewEditForm";
 import { generateSummarySafely, summaryIsMissingOrStale } from "@/lib/summary-background";
-import { priorityForIntake } from "@/lib/intake-priority";
 import { indexedKey } from "@/lib/react-keys";
 import {
   AUSDRISK_ABNORMAL_GLYCEMIA_CUTOFF,
@@ -167,40 +167,38 @@ export default async function DoctorIntakePage({
     : null;
 
   return (
-    <><a className="skip-link" href="#doctor-patient-content">Skip to content</a><main className="doctor-shell" id="doctor-patient-content" tabIndex={-1} style={{ maxWidth: 1000 }}>
-      <p><Link href="/doctor">← Review queue</Link></p>
-      <header>
-        <h1>Review: {record.patient.name}</h1>
-        <p>Reference: {record.patient.reference_code ?? "Not available"}</p>
+    <><a className="skip-link" href="#doctor-patient-content">Skip to content</a><main className="doctor-shell doctor-intake-shell" id="doctor-patient-content" tabIndex={-1}>
+      <p className="doctor-back-link"><Link href="/doctor">← Review queue</Link></p>
+      <header className="doctor-intake-hero">
+        <div className="doctor-intake-heading">
+          <p className="doctor-eyebrow">Patient intake review</p>
+          <h1>{record.patient.name}</h1>
+          <p>Reference: {record.patient.reference_code ?? "Not available"}</p>
+        </div>
         {intake ? (
           <>
-            <p>Selected record submitted {displayTime(intake.created_at)}</p>
-            <p>Status: {intake.status} · Staff priority: {intake.priority ?? "Not assigned"} · Version: {intake.version}</p>
-            {(() => {
-              const suggestion = priorityForIntake(
-                intake.fields,
-                intake.raw_text,
-                intake.meta?.needs_review ?? false,
-              );
-              const latestRevision = intake.revisions.find((revision) => revision.revision === intake.version);
-              return (
-                <section aria-label="Suggested priority">
-                  <p>Suggested priority: {suggestion.priority ?? "Not assigned"} · source: {latestRevision?.reason?.includes("Priority source: manual") ? "manual" : "auto (rules)"}</p>
-                  {suggestion.reasons.length ? (
-                    <ul>{suggestion.reasons.map((reason, index) => <li key={indexedKey(reason.rule_id, index)}>{reason.text}</li>)}</ul>
-                  ) : null}
-                </section>
-              );
-            })()}
-            <p>Input method: {inputMethodLabel(intake.input_method)}</p>
+            <div className="doctor-intake-status-grid" aria-label="Record details">
+              <div className="doctor-intake-status-card"><span>Submitted</span><strong>{displayTime(intake.created_at)}</strong></div>
+              <div className="doctor-intake-status-card"><span>Revision</span><strong>v{intake.version}</strong></div>
+            </div>
+            <p className="doctor-intake-input-method">Input method: <strong>{inputMethodLabel(intake.input_method)}</strong></p>
             {inputMethodNote(intake.input_method) ? (
               <p>{inputMethodNote(intake.input_method)}</p>
             ) : null}
           </>
         ) : <p>This patient does not have an intake yet.</p>}
-        <p>Age: {record.patient.age ?? "Not recorded"} · Diabetes: {record.patient.diabetes_type ?? "Not recorded"}</p>
-        <p><Link href={`/doctor/${patientId}/summary`}>Open case summary</Link></p>
+        <div className="doctor-intake-demographics"><span>Age: <strong>{record.patient.age ?? "Not recorded"}</strong></span><span>Diabetes: <strong>{record.patient.diabetes_type ?? "Not recorded"}</strong></span><Link href={`/doctor/${patientId}/summary`}>Open case summary <span aria-hidden="true">→</span></Link></div>
       </header>
+      {intake ? (
+        <div id="intake-edit">
+          <ReviewEditForm
+            key={`${intake.id}:${intake.version}`}
+            intake={intake}
+            patient={record.patient}
+            initialNoteRating={noteRatingDisplay}
+          />
+        </div>
+      ) : null}
       <section id="intake-history">
         <h2>Follow-up record history</h2>
         {record.intakes.length ? (
@@ -304,16 +302,18 @@ export default async function DoctorIntakePage({
             {intake.flags.flags.length ? (
               <ul>{intake.flags.flags.map((flag, index) => <li key={indexedKey(flag, index)}>{flagLabel(flag)}</li>)}</ul>
             ) : <p>No rule flags.</p>}
+            {(() => {
+              const suggestion = priorityForIntake(intake.fields, intake.raw_text, intake.meta?.needs_review ?? false);
+              const latestRevision = intake.revisions.find((revision) => revision.revision === intake.version);
+              return <section className="doctor-suggested-priority" aria-label="Suggested priority">
+                <p><strong>Rule-based suggestion:</strong> {suggestion.priority ?? "Not assigned"} <span>({latestRevision?.reason?.includes("Priority source: manual") ? "staff-set priority" : "automatic rules"})</span></p>
+                {suggestion.reasons.length ? <ul>{suggestion.reasons.map((reason, index) => <li key={indexedKey(reason.rule_id, index)}>{reason.text}</li>)}</ul> : null}
+              </section>;
+            })()}
             {intake.unansweredCount ? <p>{intake.unansweredCount} unanswered questions.</p> : null}
             <h3>Submitted patient text</h3>
             <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{intake.raw_text ?? "No text submitted"}</pre>
           </section>
-          <ReviewEditForm
-            key={`${intake.id}:${intake.version}`}
-            intake={intake}
-            patient={record.patient}
-            initialNoteRating={noteRatingDisplay}
-          />
           <section>
             <h2>Revision history for this record</h2>
             <ol>
@@ -354,16 +354,6 @@ export default async function DoctorIntakePage({
               })}
             </ol>
           </section>
-          {intake.doctorNotes.length ? (
-            <section>
-              <h2>Clinician notes</h2>
-              <ul>
-                {intake.doctorNotes.map((note) => (
-                  <li key={note.id}>{note.note_text} — {note.edited_by} · {displayTime(note.created_at)}</li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
         </>
       ) : null}
       <RecordFollowupForm

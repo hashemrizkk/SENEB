@@ -218,9 +218,58 @@ export default function ReviewEditForm({
   }
 
   return (
-    <section style={{ borderTop: "1px solid var(--card-border)", marginTop: 24, paddingTop: 16 }}>
-      <h2>Edit intake and patient information</h2>
-      <p>Saving creates a revision. Staff priority is a decision, not an automatic diagnosis.</p>
+    <section className="doctor-intake-edit-card">
+      <section className="doctor-clinical-note-panel" aria-labelledby="clinician-note-heading">
+        <div className="doctor-clinical-note-heading">
+          <h2 id="clinician-note-heading">Clinician notes</h2>
+        </div>
+        <div className="doctor-edit-note-control">
+          <label htmlFor="clinician-note">Clinician note</label>
+          <textarea
+            id="clinician-note"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            maxLength={4000}
+            placeholder="Add a concise clinical note for the next clinic reviewer…"
+          />
+          <VoiceInput
+            id={`clinician-note-voice-${intake.id}`}
+            label="Dictate clinician note"
+            maxChars={4_000}
+            transcript={noteTranscript}
+            onTranscriptChange={setNoteTranscript}
+            onAppend={(text) => setNote((current) => appendTranscript(current, text, 4_000))}
+            direction="rtl"
+          />
+        </div>
+        <div className="doctor-edit-priority-controls">
+          <label>
+            <span>Queue state</span>
+            <select value={status} onChange={(event) => {
+              if (isStatus(event.target.value)) setStatus(event.target.value);
+            }}>
+              <option value="new">New</option><option value="triaged">Triaged</option><option value="seen">Seen</option>
+            </select>
+          </label>
+          <label>
+            <span>Clinical priority</span>
+            <select value={priority} onChange={(event) => setPriority(event.target.value)}>
+              <option value="">Not assigned</option><option value="urgent">Urgent</option><option value="important">Important</option><option value="normal">Normal</option>
+            </select>
+          </label>
+        </div>
+        {intake.doctorNotes.length > 1 ? (
+          <details className="doctor-previous-notes">
+            <summary>Previous clinician notes ({intake.doctorNotes.length - 1})</summary>
+            <ol>{[...intake.doctorNotes].slice(0, -1).reverse().map((savedNote) => <li key={savedNote.id}><p>{savedNote.note_text}</p><small>{savedNote.edited_by} · {savedNote.created_at ?? "Time unknown"}</small></li>)}</ol>
+          </details>
+        ) : null}
+      </section>
+      <div className="doctor-edit-heading">
+        <div><p className="doctor-eyebrow">Review controls</p><h2>Edit intake and patient information</h2></div>
+        <button className="doctor-save-top" type="button" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+      </div>
+      <p className="doctor-edit-safety-note">Saving creates a revision. Staff priority is a decision, not an automatic diagnosis.</p>
       <label>Patient name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} /></label>
       <label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} maxLength={30} /></label>
       <label>Email<input value={email} onChange={(event) => setEmail(event.target.value)} maxLength={254} /></label>
@@ -260,36 +309,6 @@ export default function ReviewEditForm({
         })}
       </fieldset>
       <label>{followupQuestions[4].label}<textarea value={rawText} onChange={(event) => setRawText(event.target.value)} maxLength={1000} /></label>
-      <label>
-        Queue state
-        <select value={status} onChange={(event) => {
-          if (isStatus(event.target.value)) setStatus(event.target.value);
-        }}>
-          <option value="new">New</option><option value="triaged">Triaged</option><option value="seen">Seen</option>
-        </select>
-      </label>
-      <label>
-        Clinician priority
-        <select value={priority} onChange={(event) => setPriority(event.target.value)}>
-          <option value="">Not assigned</option><option value="urgent">Urgent</option><option value="important">Important</option><option value="normal">Normal</option>
-        </select>
-      </label>
-      <label htmlFor="clinician-note">Clinician note (optional)</label>
-      <textarea
-        id="clinician-note"
-        value={note}
-        onChange={(event) => setNote(event.target.value)}
-        maxLength={4000}
-      />
-      <VoiceInput
-        id={`clinician-note-voice-${intake.id}`}
-        label="Dictate clinician note"
-        maxChars={4_000}
-        transcript={noteTranscript}
-        onTranscriptChange={setNoteTranscript}
-        onAppend={(text) => setNote((current) => appendTranscript(current, text, 4_000))}
-        direction="rtl"
-      />
       {initialNoteRating && initialNoteRating.note === note ? (
         <RatingCircle
           rating={initialNoteRating.rating}
@@ -309,7 +328,7 @@ export default function ReviewEditForm({
         Low-sugar symptoms: {fields.hypoglycemia_symptoms === null ? "not recorded" : fields.hypoglycemia_symptoms ? "reported" : "not reported"}
         {" · "}Emergency symptoms: {fields.emergency_symptoms_mentioned === null ? "not recorded" : fields.emergency_symptoms_mentioned ? "mentioned" : "not mentioned"}
       </p>
-      <button type="button" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+      <button className="doctor-save-bottom" type="button" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
       {mergeNotice ? <p role="status">{mergeNotice}</p> : null}
       {message?.startsWith("Changes saved") ? <p role="status" aria-live="polite">{message}</p> : null}
       {message && !message.startsWith("Changes saved") ? <div ref={errorRef} tabIndex={-1} role="alert" aria-live="assertive"><p>{message}</p>{conflictVersion !== null ? <div><button type="button" onClick={() => router.refresh()}>Discard my edits</button><button type="button" onClick={mergeOntoLatest} disabled={!latestRecord}>Copy my edits onto the latest version</button></div> : null}</div> : null}
