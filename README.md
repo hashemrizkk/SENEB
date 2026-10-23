@@ -1,6 +1,6 @@
-# Seneb
+# SENEB
 
-Seneb, an ancient Egyptian word for “health,” is a demo chronic-care follow-up assistant for diabetes care in Egyptian primary-care clinics.
+SENEB, an ancient Egyptian word for “health,” is a demo chronic-care follow-up assistant for diabetes care in Egyptian primary-care clinics.
 
 It helps patients share follow-up information and helps doctors and nurses turn intake, notes, and follow-up into structured records they can review. AI handles paperwork and reminders; clinic staff make every medical decision.
 
