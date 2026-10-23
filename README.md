@@ -267,11 +267,9 @@ Suggested next steps: obtain clinician and legal review of the screening content
 
 ## 19. Team and hackathon
 
-- Team names: **TODO**
+- Team names: **Hashem Rizk, Ali Assawy, Taqey Ashour, Mohamed El Bana, Omar Helal**
 - Roles: **TODO**
-- Hackathon name and dates: **TODO**
-- Live demo URL: **TODO**
-- Demo video link: **TODO**
+- Hackathon name and dates: **Solve the 17 2.0 October**
 
 ## 20. Contributing
 
