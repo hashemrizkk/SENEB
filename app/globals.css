@@ -341,10 +341,9 @@ a { color: var(--accent-foreground); text-underline-offset: .18em; }
 
 .home-page { min-block-size: 100dvh; padding: 0 24px 48px; background: var(--bg); color: var(--ink); }
 .home-demo-banner { margin: 0 -24px; padding: 8px 16px; background: var(--demo-bg); color: var(--demo-ink); text-align: center; font-size: 15px; line-height: 1.7; }
-.home-header { display: grid; width: calc(100% + 48px); min-height: 78px; grid-template-columns: 1fr auto 1fr; align-items: center; margin-inline: -24px; padding-inline: max(24px, calc((100vw - 600px) / 2)); border-block-end: 1px solid var(--card-border); }
-.home-header::before { content: ""; }
+.home-header { display: grid; width: calc(100% + 48px); min-height: 78px; grid-template-columns: 1fr; align-items: center; justify-items: center; margin-inline: -24px; padding-inline: max(24px, calc((100vw - 600px) / 2)); border-block-end: 1px solid var(--card-border); }
 .home-language-link { justify-self: start; min-height: 44px; display: inline-flex; align-items: center; padding-inline: 16px; border: 1px solid var(--card-border); border-radius: var(--radius-pill); background: var(--bg); color: var(--ink); font-size: 14px; text-decoration: none; cursor: pointer; }
-.home-brand { display: inline-flex; align-items: center; justify-self: center; gap: 8px; color: var(--ink); font-size: 20px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.home-brand { display: inline-flex; align-items: center; justify-self: center; justify-content: center; gap: 8px; color: var(--ink); font-size: 20px; font-weight: 700; text-align: center; text-decoration: none; white-space: nowrap; }
 .home-brand .home-heart { width: 24px; height: 22px; }
 .home-content { width: min(100%, 600px); margin-inline: auto; }
 .home-hero { display: grid; justify-items: center; padding-block: 52px 30px; text-align: center; }

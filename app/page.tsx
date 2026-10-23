@@ -29,7 +29,6 @@ export default async function HomePage({
     <main dir={isArabic ? "rtl" : "ltr"} lang={locale} className="home-page">
       <p className="home-demo-banner">{copy.demoBanner}</p>
       <header className="home-header" dir="ltr">
-        <span aria-hidden="true" />
         <Link href={isArabic ? "/" : "/?lang=en"} className="home-brand" dir={locale}>
           <span>{copy.title}</span>
           <HeartbeatMark />
@@ -39,7 +38,7 @@ export default async function HomePage({
       <div className="home-content">
         <section className="home-hero" aria-labelledby="home-title">
           <HeartbeatMark />
-          <h1 id="home-title">{copy.title}</h1>
+          <h1 id="home-title" lang="en" dir="ltr">Seneb</h1>
           <p>{copy.intro}</p>
         </section>
 
