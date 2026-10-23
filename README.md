@@ -1,288 +1,307 @@
-# Chronic-care follow-up assistant
+# Seneb
 
-A demo of a diabetes follow-up assistant for Egyptian primary-care clinics.
-Patient-facing content is Egyptian Arabic and right-to-left. The AI extracts
-information from free text; clinic staff review it and make every medical
-decision. The included patient records are fictional.
+Seneb, an ancient Egyptian word for “health,” is a demo chronic-care follow-up assistant for diabetes care in Egyptian primary-care clinics.
 
-## Requirements
+It helps patients share follow-up information and helps doctors and nurses turn intake, notes, and follow-up into structured records they can review. AI handles paperwork and reminders; clinic staff make every medical decision.
 
-- Node.js 22.13 or newer
-- npm
+**Demo-grade. Fake data only. Do not enter real patient data.**
 
-## Run locally
+This project was built for the **“Don’t Wait for the Hospital”** hackathon challenge and relates to [UN Sustainable Development Goal 3: Good Health and Well-Being](https://sdgs.un.org/goals/goal3). The IDF Diabetes Atlas 2025 estimates that in 2024, 19.8% of Egyptian adults aged 20–79 had diabetes, 13.2 million adults had diabetes, and 62.0% of cases were undiagnosed. These are population estimates, not app measurements. [IDF Diabetes Atlas, 11th edition, Egypt table](https://diabetesatlas.org/media/uploads/sites/3/2025/10/IDF_Diabetes_Atlas_11th_Edition_2025_WEB.pdf)
 
-```sh
-npm install
-npm run dev
-```
+## Contents
 
-Open `http://localhost:3000/register` to register a demo patient.
-SQLite creates and seeds `hackathon.db` automatically. The database file is
-ignored by Git.
+1. [Overview](#1-overview)
+2. [Why Seneb](#2-why-seneb)
+3. [Features](#3-features)
+4. [Design principles and safety](#4-design-principles-and-safety)
+5. [How it works](#5-how-it-works)
+6. [AI and language models](#6-ai-and-language-models)
+7. [Tech stack](#7-tech-stack)
+8. [Getting started](#8-getting-started)
+9. [Scripts reference](#9-scripts-reference)
+10. [Project structure](#10-project-structure)
+11. [Routes and API](#11-routes-and-api)
+12. [Data model](#12-data-model)
+13. [Testing and quality](#13-testing-and-quality)
+14. [Deployment](#14-deployment)
+15. [Security and privacy](#15-security-and-privacy)
+16. [Accessibility, RTL, and language](#16-accessibility-rtl-and-language)
+17. [Troubleshooting](#17-troubleshooting)
+18. [Limitations and roadmap](#18-limitations-and-roadmap)
+19. [Team and hackathon](#19-team-and-hackathon)
+20. [Contributing](#20-contributing)
+21. [License and acknowledgements](#21-license-and-acknowledgements)
+22. [ملخص بالعربية](#22-ملخص-بالعربية)
 
-## Environment
+## 1. Overview
 
-Copy `.env.example` to `.env.local`.
+### Try it in two minutes
 
-- `GEMINI_API_KEY` - optional; tried first for extraction and summaries.
-- `GROQ_API_KEY` - optional; tried after Gemini if configured.
-- `GOOGLE_GENERATIVE_AI_API_KEY` - legacy alias accepted when
-  `GEMINI_API_KEY` is unset.
-- `DOCTOR_NAME` and `DOCTOR_PASSWORD` - the configured clinician's sign-in
-  credentials. Both must be set to enable named sign-in.
-- `DOCTOR_PASSCODE` - optional legacy shared passcode, used only when neither
-  named credential is configured.
-- `NURSE_NAME` and `NURSE_PASSWORD` - separate credentials for the nurse survey
-  queue at `/nurse`; nurse and doctor sessions use different signed roles.
-- `SESSION_SECRET` - signing key of at least 32 bytes. Generate one with
-  `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`.
-- `NEXT_PUBLIC_SITE_URL` - canonical site origin used by same-origin checks.
-- `HACKATHON_DB_PATH` - optional SQLite path; useful for testing without
-  changing the default `hackathon.db`.
-- `SCREENING_DEMO_MODE` - set to `true` only when intentionally using a draft
-  screening instrument/ruleset for a demo. Local development enables demo
-  scoring by default unless set to `false`; production requires this explicit
-  opt-in. The `/screening` page keeps its demo-only warning visible. This does
-  not approve or activate any clinical configuration.
-- `RESEND_API_KEY` and `RESEND_FROM_EMAIL` - optional server-only Resend
-  settings for nurse survey decision emails. Sending stays disabled unless
-  both are valid. Resend requires a verified sender domain.
+Prerequisites: Node.js 22.13 or later and npm. The app creates a local SQLite database and seeds 15 fictional patients when the database has no patients.
 
-With no LLM keys, the app uses clearly marked mock extraction and flags it for
-clinic review. Gemini is attempted first, followed by Groq when configured.
-Requests have bounded timeouts and SDK retries are disabled so the app controls
-fallback behavior. Rate/quota limits, timeouts, network/server failures, and
-invalid structured output can trigger the fallback. Non-retryable provider
-client errors do not; extraction then produces empty fields marked for staff
-review, and the intake can still be saved. Summary failures use the existing
-code-generated fallback.
+1. Install dependencies: **npm ci**.
+2. Copy **.env.example** to **.env.local**. For a local demo, leave model keys blank; AI-assisted features then use visibly marked mock or fallback behavior. Set **DOCTOR_NAME**, **DOCTOR_PASSWORD**, and a **SESSION_SECRET** with at least 32 characters to sign in to the doctor page.
+3. Start the app with **npm run dev**. The screening preflight runs in warning mode before Next.js starts.
+4. Open **http://localhost:3000/doctor/login**, sign in, and review the fake queue. Or start at **http://localhost:3000/register** to submit a new fictional intake.
+5. For the separate screening walkthrough, open **http://localhost:3000/screening** and follow [SCREENING-DEMO.md](SCREENING-DEMO.md).
 
-The configured models are `gemini-3.8-flash` and `openai/gpt-oss-20b`.
-Provider quotas and prices depend on the provider, model, account, and current
-terms; do not assume either service is unlimited or free. Check the providers'
-current [Gemini pricing and usage terms](https://ai.google.dev/gemini-api/docs/pricing),
-[Gemini rate limits](https://ai.google.dev/gemini-api/docs/rate-limits),
-[Groq model availability and pricing](https://console.groq.com/docs/models),
-and [Groq rate limits](https://console.groq.com/docs/rate-limits) before use.
+**npm run db:reset** is an optional destructive reset. It deletes the local hackathon.db and recreates it with fake data. Do not run it if you need the current local database.
 
-### Third-party data and privacy
+### Status
 
-When an LLM key is configured, extraction sends the patient's free-text answer
-to that provider. Case summaries send age, recorded diabetes type, structured
-intake answers, care-gap values, and the patient's original intake text. Names
-and phone numbers are not included in these LLM payloads. The application logs
-provider names and error classes, not prompt text or provider response bodies.
-Provider requests are external data transfers: Google documents that some
-Gemini free-tier content may be used to improve its products, and provider
-retention/processing terms can change. Review the current terms linked above
-before using any real or sensitive information; this demo is not approved for
-real patient data.
+The intake and doctor-review workflows are implemented as a local demo. The anonymous screening funnel is partial: its clinical configuration and wording remain drafts and the demo warning stays visible. Authentication, persistence, clinical validation, and deployment are not production-ready.
 
-### Voice input
+## 2. Why Seneb
 
-The optional voice widget records audio with `getUserMedia` and `MediaRecorder`
-in browsers that support them; microphone access requires permission and a
-secure context (HTTPS or localhost). Browser recordings are decoded and
-normalized to mono 16 kHz WAV before sending, to avoid codec incompatibility.
-Recordings stop automatically after 30 seconds, are limited to 8 MB, and are
-sent to this app's `/api/voice/transcribe` route only after the user stops
-recording. The route sends audio to Gemini
-(`gemini-3.8-flash`) using the server-side Gemini key and does not persist audio
-or log the transcript. This audio transfer uses provider quota and is subject
-to Google's current processing and retention terms. Do not use real patient
-audio in this demo.
+Diabetes follow-up can involve repeated questions, free-text notes, and records spread across visits. Seneb prototypes a bilingual workflow for patients and Egyptian primary-care teams: capture what the patient reports, structure it for review, and keep clinic decisions with people. It supports the hackathon challenge “Don’t Wait for the Hospital” by demonstrating a community screening and follow-up path. The Atlas estimates above are context for the challenge, not evidence that this prototype improves health outcomes.
 
-Choose a language hint (`ar-EG`, `ar`, or `en-US`); it is not a guarantee of
-accurate dialect recognition or code-switching. The user can review/edit the
-returned transcript and must press **أضف إلى الحقل** before inserting it; the
-form is never auto-submitted. After insertion and ordinary form submission,
-the text follows the existing patient text processing and storage flow. The
-standalone `/voice-demo` uses synthetic sample phrases and reports an
-approximate character error rate (CER), ignoring spaces, punctuation, and
-Arabic diacritics for that estimate; it does not save a transcript.
+## 3. Features
 
-With named credentials configured, both the clinician's name and password are
-verified before the name is recorded with edits. The legacy shared passcode
-does not independently verify a clinician's identity.
-This is a demo authentication mechanism, not a production patient-data
-security system.
+“Implemented” means the workflow exists in this repository. It does not mean clinically approved or production-ready.
 
-## Checks
+### Patient side
 
-```sh
-npm run typecheck
-npm run lint
-npm run build
-npm run test:doctor
-npm run test:summary
-npm run test:providers
-npm run test:voice
-npm run test:voice-api
-npm run test:audio-wav
-npm run smoke:summary
-```
+| Status | Feature |
+| --- | --- |
+| Implemented | Arabic-first registration and follow-up intake, with Arabic and English interface text. |
+| Implemented | Tap answers, free text, and optional voice dictation with transcript review before insertion. |
+| Partial | Anonymous screening flow, risk bands, safety escalation, demo locations, self-reported results, and a clinician review queue. Clinical content is placeholder data. |
+| Partial | Consent-gated contact sharing in the screening funnel. No actual laboratory or booking integration exists. |
+| Partial | Legacy /survey redirects to /screening; earlier survey APIs and nurse queue remain for old demo records. |
 
-### Screening diagnostics
+### Doctor and clinic side
 
-Run `npm run screening:check` to verify the database path, screening schema,
-scoring configuration, red-flag ruleset, Arabic and English content blocks,
-and audit hash chain. At dev-server startup it runs in warning mode, so a
-failed preflight does not prevent the app from starting. In demo mode, one
-valid draft instrument and one valid draft ruleset may be used with the warning
-visible; production should use clinician-approved and admin-activated records.
+| Status | Feature |
+| --- | --- |
+| Implemented | Gated doctor intake queue, patient record, status and priority editing, follow-up history, and revision history. |
+| Implemented | Case summaries combining code-checked facts and optional model-written narrative. |
+| Implemented | Visit-note completeness checks, doctor dictation, and session recording with reviewable transcript and summaries. |
+| Partial | Separate nurse queue for legacy survey records and optional decision emails. |
+| Partial | Staff screening funnel, result review, and entered-care handoff; authentication is demo-grade. |
+| Planned | Durable hosted database, production authentication, real clinic/lab integrations, and clinician-approved screening content. |
 
-Run `npm run debug:screening -- --new` to create a synthetic screening session
-and trace each API/database stage. To inspect an existing session without
-printing the full id, run `npm run debug:screening -- <session-id>`; output
-redacts the id to its first six characters and does not print answers or cookie
-values.
+## 4. Design principles and safety
 
-For a manual voice check, set `GEMINI_API_KEY` in `.env.local`, restart the
-server, and open `/voice-demo` in a browser over localhost or HTTPS. Choose a
-synthetic phrase, allow microphone access, speak, press **إيقاف وإرسال للتحويل**,
-and compare the editable transcript with the reference. This sends the
-recording to Gemini and may use API quota. Also confirm the typing fallback
-works and that no form is submitted automatically. Test `/register` and
-without replacing existing typed text. Automated tests do not exercise a live
-microphone or Gemini request.
+- The language model extracts information the patient actually stated. Missing information stays null. It does not diagnose, score, or give treatment advice.
+- Screening scores, intake red flags, note checks, and suggested priorities are computed by application code. Screening itself does not call an LLM.
+- Patients do not receive doctor-side flags, queue priority, or clinical interpretation. Patient pages show their own form and screening guidance.
+- Patient submissions are retained. Clinician changes create revisions with snapshots and changed-field metadata.
+- AI-generated output is reviewed by staff. Mock output is labelled. If generation fails, the app uses a labelled fallback or leaves fields for review.
+- The screening instrument, risk bands, safety rules, result categories, translations, consent wording, and locations are drafts. Do not use them for real care.
 
-To manually check provider priority, configure both provider keys in a local
-`.env.local`, submit fictional test text, then check intake review metadata to
-confirm Gemini is used when it succeeds. For fallback, temporarily use a
-deliberately invalid Gemini key with a valid Groq key and check that extraction
-uses Groq. Do not put keys in `.env.example`, commit them, or use real patient
-data for this test.
+More detail and limitations are in [SCREENING.md](SCREENING.md).
 
-Start the dev server in one terminal, then run the HTTP regression tests in a
-second terminal:
+## 5. How it works
 
-```sh
-npm run test:register
-```
+A patient submits the registration or intake form. The server validates it, combines explicit tap answers with extracted free text, computes flags with ordinary code, stores the result and its provenance, and adds it to the doctor queue. A clinician reviews the original report, any extracted fields, and flags, then records edits as a new revision.
 
-`npm run test:register` uses fictional records and creates test rows in the
-local database. `npm run test:doctor` uses an isolated in-memory database to
-check migration repeatability, legacy queue import, revisions, edit conflicts,
-and role-separated signed sessions; it does not reset or write `hackathon.db`.
-`npm run test:nurse` uses and removes a uniquely named temporary SQLite file
-to test survey submission idempotency, nurse decisions, and mocked email sending.
-`npm run db:check` prints database counts. `npm run db:reset` deletes and
-recreates the local database with 15 fictional patients; do not run it if you
-need to preserve local data.
+The screening funnel is a separate workflow. It stores an anonymous session, consent, answers, and a versioned assessment; it can route self-entered results to clinic review. The screening seed uses draft configurations and synthetic locations.
 
-## Routes
+Four diagrams, checked against the route handlers, LLM functions, and SQLite schema: [architecture and flow diagrams](docs/architecture.md).
 
-- `/register` - patient registration and first follow-up
-- `/screening` - Arabic-first anonymous risk-band funnel with a safety gate and test navigation; clinical content is a placeholder
-- `/survey` - redirects to `/screening`; the old AUSDRISK submission endpoints and nurse queue remain for previously submitted demo records
-- `/voice-demo` - browser voice-input demo with synthetic phrases and approximate CER
-- `/api/register` and `/api/intake` - validated, same-origin POST endpoints
-- `/api/voice/transcribe` - same-origin, size-limited Gemini audio transcription endpoint
-- `/api/health` - database availability check
-- `/doctor/login` - staff sign-in
-- `/doctor` - intake review queue with new, triaged, and all filters
-- `/nurse/login` and `/nurse` - legacy nurse review for previously submitted survey records
-- `/staff` - demo-grade screening staff sign-in
-- `/staff/reviews` and `/staff/funnel` - screening clinician review queue and synthetic funnel metrics
-- `/screening/locations` and `/screening/summary` - demo testing locations and printable referral summary
-- `/doctor/[patientId]?intakeId=<id>` - patient record, follow-up history,
-  selected intake details, editable questionnaire, staff notes, status/priority,
-  and revision history
-- `/doctor/[patientId]/summary` - staff case-summary view and history
-- `/admin/intakes` - recent intakes, server-computed flags and review metadata
-- `/admin/summaries` - latest 20 generated summaries for developer checks
+## 6. AI and language models
 
-The patient screens never show flags or medical interpretation. Red flags and
-unanswered questions are computed by plain code on the server.
+| Component | What it does | Provider and configured model |
+| --- | --- | --- |
+| Intake extraction | Extracts structured fields from patient free text. | Gemini gemini-3.8-flash, then Groq using the runtime value in GROQ_MODEL. |
+| Case summaries | Writes a short narrative from supplied patient facts. Code verifies proposed highlights and computes suggested priority. | Groq using GROQ_MODEL; no Gemini attempt in this component. |
+| Note checks and visit-session summaries/roles | Checks note completeness or produces draft structured wording for staff review. | Groq using GROQ_MODEL. |
+| Survey copy, follow-up-plan, and patient-recap drafts | Produces draft structured wording for review. | Configured text provider sequence. |
+| After-work note rating | Checks clinician-note completeness and profile gaps with quote validation. | Configured text provider sequence; deterministic fallback for unsupported input. |
+| Patient voice dictation | Transcribes reviewed patient audio. | Gemini STT_GEMINI_MODEL or default gemini-3.8-flash; Groq whisper-large-v3 is the fallback. |
+| Doctor note dictation | Transcribes a clinician’s dictated note. | Gemini only. |
+| Session recording | Transcribes chunks, then labels speaker roles for clinician confirmation. | Gemini configured by STT_GEMINI_MODEL; a fallback transcript may be unattributed. |
+| Screening scoring and red flags | Deterministic rules over answers and draft config. | No LLM. |
 
-### Screening funnel — Phase 1 demo
+Generation uses temperature 0, bounded timeouts, structured output schemas, and server-side validation. Intake text is treated as untrusted data. With no configured provider, intake extraction uses labelled mock extraction; a failed provider path marks fields for review. Summary and note paths may use code-only or mock output, which is labelled in the UI and database.
 
-The former `/survey` page now redirects to the replacement `/screening` funnel. The legacy AUSDRISK APIs and nurse queue remain available for earlier demo submissions, but are no longer the patient entry point. The replacement uses a data-driven 0–26 FINDRISC form, deterministic scoring, risk bands only, a red-flag gate, a symptom modifier, demo test locations, printable summaries, and unverified result entry to a clinician queue. The screening and result paths do not call an LLM.
+Voice recording uses the browser microphone and MediaRecorder, converts recordings to mono 16 kHz WAV, and sends audio after the user stops recording. Long doctor sessions rotate into 45-second chunks; patient form clips have a shorter time limit. The server validates WAV structure and size before provider calls. Users review/edit transcript text before adding it to a field; a submission does not happen automatically. Recordings are not stored in the app database. Provider terms and quota apply.
 
-This is not a diagnosis or emergency service. The 8-item FINDRISC form is the legacy version reproduced in [NICE evidence materials](https://www.nice.org.uk/guidance/ph38/evidence/ep2-implementing-diabetes-prevention-programmes-jaakko-tuomilehto-pdf-435077533), based on Lindström and Tuomilehto (2003; [DOI](https://doi.org/10.2337/diacare.26.3.725)). The Finnish Diabetes Association's current page now describes a broader combined test. Reproduction and translation terms were not clear in the reviewed public sources. The tool is not validated or calibrated for the Egyptian population. Bands only.
+To change the text-generation provider, set GEMINI_API_KEY or both GROQ_API_KEY and GROQ_MODEL in the server environment. The primary extraction model is a code constant. To change the speech model, set STT_GEMINI_MODEL. No model-accuracy or latency benchmark is established here; evaluation scripts use synthetic examples and are smoke checks, not evidence of clinical accuracy. Provider pricing and free tiers change, so check [Gemini pricing and rate limits](https://ai.google.dev/gemini-api/docs/pricing) and [Groq models and limits](https://console.groq.com/docs/models) before enabling external calls. Cost has not been measured; provider cost is an estimate that depends on model, token/audio usage, and current account terms.
 
-### Screening safety, placeholder items, and limits
+Live Gemini/Groq calls and browser microphone capture were not run for this documentation update; those paths remain unverified.
 
-FINDRISC points and cutpoints, product band mapping, symptom modifier, red-flag checklist, emergency number, test-result categories, all Arabic/English patient wording, consent text, and demo locations are placeholders requiring clinician, legal, or rights-holder review. No clinical item is approved by default. An emergency phone number remains unset; the screen instructs users to call their local emergency number. All test locations and funnel seed records are fake. Self-entered results are unverified and routed for clinician review. The result is not a diagnosis; clinicians must make medical decisions.
+More provider behavior and guardrails: [AI and voice details](docs/ai-and-voice.md).
 
-See [SCREENING.md](SCREENING.md) for setup, source and licensing notes, roles, privacy/deletion, scoring scripts, and current limitations. See [SCREENING-DEMO.md](SCREENING-DEMO.md) for the read-aloud demo. Set `SCREENING_*_USERNAME` / `SCREENING_*_PASSWORD` values in `.env.local` to seed demo staff users. Staff authentication is demo-grade and not production-ready.
+## 7. Tech stack
 
-The screening funnel collects contact details only under separate results-sharing consent. Test completion is not verified, and there is no reminder delivery or laboratory integration. A clinician can create a new patient and blank intake from a review when contact consent exists; the person's follow-up workflow is then visible in `/doctor`. Phase 2 has not started.
+Versions below are declared in package.json; caret (^) means npm may resolve a compatible later minor or patch version.
 
-## Doctor review workflow
+| Package | Declared version |
+| --- | --- |
+| Next.js | 16.4.2 |
+| React / React DOM | 19.3.0 |
+| TypeScript | ^5 |
+| Zod | ^4.6.7 |
+| better-sqlite3 | ^13.0.3 |
+| Vercel AI SDK | ^7.0.148 |
+| Google AI SDK provider | ^4.0.102 |
+| Groq AI SDK provider | ^4.0.67 |
+| ESLint / eslint-config-next | ^9 / 16.4.2 |
 
-1. Set `DOCTOR_NAME`, `DOCTOR_PASSWORD`, and a randomly generated
-   `SESSION_SECRET` in `.env.local`. Keep `.env.local` private and never commit
-   real credentials; generate the session secret with the command above.
-2. Start the app and open `/doctor/login`; sign in with fictional staff details.
-3. Submit a fake patient registration through `/register`. It should appear in
-   `/doctor` and refresh automatically.
-4. Open a patient record. Use **Record a new clinic follow-up** to add a
-   separate follow-up record, then select it from the record history. This
-   appends a record without replacing registration or earlier follow-ups.
-   Existing records can also be edited; those changes create a revision on the
-   selected record. Add an optional note and reason when editing, then confirm
-   the revision history shows the saved edit and staff note. Open the same
-   intake in another tab before editing to check that a stale edit reports a
-   conflict and keeps its unsaved text.
-5. Sign out and confirm `/doctor` returns to sign-in. Registration remains
-   available without staff authentication; follow-up recording is doctor-side.
+Node.js 22.13 or newer is the version stated by the existing setup notes; Next.js itself declares Node.js >=20.9.0. This repository has no .nvmrc or engines field.
 
-Doctor-review migrations are additive and preserve legacy queue tables. Old
-records receive a clearly marked reconstructed snapshot, not a claimed copy of
-their original submission. Existing registration data may store a yes/no
-low-sugar answer as a count of 1 or 0; the original yes/no meaning cannot be
-recovered from that value.
+## 8. Getting started
 
-## Case summary
+### Prerequisites and setup
 
-The staff case-summary page combines intake answers, the patient's original
-text, care-gap dates, keyword matches, verified highlights, and a short
-narrative. Regenerating a summary creates a new immutable row; it does not
-change the intake, the patient's record, or a queue.
+| Requirement | Version or purpose |
+| --- | --- |
+| Node.js | 22.13+ recommended by the project setup; see version note above. |
+| npm | Use the version bundled with your Node installation. |
+| Native build tools | Needed if npm cannot use a prebuilt better-sqlite3 binary. |
 
-- `/doctor` lists submitted intakes and assigned staff priorities.
-- `/doctor/[patientId]/summary` shows the case summary, suggested priority, and
-  the last five summaries.
-- `/admin/summaries` is a developer check page, not for patients.
-- Run `npm run test:summary` for pure-function and in-memory pipeline tests.
-- Run `npm run smoke:summary` for end-to-end cases using fake intake rows.
+Clone this repository from its Git remote, then run the install from the project root:
 
-Plain code decides the suggested priority. The LLM only writes the narrative
-and proposes display-only highlights; code verifies every quoted highlight,
-value, and AI inconsistency against the patient's original text. Staff make
-every final decision. With no provider keys configured, summaries use clearly
-marked mock text; a provider failure is recorded as a code-only fallback.
+    npm ci
 
-### Known limitations
+Copy .env.example to .env.local. The sample file contains variable names only. Do not add keys to Git.
 
-- In-visit session recording is a demo feature. Before any real use, the clinic
-  must check recording laws, consent rules, and local clinic policy. Spoken names
-  cannot be reliably removed from audio or transcripts. Use fake data only.
-- Session recording requires `STT_GEMINI_MODEL` to be configured. Audio is not
-  stored by the application; session transcript text is stored after processing.
+| Variable | Required? | Purpose | Where to get it | If missing |
+| --- | --- | --- | --- | --- |
+| GEMINI_API_KEY | Optional | Server-side Gemini calls for extraction and transcription. | Google AI Studio | Text extraction uses mock or fallback; voice may use Groq or labelled mock, except doctor dictation requires Gemini. |
+| GROQ_API_KEY | Optional | Groq fallback for extraction and patient transcription; Groq-backed summaries/checks. | Groq Console | Those paths use another configured path, mock, or fallback. |
+| GROQ_MODEL | Required with Groq | Exact Groq text model id, selected by the deployer. | Choose an available model in Groq documentation | Groq text tasks are not configured. |
+| STT_TIMEOUT_MS | Optional | Speech provider timeout in milliseconds; default 90000, maximum accepted 120000. | Choose a numeric server setting | Default timeout applies. |
+| STT_GEMINI_MODEL | Optional | Gemini speech/session model id. | Choose a model available to your Google AI account | Speech defaults to gemini-3.8-flash; session recording expects a configured model. |
+| DOCTOR_NAME, DOCTOR_PASSWORD | Optional pair | Named clinician sign-in. | Set fictional local demo credentials | If unset, legacy passcode may be used; auth is demo-grade. |
+| DOCTOR_PASSCODE | Optional legacy | Shared doctor gate if named credentials are both unset. | Set a local demo passcode | Doctor sign-in has no configured credential. |
+| NURSE_NAME, NURSE_PASSWORD | Optional pair | Separate legacy nurse sign-in. | Set fictional local demo credentials | Nurse queue sign-in is unavailable. |
+| SESSION_SECRET | Required for signed sessions | Server-side signing secret; use at least 32 random bytes. | Generate it with the command below | Signed staff and screening sessions cannot operate correctly. |
+| NEXT_PUBLIC_SITE_URL | Optional | Expected origin for same-origin request checks. | Use the local or deployed app origin | Local default is http://localhost:3000. |
+| HACKATHON_DB_PATH | Optional | Local SQLite database path, mainly for isolated tests. | Choose a local file path | Uses hackathon.db in the project directory. |
+| DEMO_COOLDOWN_OFF | Optional | Set to 1 for a roughly one-second summary regeneration cooldown in demos. | Set only in a local demo environment | Normal cooldown applies. |
+| RESEND_FROM_EMAIL | Optional | Sender for nurse survey decision emails. | Use a verified Resend sender domain | Email sending should remain disabled. The code also expects a provider API key that is missing from the sample environment file; see report. |
+| CRON_SECRET | Optional | Shared bearer secret for the scheduled reminder endpoint. | Generate a random secret and configure it in deployment | Vercel cron requests are rejected unless a doctor session is supplied. |
+| SCREENING_NAVIGATOR_USERNAME, SCREENING_NAVIGATOR_PASSWORD | Optional pair | Seed screening navigator account. | Set fictional local demo credentials | No navigator account is seeded. |
+| SCREENING_CLINICIAN_USERNAME, SCREENING_CLINICIAN_PASSWORD | Optional pair | Seed screening clinician account. | Set fictional local demo credentials | No clinician account is seeded. |
+| SCREENING_ADMIN_USERNAME, SCREENING_ADMIN_PASSWORD | Optional pair | Seed screening admin account. | Set fictional local demo credentials | No admin account is seeded. |
+| SCREENING_DEMO_MODE | Optional | Explicitly enable placeholder scoring in production; local development defaults to demo mode. | Set to true only for an intentional demo deployment | Draft scoring is unavailable in production; demo warning remains visible when demo mode is enabled. |
 
-- Rules, tiers, and thresholds are placeholders and must be reviewed by a
-  clinician before any real use.
-- The starter keyword list has not been clinically reviewed.
-- Substring matching can over-flag.
-- Nearby negation is annotated for staff but never trusted to lower a tier.
-- The LLM can be wrong; quoted items are checked against the original text.
-- Voice recognition is browser-dependent, may use a third-party speech service,
-  and requires transcript review; it is not a medical transcription guarantee.
-- Suggested priority is advice only, not a clinical decision or queue
-  assignment. Queue priority is set by clinic staff.
+Generate a local session secret without printing it into project files:
 
-## Deployment note
+    node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 
-The current database is a local SQLite file under the app directory. Vercel's
-serverless filesystem is not durable, and its deployed filesystem must not be
-treated as writable persistent storage. On Vercel, writes may fail or appear to
-work only temporarily/on one function instance; registrations and intakes can
-be lost. Do not use this setup with real patient data.
+Start the local server with npm run dev. The command first runs the screening check in warning mode. For a production-like local run, use npm run build then npm run start.
 
-The smallest durable migration is a hosted SQLite-compatible service such as
-Turso, keeping the query and transaction boundary in `lib/db.ts`. Hosted
-Postgres is another option but requires a larger SQL adaptation. The project
-has not been switched to either database.
+## 9. Scripts reference
+
+The [scripts reference](docs/scripts.md) lists every npm script from package.json, its purpose, and when to use it. Use fake data. npm run db:reset deletes the local database. Some HTTP journeys need an already running server; live provider scripts need configured keys.
+
+## 10. Project structure
+
+    app/                  Next.js patient, doctor, nurse, staff, admin, and API routes
+    components/           Shared forms, voice input, language switcher, screening UI
+    data/screening/       Versioned screening instrument and demo content
+    lib/                  SQLite, validation, rules, LLM/audio, review, and workflow logic
+    scripts/              Database tools, seeds, diagnostics, tests, and evaluations
+    state/                App-owned local state support
+    ui-evidence/          UI quality evidence and checks
+    docs/                 Architecture, AI, data, routes, and script references
+    SCREENING.md           Screening design, sources, caveats, and privacy notes
+    SCREENING-DEMO.md      Screening walkthrough for a demo
+    THEME.md               UI theme notes
+    AGENTS.md              Repository and safety instructions for contributors
+
+## 11. Routes and API
+
+The route inventory includes page routes, API endpoints, caller roles, access gates, and purpose: [routes reference](docs/routes.md). Doctor, nurse, admin, and screening staff pages use their respective server-side gates. Patient registration and anonymous screening are public. The developer/admin pages are doctor-gated; do not expose them as public tools.
+
+## 12. Data model
+
+The app stores patient records, intakes, notes, follow-ups, messages, revisions, summaries, visit sessions, and the screening workflow in SQLite. The full table list, important columns, revision strategy, input provenance, and migration behavior are in [data model](docs/data-model.md). SQL is centralized in lib/db.ts and lib/schema.sql.
+
+## 13. Testing and quality
+
+Run the fast, local checks:
+
+    npm run typecheck
+    npm run lint
+    npm run test:doctor
+    npm run test:summary
+    npm run test:screening
+    npm run test:voice
+    npm run test:audio-wav
+    npm run build
+
+HTTP and end-to-end scripts need a local server and synthetic credentials. Provider tests marked live require valid provider keys and can use quota. See the [scripts reference](docs/scripts.md) for each suite and prerequisites. These fixtures are synthetic smoke tests, not proof of clinical accuracy or model reliability. Extraction and role evaluation are meaningful only with the configured real providers; mock-mode output is not an accuracy measurement.
+
+## 14. Deployment
+
+The current code uses better-sqlite3 with a local file. **The deployed app does not reliably persist data on Vercel.** Vercel Function filesystems are ephemeral and instances do not share a durable SQLite file. A hosted database and a tested database adapter are required before deployment with any real workflow data. [Vercel SQLite guidance](https://vercel.com/kb/guide/is-sqlite-supported-in-vercel)
+
+For a demo-only deployment, import the repository into Vercel, add server-side environment values, deploy, and verify the health route. Do not treat a successful deployment as durable storage. The repository has a scheduled hourly route in vercel.json; configure CRON_SECRET and confirm the deployed cron setup. SQLite persistence remains unresolved.
+
+No live Vercel deployment was available during this update; deployed behavior remains unverified.
+
+The voice endpoint accepts audio of up to 8 MiB for doctor notes and 4 MiB for patient transcription at the app layer. Vercel documents a 4.5 MB request/response body limit, so doctor-note uploads above that platform limit will be rejected before reaching this route. Long-running endpoints set code-level durations, but Vercel plan limits still apply. Verify current [request limits](https://vercel.com/docs/functions/limitations) and [function duration](https://vercel.com/docs/functions/configuring-functions/duration) for the target project; Vercel has announced longer durations for some plans, but this app does not configure a deployment-specific duration policy. [Vercel deployment notes](docs/deployment.md)
+
+## 15. Security and privacy
+
+The app handles names, contact details, health-related intake text, structured answers, clinician notes, audio in transit, and screening responses. SQLite stores patient records, notes, derived fields, revisions, review metadata, and screening records. Audio is sent to the configured speech provider and is not saved in the app database. Text and audio sent to external model providers are subject to those providers' processing and retention terms. Optional email and WhatsApp integrations use Resend and Twilio when configured; their provider settings are not fully represented in the sample environment file.
+
+The speech widget displays a consent notice before microphone access; the screening flow records consent for its stated purposes. These are demo flows, not legal approval. Doctor and staff access gates are prototype authentication, not production identity management. Do not use real patient data. See [security and data flow notes](docs/ai-and-voice.md#privacy-and-provider-transfers) and [SCREENING.md](SCREENING.md).
+
+## 16. Accessibility, RTL, and language
+
+The root document defaults to Arabic, right-to-left. The shared language switcher supports English and Arabic on supported pages; individual forms and question copy use lib/strings.ar.ts and lib/questions.ts. Patient pages are Arabic-first. When adding a question, update the question registry and translations, then check patient, doctor, and admin surfaces. When adding a language, add its string dictionary and connect it to the language switcher and page-level locale handling. The repository includes contrast and direction checks; passing them is not a complete accessibility audit.
+
+## 17. Troubleshooting
+
+| Problem | What to try |
+| --- | --- |
+| better-sqlite3 install or build fails | Use a supported Node release and install the platform's native build tools; then rerun npm ci. |
+| Wrong or unsupported Node version | Use Node.js 22.13 or newer for this project's setup. Next.js package metadata requires at least 20.9. |
+| Missing model key | Intake uses labelled mock extraction or a review-required fallback. Set a provider key for real provider calls. |
+| Microphone is unavailable | Use localhost or HTTPS, allow microphone permission, and use a browser that supports MediaRecorder. Typing remains available. |
+| Audio upload is rejected as too large | Shorten the clip. App caps are 4 MiB for patient audio and 8 MiB for doctor notes; Vercel caps the request body at 4.5 MB. |
+| Doctor queue looks stale | Doctor pages are dynamic and refresh periodically; reload once, check server/database status, and confirm requests point to the same local SQLite file. |
+| Screening shows a demo warning or result unavailable | Run npm run screening:check; draft configurations are demo-only and warning visibility is intentional. |
+| A reset would delete local work | Do not run npm run db:reset; it removes hackathon.db and its WAL/SHM files. |
+
+## 18. Limitations and roadmap
+
+Implemented behavior still needs clinic and security review before any real use. Screening instrument permission, Egyptian clinical validation, thresholds, emergency wording, result categories, and translations are unresolved. Staff sign-in is demo-grade. Vercel SQLite persistence is not durable. Real testing locations, lab integrations, reminder delivery, and production monitoring are not present. Model quality and time saved have not been measured. Synthetic tests do not establish safety or accuracy.
+
+Suggested next steps: obtain clinician and legal review of the screening content; choose durable hosted storage and adapt the database layer; conduct security and privacy review; then run usability and language review with intended users. These are suggestions, not implemented work.
+
+## 19. Team and hackathon
+
+- Team names: **TODO**
+- Roles: **TODO**
+- Hackathon name and dates: **TODO**
+- Live demo URL: **TODO**
+- Demo video link: **TODO**
+
+## 20. Contributing
+
+Read [AGENTS.md](AGENTS.md) before making changes. Work on the current branch, keep changes focused, use descriptive commits, and run the narrowest relevant checks followed by the broader checks above. Never use real patient information in examples, tests, seeds, or screenshots.
+
+## 21. License and acknowledgements
+
+License: **TODO — confirm the intended project license before publishing.** A LICENSE file exists in the repository; its terms should be confirmed by the project owner before release.
+
+Sources and services used include the [International Diabetes Federation Diabetes Atlas](https://diabetesatlas.org/), [NICE evidence materials for legacy FINDRISC](https://www.nice.org.uk/guidance/ph38/evidence/ep2-implementing-diabetes-prevention-programmes-jaakko-tuomilehto-pdf-435077533), Google Gemini, Groq, Resend, Twilio, Next.js, React, and better-sqlite3. See SCREENING.md for instrument sourcing and licensing notes.
+
+## 22. ملخص بالعربية
+
+سِنِب أداة تجريبية لمتابعة مرض السكري في وحدات الرعاية الأولية بمصر.
+تساعد المريض على إرسال معلومات المتابعة، وتعرضها للفريق الطبي في سجل منظم.
+يمكن للأداة تحويل النص والصوت إلى معلومات قابلة للمراجعة.
+الذكاء الاصطناعي يساعد في الأعمال الورقية فقط؛ والقرارات الطبية للفريق البشري.
+المحتوى الطبي والتقييمات ما زالت تجريبية وتحتاج إلى مراجعة واعتماد.
+استخدم بيانات وهمية فقط، ولا تدخل بيانات مرضى حقيقية.
+
+**مراجعة متحدث أصلي للعربية مطلوبة قبل النشر.**
+
+### Screens
+
+| Route | What it shows |
+| --- | --- |
+| /register | Arabic-first patient registration and intake. |
+| /doctor | Clinic intake review queue. |
+| /doctor/[patientId]/summary | Case summary and session history. |
+| /screening | Anonymous screening demo. |
+| /staff/reviews | Screening result review queue. |
+
+<!-- Add approved, synthetic-data screenshots for the routes listed above. -->
