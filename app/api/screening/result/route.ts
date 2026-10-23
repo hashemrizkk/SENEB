@@ -64,6 +64,26 @@ function isCanonicalConfig(config: z.infer<typeof configSchema>): boolean {
       && expected.options.every((option, optionIndex) => actual.options[optionIndex]?.id === option.id && actual.options[optionIndex]?.points === option.points);
   });
 }
+function hasRequiredAnswers(session: Record<string, unknown>): boolean {
+  const versionId = typeof session.scoring_version_id === "string" ? session.scoring_version_id : null;
+  const version = versionId ? scoringVersionById(versionId) : undefined;
+  if (!version) return false;
+  let clinicalConfig: z.infer<typeof configSchema>;
+  try { clinicalConfig = configSchema.parse(JSON.parse(version.config_json)); }
+  catch { return false; }
+  if (!isCanonicalConfig(clinicalConfig)) return false;
+  const stored = getScreeningResponses(String(session.id));
+  const requiredIds = [...clinicalConfig.items.map((item) => item.id), ...symptoms.items.map((item) => item.id)];
+  const required = new Set(requiredIds);
+  const answers = Object.fromEntries(stored.map((answer) => [answer.question_id, answer.option_id]));
+  return stored.length === required.size
+    && requiredIds.every((id) => typeof answers[id] === "string")
+    && stored.every((answer) => required.has(answer.question_id));
+}
+function incompleteResult(stage: string): Response {
+  recordScreeningResultUnavailable(stage, "answers_incomplete");
+  return NextResponse.json({ ok: false }, { status: 409 });
+}
 function errorReason(stage: string, error: unknown): ScreeningUnavailableReason {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
   if (error instanceof Error && error.name === "ScreeningAuditWriteError") return "audit_error";
@@ -106,6 +126,7 @@ export async function POST(request: Request): Promise<Response> {
   const locale = isLocale(session.locale);
   if (!emptySchema.safeParse(await request.json().catch(() => null)).success) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   if (session.status === "completed") {
+    if (!hasRequiredAnswers(session)) return incompleteResult("completed_answers");
     const existing = getScreeningSummary(String(session.id));
     return existing ? responseFromSummary(existing, locale, true, String(session.id)) : failure(locale, "completed_summary", "database_error");
   }
@@ -130,7 +151,7 @@ export async function POST(request: Request): Promise<Response> {
   const stored = getScreeningResponses(String(session.id));
   const map = Object.fromEntries(stored.map((answer) => [answer.question_id, answer.option_id]));
   const requiredIds = [...clinicalConfig.items.map((item) => item.id), ...symptoms.items.map((item) => item.id)];
-  if (requiredIds.some((id) => typeof map[id] !== "string")) return failure(locale, "answers_loaded", "answers_incomplete");
+  if (requiredIds.some((id) => typeof map[id] !== "string")) return incompleteResult("answers_loaded");
   const expectedIds = new Set(requiredIds);
   if (stored.some((answer) => !expectedIds.has(answer.question_id))) return failure(locale, "answer_validation", "answer_invalid_for_version");
   const invalidInstrumentAnswer = clinicalConfig.items.find((item) => !item.options.some((option) => option.id === map[item.id]));
@@ -182,7 +203,8 @@ export async function GET(request: Request): Promise<Response> {
     const code = tokenFromRequest(request) ? "session_not_found" : "session_cookie_missing";
     return unavailable("session_lookup", code);
   }
-  if (session.status !== "completed") return unavailable("session_completion", "answers_incomplete");
+  if (session.status !== "completed") return incompleteResult("session_completion");
+  if (!hasRequiredAnswers(session)) return incompleteResult("answers_loaded");
   try {
     const summary = getScreeningSummary(String(session.id));
     if (!summary) return unavailable("summary_lookup", "database_error");

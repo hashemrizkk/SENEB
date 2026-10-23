@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import instrument from "@/data/screening/findrisc-0.2.json";
 import symptoms from "@/data/screening/symptom-modifier.json";
@@ -18,27 +18,66 @@ const labels:Record<Locale,Record<string,string>>={
 const fallbackSafety={en:"If you feel very unwell, seek urgent care now. Call your local emergency number.",ar:"إذا كنت تشعر بتوعك شديد، اطلب رعاية عاجلة الآن. اتصل برقم الطوارئ المحلي."};
 function block(key:string,locale:Locale){return content.find((item)=>item.key===key&&item.locale===locale)?.body??content.find((item)=>item.key==="safe_fallback"&&item.locale===locale)?.body??labels[locale].error;}
 export default function ScreeningWizard({initialLocale="ar"}:{initialLocale?:Locale}){
- const router=useRouter();const [locale,setLocale]=useState<Locale>(initialLocale);const [screen,setScreen]=useState<Screen>("landing");const [consent,setConsent]=useState(false);const [selectedFlags,setSelectedFlags]=useState<string[]>([]);const [answers,setAnswers]=useState<Record<string,Answer>>({});const [symptomIndex,setSymptomIndex]=useState(0);const [questionIndex,setQuestionIndex]=useState(0);const [height,setHeight]=useState("");const [weight,setWeight]=useState("");const [waist,setWaist]=useState("");const [rules,setRules]=useState<{id:string;label:string}[]>([]);const [emergencyNumber,setEmergencyNumber]=useState<string|null>(null);const [result,setResult]=useState<Result|null>(null);const [busy,setBusy]=useState(false);const [error,setError]=useState("");const [safetyText,setSafetyText]=useState(fallbackSafety[initialLocale]);
+ const router=useRouter();const progressRequestAllowed=useRef(true);const [locale,setLocale]=useState<Locale>(initialLocale);const [screen,setScreen]=useState<Screen>("landing");const [consent,setConsent]=useState(false);const [selectedFlags,setSelectedFlags]=useState<string[]>([]);const [answers,setAnswers]=useState<Record<string,Answer>>({});const [symptomIndex,setSymptomIndex]=useState(0);const [questionIndex,setQuestionIndex]=useState(0);const [height,setHeight]=useState("");const [weight,setWeight]=useState("");const [waist,setWaist]=useState("");const [rules,setRules]=useState<{id:string;label:string}[]>([]);const [emergencyNumber,setEmergencyNumber]=useState<string|null>(null);const [result,setResult]=useState<Result|null>(null);const [hasCompletedSession,setHasCompletedSession]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState("");const [safetyText,setSafetyText]=useState(fallbackSafety[initialLocale]);
  const t=labels[locale];const rtl=locale==="ar";const currentQuestion=questionItems[questionIndex] as typeof questionItems[number]|undefined;const currentSymptom=symptomItems[symptomIndex] as typeof symptomItems[number]|undefined;
  const steps=symptomItems.length+questionItems.length;
  useEffect(()=>{const onLocaleChange=(event:Event)=>{const next=(event as CustomEvent<Locale>).detail;if(next!=="ar"&&next!=="en")return;setLocale(next);setSafetyText(fallbackSafety[next]);void fetch("/api/screening/locale",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({locale:next})}).then(async(response)=>{if(!response.ok)throw new Error("locale update failed");if(screen==="redflags"){const rulesResponse=await fetch("/api/screening/rules");const rulesData=await rulesResponse.json();if(rulesResponse.ok){setRules(rulesData.items);setSafetyText(rulesData.guidance??fallbackSafety[next]);}}if(screen==="result"){const resultResponse=await fetch("/api/screening/result");if(resultResponse.ok)setResult(await resultResponse.json());}}).catch(()=>setError(labels[next].error));};window.addEventListener("app-locale-change",onLocaleChange);return()=>window.removeEventListener("app-locale-change",onLocaleChange);},[screen]);
- useEffect(()=>{void fetch("/api/screening/progress").then(async(r)=>r.json()).then(async(data)=>{if(!data.active)return;const requested=new URLSearchParams(window.location.search).get("lang");const selected:Locale=requested==="en"?"en":requested==="ar"?"ar":data.locale;setLocale(selected);if(selected!==data.locale){const localeResponse=await fetch("/api/screening/locale",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({locale:selected})});if(!localeResponse.ok)throw new Error("locale update failed");}setAnswers(data.answers);if(data.status==="safety_escalated"){const ruleResponse=await fetch("/api/screening/rules");const ruleData=await ruleResponse.json().catch(()=>({}));setSafetyText(ruleData.guidance??fallbackSafety[selected]);setEmergencyNumber(ruleData.emergency_number??null);setScreen("safety");return;}if(data.status==="completed"){const response=await fetch("/api/screening/result");if(response.ok)setResult(await response.json());setScreen("result");return;}if(data.status==="consented"){const ruleResponse=await fetch("/api/screening/rules");const ruleData=await ruleResponse.json().catch(()=>({}));if(!ruleResponse.ok)throw new Error("screening rules unavailable");setRules(ruleData.items);setSafetyText(ruleData.guidance??fallbackSafety[selected]);setEmergencyNumber(ruleData.emergency_number??null);setScreen("redflags");return;}const nextSymptom=symptomItems.findIndex((item)=>typeof data.answers[item.id]!=="string");const nextQuestion=questionItems.findIndex((item)=>typeof data.answers[item.id]!=="string");setSymptomIndex(nextSymptom<0?symptomItems.length-1:nextSymptom);setQuestionIndex(nextQuestion<0?questionItems.length-1:nextQuestion);setScreen(nextSymptom>=0?"symptoms":"questions");}).catch(()=>setError(labels[initialLocale].error));},[]);
+ useEffect(()=>{
+  void fetch("/api/screening/progress").then(async(response)=>response.json()).then(async(data)=>{
+   if(!progressRequestAllowed.current||!data.active)return;
+   const requested=new URLSearchParams(window.location.search).get("lang");
+   const selected:Locale=requested==="en"?"en":requested==="ar"?"ar":data.locale;
+   setLocale(selected);
+   if(selected!==data.locale){
+    const localeResponse=await fetch("/api/screening/locale",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({locale:selected})});
+    if(!localeResponse.ok)throw new Error("locale update failed");
+   }
+   if(!progressRequestAllowed.current)return;
+   if(data.status==="completed"){setHasCompletedSession(true);return;}
+   setAnswers(data.answers);
+   if(data.status==="safety_escalated"){
+    const ruleResponse=await fetch("/api/screening/rules");
+    const ruleData=await ruleResponse.json().catch(()=>({}));
+    if(!progressRequestAllowed.current)return;
+    setSafetyText(ruleData.guidance??fallbackSafety[selected]);
+    setEmergencyNumber(ruleData.emergency_number??null);
+    setScreen("safety");
+    return;
+   }
+   if(data.status==="consented"){
+    const ruleResponse=await fetch("/api/screening/rules");
+    const ruleData=await ruleResponse.json().catch(()=>({}));
+    if(!ruleResponse.ok)throw new Error("screening rules unavailable");
+    if(!progressRequestAllowed.current)return;
+    setRules(ruleData.items);
+    setSafetyText(ruleData.guidance??fallbackSafety[selected]);
+    setEmergencyNumber(ruleData.emergency_number??null);
+    setScreen("redflags");
+    return;
+   }
+   const nextSymptom=symptomItems.findIndex((item)=>typeof data.answers[item.id]!=="string");
+   const nextQuestion=questionItems.findIndex((item)=>typeof data.answers[item.id]!=="string");
+   setSymptomIndex(nextSymptom<0?symptomItems.length-1:nextSymptom);
+   setQuestionIndex(nextQuestion<0?questionItems.length-1:nextQuestion);
+   setScreen(nextSymptom>=0?"symptoms":"questions");
+  }).catch(()=>{if(progressRequestAllowed.current)setError(labels[initialLocale].error);});
+ },[]);
  async function jsonRequest(url:string,body:unknown){const response=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(typeof data.error==="string"?data.error:t.error);return data;}
  async function triggerUnwell(){setError("");try{const progressResponse=await fetch("/api/screening/progress");const data=await progressResponse.json();if(data.active){const result=await jsonRequest("/api/screening/redflags",{rule_ids:[],source:"unwell_button"});if(result.escalated){setResult({band:null,guidance:fallbackSafety[locale]});setScreen("safety");return;}}setResult({band:null,guidance:fallbackSafety[locale]});setScreen("safety");}catch{setResult({band:null,guidance:fallbackSafety[locale]});setScreen("safety");}}
- async function beginConsent(){if(!consent){setError(t.error);return;}setBusy(true);setError("");try{await jsonRequest("/api/screening/start",{consent:true,locale});setScreen("redflags");const response=await fetch("/api/screening/rules");const rulesData=await response.json();if(!response.ok)throw new Error(rulesData.error??t.error);setRules(rulesData.items);setEmergencyNumber(rulesData.emergency_number);setSafetyText(rulesData.guidance);}catch(e){setError(e instanceof Error?e.message:t.error);}finally{setBusy(false);}}
+ async function beginConsent(){if(!consent){setError(t.error);return;}progressRequestAllowed.current=false;setBusy(true);setError("");try{await jsonRequest("/api/screening/start",{consent:true,locale});setHasCompletedSession(false);setScreen("redflags");const response=await fetch("/api/screening/rules");const rulesData=await response.json();if(!response.ok)throw new Error(rulesData.error??t.error);setRules(rulesData.items);setEmergencyNumber(rulesData.emergency_number);setSafetyText(rulesData.guidance);}catch(e){setError(e instanceof Error?e.message:t.error);}finally{setBusy(false);}}
  async function submitGate(){setBusy(true);setError("");try{const data=await jsonRequest("/api/screening/redflags",{rule_ids:selectedFlags,source:"gate"});if(data.escalated){setScreen("safety");setSafetyText(fallbackSafety[locale]);return;}setScreen("symptoms");}catch(e){setError(e instanceof Error?e.message:t.error);}finally{setBusy(false);}}
  async function answerQuestion(questionId:string,answer:Record<string,unknown>,next:()=>void){setBusy(true);setError("");try{await jsonRequest("/api/screening/answers",{question_id:questionId,...answer});setAnswers((old)=>({...old,[questionId]:String(answer.option_id??"answered")}));next();}catch(e){setError(e instanceof Error?e.message:t.error);}finally{setBusy(false);}}
  async function answerSymptom(optionId:string){if(!currentSymptom)return;await answerQuestion(currentSymptom.id,{option_id:optionId},()=>{if(symptomIndex<symptomItems.length-1)setSymptomIndex((i)=>i+1);else setScreen("questions");});}
  async function answerChoice(optionId:string){if(!currentQuestion)return;await answerQuestion(currentQuestion.id,{option_id:optionId},()=>{if(questionIndex<questionItems.length-1)setQuestionIndex((i)=>i+1);else void complete();});}
  async function submitMeasurement(){if(!currentQuestion)return;const answer=currentQuestion.id==="bmi"?(height&&weight?{height_cm:Number(height),weight_kg:Number(weight)}:{option_id:answers.bmi}):(waist?{waist_cm:Number(waist)}:{option_id:answers.waist});await answerQuestion(currentQuestion.id,answer,()=>{if(questionIndex<questionItems.length-1)setQuestionIndex((i)=>i+1);else void complete();});}
- async function complete(){setBusy(true);setError("");try{await jsonRequest("/api/screening/result",{});const response=await fetch("/api/screening/result");const data=await response.json();if(!response.ok)throw new Error(data.error??t.error);setResult(data);setScreen("result");}catch(e){setResult({band:null,guidance:block("safe_fallback",locale),fallback:true});setScreen("result");setError(e instanceof Error?e.message:t.error);}finally{setBusy(false);}}
- async function restart(){setBusy(true);try{await jsonRequest("/api/screening/restart",{});setAnswers({});setSelectedFlags([]);setSymptomIndex(0);setQuestionIndex(0);setConsent(false);setResult(null);setScreen("landing");}catch{setError(t.error);}finally{setBusy(false);}}
+ async function complete(){setBusy(true);setError("");try{await jsonRequest("/api/screening/result",{});const response=await fetch("/api/screening/result");const data=await response.json();if(!response.ok)throw new Error(data.error??t.error);setResult(data);setScreen("result");}catch(e){setError(e instanceof Error?e.message:t.error);}finally{setBusy(false);}}
+ async function restart(){setBusy(true);try{await jsonRequest("/api/screening/restart",{});setAnswers({});setSelectedFlags([]);setSymptomIndex(0);setQuestionIndex(0);setHeight("");setWeight("");setWaist("");setConsent(false);setResult(null);setHasCompletedSession(false);setScreen("landing");}catch{setError(t.error);}finally{setBusy(false);}}
  const currentStepLabel=screen==="symptoms"?`${symptomIndex+1}/${steps}`:screen==="questions"?`${symptomItems.length+questionIndex+1}/${steps}`:"";
  return <main className="screening-page" lang={locale} dir={rtl?"rtl":"ltr"}>
   <header className="screening-header"><span aria-hidden="true"/><a href="#safety" onClick={(event)=>{event.preventDefault();void triggerUnwell();}} className="screening-unwell">{t.unwell}</a></header>
   {error&&<p role="alert" className="screening-error">{error}</p>}
   <p className="screening-demo">{t.demo}</p>
-  {screen==="landing"&&<section><h1>{t.title}</h1><p>{block("landing",locale)}</p><p>{t.disclaimer}</p><button disabled={busy} onClick={()=>setScreen("consent")}>{t.start}</button></section>}
+  {screen==="landing"&&<section><h1>{t.title}</h1><p>{block("landing",locale)}</p><p>{t.disclaimer}</p><button disabled={busy} onClick={()=>setScreen("consent")}>{t.start}</button>{hasCompletedSession&&<button disabled={busy} onClick={()=>void restart()}>{t.restart}</button>}</section>}
   {screen==="consent"&&<section><h1>{t.consentTitle}</h1><p>{block("consent",locale)}</p><label className="screening-choice"><input type="checkbox" checked={consent} onChange={(event)=>setConsent(event.target.checked)}/>{t.agree}</label><div className="screening-actions"><button onClick={()=>setScreen("landing")}>{t.back}</button><button disabled={!consent||busy} onClick={beginConsent}>{busy?t.continue:t.continue}</button></div></section>}
   {screen==="redflags"&&<section><h1>{t.gateTitle}</h1><p>{rules.map((rule)=><label className="screening-choice" key={rule.id}><input type="checkbox" checked={selectedFlags.includes(rule.id)} onChange={(event)=>setSelectedFlags((old)=>event.target.checked?[...old,rule.id]:old.filter((id)=>id!==rule.id))}/>{rule.label}</label>)}</p><label className="screening-choice"><input type="checkbox" checked={selectedFlags.length===0} onChange={(event)=>{if(event.target.checked)setSelectedFlags([]);}}/>{t.none}</label><button disabled={busy} onClick={submitGate}>{t.continue}</button></section>}
   {screen==="symptoms"&&currentSymptom&&<section><p className="screening-progress">{t.symptomsTitle} · {currentStepLabel}</p><h1>{currentSymptom[locale]}</h1><div className="screening-actions"><button disabled={busy} onClick={()=>void answerSymptom("yes")}>{t.yes}</button><button disabled={busy} onClick={()=>void answerSymptom("no")}>{t.no}</button></div>{symptomIndex>0&&<button className="screening-back" onClick={()=>setSymptomIndex((i)=>i-1)}>{t.back}</button>}</section>}
