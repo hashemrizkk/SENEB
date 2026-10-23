@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { Readex_Pro } from "next/font/google";
+import { Marcellus, Readex_Pro } from "next/font/google";
 import { ar } from "@/lib/strings.ar";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import "./globals.css";
@@ -10,6 +10,13 @@ const solveFont = Readex_Pro({
   weight: ["400", "500", "600"],
   display: "swap",
   variable: "--font-solve",
+});
+
+const senebDisplayFont = Marcellus({
+  subsets: ["latin"],
+  weight: "400",
+  display: "swap",
+  variable: "--font-seneb-display",
 });
 
 export const metadata: Metadata = {
@@ -25,7 +32,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="ar" dir="rtl" className={solveFont.variable}>
+    <html lang="ar" dir="rtl" className={`${solveFont.variable} ${senebDisplayFont.variable}`}>
       <body><LanguageSwitcher />{children}</body>
     </html>
   );

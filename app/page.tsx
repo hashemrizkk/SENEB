@@ -38,7 +38,7 @@ export default async function HomePage({
       <div className="home-content">
         <section className="home-hero" aria-labelledby="home-title">
           <HeartbeatMark />
-          <h1 id="home-title" lang="en" dir="ltr">Seneb</h1>
+          <h1 id="home-title" lang="en" dir="ltr">SENEB</h1>
           <p>{copy.intro}</p>
         </section>
 
