@@ -18,11 +18,13 @@ function Row({
   value,
   step,
   onEdit,
+  editLabel,
 }: {
   label: string;
   value: string;
   step: number;
   onEdit: (step: number) => void;
+  editLabel: string;
 }) {
   return (
     <div className="reg-review-row">
@@ -32,9 +34,9 @@ function Row({
         type="button"
         className="reg-link"
         onClick={() => onEdit(step)}
-        aria-label={`${ar.register.reviewEdit} — ${label}`}
+        aria-label={`${editLabel} — ${label}`}
       >
-        {ar.register.reviewEdit}
+        {editLabel}
       </button>
     </div>
   );
@@ -44,19 +46,22 @@ export default function ReviewList({
   form,
   questions,
   onEdit,
+  locale,
 }: {
   form: ReviewForm;
   questions: TapQuestion[];
   onEdit: (step: number) => void;
+  locale: "ar" | "en";
 }) {
+  const copy = locale === "ar" ? ar.register : ar.register.en;
   const unanswered = questions.filter((question) => form.answers[question.key] == null);
 
   return (
     <div className="reg-review">
-      <Row label={ar.register.fullName} value={form.full_name} step={1} onEdit={onEdit} />
-      <Row label={ar.register.phone} value={form.phone} step={1} onEdit={onEdit} />
+      <Row label={copy.fullName} value={form.full_name} step={1} onEdit={onEdit} editLabel={copy.reviewEdit} />
+      <Row label={copy.phone} value={form.phone} step={1} onEdit={onEdit} editLabel={copy.reviewEdit} />
       {form.email ? (
-        <Row label={ar.register.email} value={form.email} step={1} onEdit={onEdit} />
+        <Row label={copy.email} value={form.email} step={1} onEdit={onEdit} editLabel={copy.reviewEdit} />
       ) : null}
 
       {questions.map((question) => (
@@ -65,31 +70,33 @@ export default function ReviewList({
           label={question.label}
           value={
             form.answers[question.key] == null
-              ? ar.register.unanswered
+              ? copy.unanswered
               : form.answers[question.key]
-                ? ar.register.yes
-                : ar.register.no
+                ? copy.yes
+                : copy.no
           }
           step={2}
           onEdit={onEdit}
+          editLabel={copy.reviewEdit}
         />
       ))}
 
       {form.self_description ? (
         <Row
-          label={registrationTextQuestions.selfDescription.label}
+          label={locale === "ar" ? registrationTextQuestions.selfDescription.label : registrationTextQuestions.selfDescription.labelEn ?? registrationTextQuestions.selfDescription.label}
           value={form.self_description}
           step={3}
           onEdit={onEdit}
+          editLabel={copy.reviewEdit}
         />
       ) : null}
 
       {form.notes ? (
-        <Row label={registrationTextQuestions.notes.label} value={form.notes} step={3} onEdit={onEdit} />
+        <Row label={locale === "ar" ? registrationTextQuestions.notes.label : registrationTextQuestions.notes.labelEn ?? registrationTextQuestions.notes.label} value={form.notes} step={3} onEdit={onEdit} editLabel={copy.reviewEdit} />
       ) : null}
 
       {unanswered.length > 0 ? (
-        <p className="reg-nudge">{ar.register.unansweredNudge}</p>
+        <p className="reg-nudge">{copy.unansweredNudge}</p>
       ) : null}
     </div>
   );

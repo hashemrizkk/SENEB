@@ -4,8 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { IntakeFields } from "@/lib/intake";
 import type { ReviewPriority, ReviewStatus } from "@/lib/doctor-review";
+import { ar } from "@/lib/strings.ar";
 
 type CaseSummaryNoteProps = {
+  locale: "ar" | "en";
   patient: {
     name: string;
     phone: string | null;
@@ -25,7 +27,9 @@ type CaseSummaryNoteProps = {
 export default function CaseSummaryNote({
   patient,
   intake,
+  locale,
 }: CaseSummaryNoteProps) {
+  const copy = locale === "ar" ? ar.doctorCaseSummaryNote : ar.doctorCaseSummaryNote.en;
   const router = useRouter();
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -57,15 +61,15 @@ export default function CaseSummaryNote({
       });
       if (response.ok) {
         setNote("");
-        setMessage("Note saved as a new clinician revision.");
+        setMessage(copy.saved);
         router.refresh();
       } else if (response.status === 409) {
-        setMessage("This intake changed before the note was saved. Your note remains here; refresh and try again.");
+        setMessage(copy.conflict);
       } else {
-        setMessage("The note could not be saved. Your text remains here; try again.");
+        setMessage(copy.failed);
       }
     } catch {
-      setMessage("The request failed. Your note remains here; try again.");
+      setMessage(copy.network);
     } finally {
       setSaving(false);
     }
@@ -73,8 +77,8 @@ export default function CaseSummaryNote({
 
   return (
     <section style={sectionStyle}>
-      <h2>Clinician note</h2>
-      <label htmlFor="summary-clinician-note">Add a note (optional)</label>
+      <h2>{copy.title}</h2>
+      <label htmlFor="summary-clinician-note">{copy.prompt}</label>
       <textarea
         id="summary-clinician-note"
         value={note}
@@ -83,7 +87,7 @@ export default function CaseSummaryNote({
         style={textareaStyle}
       />
       <button type="button" onClick={() => void saveNote()} disabled={saving || !note.trim()}>
-        {saving ? "Saving…" : "Save note"}
+        {saving ? copy.saving : copy.save}
       </button>
       {message ? <p role="status" aria-live="polite">{message}</p> : null}
     </section>

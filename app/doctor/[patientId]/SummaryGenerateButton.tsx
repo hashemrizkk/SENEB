@@ -2,16 +2,20 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ar } from "@/lib/strings.ar";
 
 export default function SummaryGenerateButton({
   patientId,
   hasIntake,
   hasSummary,
+  locale,
 }: {
   patientId: number;
   hasIntake: boolean;
   hasSummary: boolean;
+  locale: "ar" | "en";
 }) {
+  const copy = locale === "ar" ? ar.doctorCaseSummary : ar.doctorCaseSummary.en;
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,10 +70,10 @@ export default function SummaryGenerateButton({
         "error" in result &&
         typeof result.error === "string"
           ? result.error
-          : "The summary could not be generated.";
+        : copy.generateError;
       setError(message);
     } catch {
-      setError("The request failed. Check the connection and try again.");
+      setError(copy.connectionError);
     } finally {
       setLoading(false);
     }
@@ -83,20 +87,19 @@ export default function SummaryGenerateButton({
         disabled={!hasIntake || loading || cooldownSeconds > 0}
       >
         {loading
-          ? "Generating..."
+          ? copy.generating
           : cooldownSeconds > 0
-            ? `Wait ${cooldownSeconds}s to regenerate`
+            ? copy.wait(cooldownSeconds)
             : hasIntake
               ? hasSummary
-                ? "Regenerate"
-                : "Generate summary"
-              : "Generate summary"}
+                ? copy.regenerate
+                : copy.generate
+              : copy.generate}
       </button>
-      {!hasIntake ? <p>No intake yet</p> : null}
+      {!hasIntake ? <p>{copy.noIntake}</p> : null}
       {cooldownSeconds > 0 ? (
         <p role="status">
-          A summary was just generated. You can regenerate in {cooldownSeconds}{" "}
-          second{cooldownSeconds === 1 ? "" : "s"}.
+          {copy.cooldown(cooldownSeconds)}
         </p>
       ) : null}
       {error ? (

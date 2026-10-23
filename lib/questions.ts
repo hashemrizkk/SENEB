@@ -11,6 +11,7 @@ export type QuestionDefinition = {
   id: string;
   key: string;
   label: string;
+  labelEn?: string;
   options: QuestionOption[];
   structuredField: string | null;
   flagRule: string | null;
@@ -30,6 +31,7 @@ export const registrationQuestions: QuestionDefinition[] = [
     id: "registration_missed_doses",
     key: "missed_doses",
     label: "هل نسيت أخذ الدواء خلال الأسبوع الماضي؟",
+    labelEn: "Did you forget to take your medicine in the past week?",
     options: [
       { value: true, label: ar.yes },
       { value: false, label: ar.no },
@@ -41,6 +43,7 @@ export const registrationQuestions: QuestionDefinition[] = [
     id: "registration_hypoglycemia_yes_no",
     key: "hypo_episodes",
     label: "هل تعرضت لهبوط في السكر خلال الأسبوع الماضي؟",
+    labelEn: "Did you experience low blood sugar in the past week?",
     options: [
       { value: true, label: ar.register.yes },
       { value: false, label: ar.register.no },
@@ -52,6 +55,7 @@ export const registrationQuestions: QuestionDefinition[] = [
     id: "registration_foot_problem",
     key: "foot_problem",
     label: "هل توجد مشكلة في القدم أو التورم أو الألم؟",
+    labelEn: "Do you have any foot problems, swelling, or pain?",
     options: [
       { value: true, label: ar.yes },
       { value: false, label: ar.no },
@@ -63,6 +67,7 @@ export const registrationQuestions: QuestionDefinition[] = [
     id: "registration_vision_change",
     key: "vision_change",
     label: "هل حدث تغيير في الرؤية؟",
+    labelEn: "Have you noticed any changes in your vision?",
     options: [
       { value: true, label: ar.yes },
       { value: false, label: ar.no },
@@ -133,11 +138,13 @@ export const registrationTextQuestions = {
   selfDescription: {
     id: "registration_self_description",
     label: ar.register.selfDescription,
+    labelEn: ar.register.en.selfDescription,
     field: "self_description",
   },
   notes: {
     id: "registration_notes",
     label: ar.register.notes,
+    labelEn: ar.register.en.notes,
     field: "notes",
   },
 } as const;

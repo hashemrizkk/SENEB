@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import TapQuestions, {
   type TapAnswersState,
   type TapQuestion,
@@ -25,11 +27,6 @@ import {
 
 const TOTAL_STEPS = 4;
 const FIELD_ORDER = ["full_name", "phone", "email"];
-
-const QUESTIONS: TapQuestion[] = registrationQuestions.map((question) => ({
-  key: question.key,
-  label: question.label,
-}));
 
 function emptyAnswers(): TapAnswersState {
   return {
@@ -73,7 +70,14 @@ function readReply(raw: unknown): ServerReply {
   };
 }
 
-export default function RegisterPage() {
+function RegisterForm() {
+  const searchParams = useSearchParams();
+  const locale: "ar" | "en" = searchParams.get("lang") === "en" ? "en" : "ar";
+  const copy = locale === "ar" ? ar.register : ar.register.en;
+  const questions: TapQuestion[] = registrationQuestions.map((question) => ({
+    key: question.key,
+    label: locale === "en" ? question.labelEn ?? question.label : question.label,
+  }));
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
     full_name: "",
@@ -108,6 +112,11 @@ export default function RegisterPage() {
 
   const refs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  function localizeValidation(message: string): string {
+    const entry = Object.entries(ar.register.errors).find(([, arabic]) => arabic === message);
+    return entry ? copy.errors[entry[0] as keyof typeof copy.errors] : message;
+  }
+
   const descriptionValue = form.self_description;
 
   function announce(messages: Record<string, string>): void {
@@ -129,18 +138,18 @@ export default function RegisterPage() {
     const found: Record<string, string> = {};
 
     const name = fullNameSchema.safeParse(form.full_name);
-    if (!name.success) found.full_name = name.error.issues[0].message;
+    if (!name.success) found.full_name = localizeValidation(name.error.issues[0].message);
 
     const phone = phoneSchema.safeParse(form.phone);
     if (!phone.success) {
-      found.phone = phone.error.issues[0].message;
+      found.phone = localizeValidation(phone.error.issues[0].message);
     } else if (phone.data !== form.phone) {
       setForm((current) => ({ ...current, phone: phone.data }));
     }
 
     if (form.email.trim() !== "") {
       const email = emailSchema.safeParse(form.email);
-      if (!email.success) found.email = email.error.issues[0].message;
+      if (!email.success) found.email = localizeValidation(email.error.issues[0].message);
     }
 
     return found;
@@ -172,7 +181,7 @@ export default function RegisterPage() {
     if (submitInFlight.current) return;
     const consentCheck = consentSchema.safeParse(consent);
     if (!consentCheck.success) {
-      const found = { consent: consentCheck.error.issues[0].message };
+      const found = { consent: localizeValidation(consentCheck.error.issues[0].message) };
       setErrors(found);
       announce(found);
       focusFirst(found);
@@ -207,7 +216,7 @@ export default function RegisterPage() {
 
     const parsed = registrationSchema.safeParse(payload);
     if (!parsed.success) {
-      setSubmitError(parsed.error.issues[0]?.message ?? ar.register.errorGeneric);
+      setSubmitError(localizeValidation(parsed.error.issues[0]?.message ?? copy.errorGeneric));
       return;
     }
 
@@ -231,10 +240,10 @@ export default function RegisterPage() {
       if (!response.ok || !reply.ok) {
         setSubmitError(
           reply.error === "rate_limited"
-            ? ar.register.errorRateLimited
+            ? copy.errorRateLimited
             : reply.error === "server_error"
-              ? ar.register.errorServer
-              : ar.register.errorGeneric,
+              ? copy.errorServer
+              : copy.errorGeneric,
         );
         return;
       }
@@ -255,10 +264,10 @@ export default function RegisterPage() {
       const offline = typeof navigator !== "undefined" && !navigator.onLine;
       setSubmitError(
         controller.signal.aborted
-          ? ar.register.errorSlow
+          ? copy.errorSlow
           : offline
-            ? ar.register.errorOffline
-            : ar.register.errorGeneric,
+            ? copy.errorOffline
+            : copy.errorGeneric,
       );
     } finally {
       submitInFlight.current = false;
@@ -271,6 +280,7 @@ export default function RegisterPage() {
     return (
       <SuccessScreen
         referenceCode={referenceCode}
+        locale={locale}
       />
     );
   }
@@ -278,7 +288,7 @@ export default function RegisterPage() {
   const canSubmit = !sending;
 
   return (
-    <main dir="rtl" lang="ar" className="reg-page">
+    <main dir={locale === "ar" ? "rtl" : "ltr"} lang={locale} className="reg-page">
       <style>{`
         .reg-page {
           max-width: 32rem; margin: 0 auto; padding: 1rem 1rem 2.5rem;
@@ -399,10 +409,10 @@ export default function RegisterPage() {
       </p>
 
       <p className="reg-banner" role="note">
-        {ar.demoWarning}
+        {copy.demoWarning}
       </p>
-      <p className="reg-emergency" role="note">{ar.emergencyNotice}</p>
-      <p className="reg-clinic-note" role="note">{ar.clinicReviewNote}</p>
+      <p className="reg-emergency" role="note">{copy.emergencyNotice}</p>
+      <p className="reg-clinic-note" role="note">{copy.clinicReviewNote}</p>
 
       {/* Honeypot: off-screen, not focusable, not read by screen readers. */}
       <input
@@ -416,15 +426,15 @@ export default function RegisterPage() {
         className="reg-sr-only"
       />
 
-      <RegisterProgress step={step} total={TOTAL_STEPS} />
+      <RegisterProgress step={step} total={TOTAL_STEPS} locale={locale} />
 
       {step === 1 ? (
         <section>
-          <h1 className="reg-h1">{ar.register.step1Title}</h1>
+          <h1 className="reg-h1">{copy.step1Title}</h1>
 
           <div className="reg-field">
             <label className="reg-label" htmlFor="full_name">
-              {ar.register.fullName}
+              {copy.fullName}
             </label>
             <input
               id="full_name"
@@ -434,7 +444,7 @@ export default function RegisterPage() {
               className="reg-input"
               type="text"
               autoComplete="name"
-              placeholder={ar.register.fullNamePlaceholder}
+              placeholder={copy.fullNamePlaceholder}
               value={form.full_name}
               aria-invalid={Boolean(errors.full_name)}
               aria-describedby={errors.full_name ? "full_name-error" : undefined}
@@ -451,7 +461,7 @@ export default function RegisterPage() {
 
           <div className="reg-field">
             <label className="reg-label" htmlFor="phone">
-              {ar.register.phone}
+              {copy.phone}
             </label>
             <input
               id="phone"
@@ -463,7 +473,7 @@ export default function RegisterPage() {
               type="tel"
               inputMode="tel"
               autoComplete="tel"
-              placeholder={ar.register.phonePlaceholder}
+              placeholder={copy.phonePlaceholder}
               value={form.phone}
               aria-invalid={Boolean(errors.phone)}
               aria-describedby={errors.phone ? "phone-error" : undefined}
@@ -480,7 +490,7 @@ export default function RegisterPage() {
 
           <div className="reg-field">
             <label className="reg-label" htmlFor="email">
-              {ar.register.email}
+              {copy.email}
             </label>
             <input
               id="email"
@@ -492,7 +502,7 @@ export default function RegisterPage() {
               type="email"
               inputMode="email"
               autoComplete="email"
-              placeholder={ar.register.emailPlaceholder}
+              placeholder={copy.emailPlaceholder}
               value={form.email}
               aria-invalid={Boolean(errors.email)}
               aria-describedby={errors.email ? "email-error" : undefined}
@@ -511,10 +521,12 @@ export default function RegisterPage() {
 
       {step === 2 ? (
         <section>
-          <h1 className="reg-h1">{ar.register.step2Title}</h1>
+          <h1 className="reg-h1">{copy.step2Title}</h1>
           <TapQuestions
-            questions={QUESTIONS}
+            questions={questions}
             answers={answers}
+            yesLabel={copy.yes}
+            noLabel={copy.no}
             onChange={(key, value) =>
               setAnswers((current) => ({ ...current, [key]: value }))
             }
@@ -524,11 +536,11 @@ export default function RegisterPage() {
 
       {step === 3 ? (
         <section>
-          <h1 className="reg-h1">{ar.register.step3Title}</h1>
+          <h1 className="reg-h1">{copy.step3Title}</h1>
 
           <div className="reg-field">
             <label className="reg-label" htmlFor="self_description">
-              {registrationTextQuestions.selfDescription.label}
+              {locale === "ar" ? registrationTextQuestions.selfDescription.label : registrationTextQuestions.selfDescription.labelEn ?? registrationTextQuestions.selfDescription.label}
             </label>
             <textarea
               id="self_description"
@@ -550,7 +562,7 @@ export default function RegisterPage() {
             />
             <VoiceInput
               id="registration-description-voice"
-              label={registrationTextQuestions.selfDescription.label}
+              label={locale === "ar" ? registrationTextQuestions.selfDescription.label : registrationTextQuestions.selfDescription.labelEn ?? registrationTextQuestions.selfDescription.label}
               maxChars={300}
               transcript={descriptionTranscript}
               onTranscriptChange={setDescriptionTranscript}
@@ -561,18 +573,22 @@ export default function RegisterPage() {
                 }));
                 setForm((current) => ({
                   ...current,
-                  self_description: appendTranscript(descriptionValue, value, 300),
+                  self_description: appendTranscript(current.self_description, value, 300),
                 }));
               }}
+              autoAppend
+              showTranscript={false}
+              direction={locale === "ar" ? "rtl" : "ltr"}
+              locale={locale}
             />
             <p className="reg-counter">
-              {ar.register.charCount(descriptionValue.length, 300)}
+              {copy.charCount(descriptionValue.length, 300)}
             </p>
           </div>
 
           <div className="reg-field">
             <label className="reg-label" htmlFor="notes">
-              {registrationTextQuestions.notes.label}
+              {locale === "ar" ? registrationTextQuestions.notes.label : registrationTextQuestions.notes.labelEn ?? registrationTextQuestions.notes.label}
             </label>
             <textarea
               id="notes"
@@ -588,7 +604,7 @@ export default function RegisterPage() {
             />
             <VoiceInput
               id="registration-notes-voice"
-              label={registrationTextQuestions.notes.label}
+              label={locale === "ar" ? registrationTextQuestions.notes.label : registrationTextQuestions.notes.labelEn ?? registrationTextQuestions.notes.label}
               maxChars={500}
               transcript={notesTranscript}
               onTranscriptChange={setNotesTranscript}
@@ -602,9 +618,13 @@ export default function RegisterPage() {
                   notes: appendTranscript(current.notes, value, 500),
                 }));
               }}
+              autoAppend
+              showTranscript={false}
+              direction={locale === "ar" ? "rtl" : "ltr"}
+              locale={locale}
             />
             <p className="reg-counter">
-              {ar.register.charCount(form.notes.length, 500)}
+              {copy.charCount(form.notes.length, 500)}
             </p>
           </div>
         </section>
@@ -612,12 +632,13 @@ export default function RegisterPage() {
 
       {step === 4 ? (
         <section>
-          <h1 className="reg-h1">{ar.register.step4Title}</h1>
+          <h1 className="reg-h1">{copy.step4Title}</h1>
 
           <ReviewList
             form={{ ...form, self_description: descriptionValue, answers }}
-            questions={QUESTIONS}
+            questions={questions}
             onEdit={(target) => setStep(target)}
+            locale={locale}
           />
 
           <label className="reg-consent" htmlFor="consent">
@@ -630,7 +651,7 @@ export default function RegisterPage() {
               onChange={(event) => setConsent(event.target.checked)}
             />
             <span>
-              {ar.register.consent}
+              {copy.consent}
             </span>
           </label>
           {errors.consent ? (
@@ -656,17 +677,17 @@ export default function RegisterPage() {
             disabled={sending}
           >
             <span aria-hidden="true" className="reg-arrow">
-              →
+              {locale === "ar" ? "→" : "←"}
             </span>{" "}
-            {ar.register.back}
+            {copy.back}
           </button>
         ) : null}
 
         {step < TOTAL_STEPS ? (
           <button type="button" className="reg-btn" onClick={goNext}>
-            {ar.register.next}{" "}
+            {copy.next}{" "}
             <span aria-hidden="true" className="reg-arrow">
-              ←
+              {locale === "ar" ? "←" : "→"}
             </span>
           </button>
         ) : (
@@ -676,10 +697,18 @@ export default function RegisterPage() {
             onClick={handleSubmit}
             disabled={!canSubmit}
           >
-            {sending ? ar.register.sending : ar.register.submit}
+            {sending ? copy.sending : copy.submit}
           </button>
         )}
       </div>
     </main>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<main dir="rtl" lang="ar" className="reg-page">{ar.register.step1Title}</main>}>
+      <RegisterForm />
+    </Suspense>
   );
 }

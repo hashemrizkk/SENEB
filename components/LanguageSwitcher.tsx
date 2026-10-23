@@ -33,14 +33,14 @@ export default function LanguageSwitcher() {
   }, []);
 
   function selectLanguage(next: Locale) {
+    setLocale(next);
+    document.documentElement.lang = next;
+    document.documentElement.dir = next === "ar" ? "rtl" : "ltr";
+    window.dispatchEvent(new CustomEvent("app-locale-change", { detail: next }));
     if (window.location.pathname === "/screening") {
-      window.dispatchEvent(new CustomEvent("app-locale-change", { detail: next }));
       const current = new URL(window.location.href);
       current.searchParams.set("lang", next);
       window.history.replaceState(null, "", `${current.pathname}${current.search}${current.hash}`);
-      setLocale(next);
-      document.documentElement.lang = next;
-      document.documentElement.dir = next === "ar" ? "rtl" : "ltr";
       return;
     }
     const url = new URL(window.location.href);

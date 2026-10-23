@@ -5,18 +5,13 @@ import { useRouter } from "next/navigation";
 import VoiceInput from "@/components/VoiceInput";
 import { formatCairoDateTime } from "@/lib/date-time";
 import type { StoredVisitNote } from "@/lib/db";
+import { ar } from "@/lib/strings.ar";
 
 type ChecklistResult = {
   id: string; label: string; status: "documented" | "declined_or_deferred" | "not_documented" | "unclear";
   severity_if_missing: "red" | "yellow"; reason: string; evidence_quote: string | null;
 };
 type Light = "green" | "yellow" | "red" | null;
-const LIGHT_LABELS: Record<string, string> = {
-  green: "✓ Checklist complete",
-  yellow: "! Something is missing",
-  red: "✕ Something important is missing",
-  grey: "? Could not verify automatically",
-};
 const LIGHT_STYLES: Record<string, React.CSSProperties> = {
   green: { color: "#166534", background: "#DCFCE7", border: "2px solid #166534" },
   yellow: { color: "#854D0E", background: "#FEF9C3", border: "2px solid #854D0E" },
@@ -67,11 +62,14 @@ function fallbackReasonLabel(code: string | null): string {
 }
 
 export default function VisitNoteSection({
-  patientId, initialNotes, geminiAvailable, queueContext,
+  patientId, initialNotes, geminiAvailable, queueContext, locale,
 }: {
   patientId: number; initialNotes: StoredVisitNote[]; geminiAvailable: boolean;
   queueContext: { status: string; priority: string | null } | null;
+  locale: "ar" | "en";
 }) {
+  const copy = locale === "ar" ? ar.doctorVisitNote : ar.doctorVisitNote.en;
+  const lightLabels = copy.lightLabel;
   const router = useRouter();
   const initialNote = initialNotes[0] ?? null;
   const notes = initialNotes;
@@ -171,42 +169,42 @@ export default function VisitNoteSection({
 
   return (
     <section id="visit-note" className="doctor-card" aria-labelledby="visit-note-title">
-      <h2 id="visit-note-title">Visit note</h2>
-      <p><strong>Demo only: no login. Do not use with real patients.</strong></p>
-      <p>This light checks documentation completeness against patient data. It does not judge whether care was correct or whether the patient is safe.</p>
-      {queueContext ? <p>Queue context (read-only): {queueContext.priority ?? "Not enough information"} · {queueContext.status}</p> : <p>No current queue entry.</p>}
+      <h2 id="visit-note-title">{copy.title}</h2>
+      <p><strong>{copy.demo}</strong></p>
+      <p>{copy.safety}</p>
+      {queueContext ? <p>{copy.queue}: {queueContext.priority ?? copy.unknownPriority} · {queueContext.status}</p> : <p>{copy.noQueue}</p>}
       {currentNote && !editing ? (
         <>
-          <h3>Current saved note</h3>
-          <pre dir="auto" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" }}>{currentNote.note_text ?? "(No note text)"}</pre>
-          <button type="button" onClick={() => { setNoteText(currentNote.note_text ?? ""); setEditing(true); setTyped(currentNote.input_method !== "voice"); setDictated(currentNote.input_method === "voice" || currentNote.input_method === "mixed"); setMessage(""); }}>Edit note</button>
+          <h3>{copy.current}</h3>
+          <pre dir="auto" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" }}>{currentNote.note_text ?? copy.noNote}</pre>
+          <button type="button" onClick={() => { setNoteText(currentNote.note_text ?? ""); setEditing(true); setTyped(currentNote.input_method !== "voice"); setDictated(currentNote.input_method === "voice" || currentNote.input_method === "mixed"); setMessage(""); }}>{copy.edit}</button>
         </>
       ) : null}
       {editing ? (
         <div>
-          <label htmlFor={`visit-note-text-${patientId}`}>Clinical note</label>
+          <label htmlFor={`visit-note-text-${patientId}`}>{copy.clinicalNote}</label>
           <textarea
             id={`visit-note-text-${patientId}`} ref={noteRef} dir="auto" value={noteText} maxLength={5_000}
             onSelect={(event) => rememberCursor(event.currentTarget)} onClick={(event) => rememberCursor(event.currentTarget)} onKeyUp={(event) => rememberCursor(event.currentTarget)}
             onChange={(event) => { setNoteText(event.target.value); setTyped(true); rememberCursor(event.currentTarget); }}
             style={{ display: "block", width: "100%", minHeight: 180, marginBlock: 8, padding: 12, boxSizing: "border-box", font: "inherit", fontSize: 18 }}
           />
-          {dictated ? <small>Dictated text added.</small> : null}
-          {hasUnclearMarker ? <p role="status">This note has unclear parts. Please fix them or confirm.</p> : null}
-          <VoiceInput id={`visit-note-voice-${patientId}`} label="Dictate visit note" maxChars={5_000} transcript={voiceTranscript} onTranscriptChange={setVoiceTranscript} onAppend={(text) => appendDictation(text)} direction="rtl" context="doctor_note" geminiAvailable={geminiAvailable} autoAppend showTranscript={false} />
-          {!geminiAvailable ? <p role="status">Doctor dictation is unavailable because Gemini is not configured. You can still type and save.</p> : null}
-          <label htmlFor={`visit-note-role-${patientId}`}>Author role</label>
-          <select id={`visit-note-role-${patientId}`} value={role} onChange={(event) => rememberAuthor(event.target.value as "nurse" | "doctor", authorName)}><option value="doctor">Doctor</option><option value="nurse">Nurse</option></select>
-          <label htmlFor={`visit-note-author-${patientId}`}>Author name</label>
+          {dictated ? <small>{copy.dictated}</small> : null}
+          {hasUnclearMarker ? <p role="status">{copy.unclear}</p> : null}
+          <VoiceInput id={`visit-note-voice-${patientId}`} label={copy.dictate} maxChars={5_000} transcript={voiceTranscript} onTranscriptChange={setVoiceTranscript} onAppend={(text) => appendDictation(text)} direction={locale === "ar" ? "rtl" : "ltr"} locale={locale} context="doctor_note" geminiAvailable={geminiAvailable} autoAppend showTranscript={false} />
+          {!geminiAvailable ? <p role="status">{copy.unavailable}</p> : null}
+          <label htmlFor={`visit-note-role-${patientId}`}>{copy.role}</label>
+          <select id={`visit-note-role-${patientId}`} value={role} onChange={(event) => rememberAuthor(event.target.value as "nurse" | "doctor", authorName)}><option value="doctor">{copy.doctor}</option><option value="nurse">{copy.nurse}</option></select>
+          <label htmlFor={`visit-note-author-${patientId}`}>{copy.author}</label>
           <input id={`visit-note-author-${patientId}`} value={authorName} maxLength={80} onChange={(event) => rememberAuthor(role, event.target.value)} />
-          <button type="button" onClick={() => void saveNote()} disabled={isSaving || !authorName.trim()}>{isSaving ? "Saving and checking…" : "Save and check"}</button>
+          <button type="button" onClick={() => void saveNote()} disabled={isSaving || !authorName.trim()}>{isSaving ? copy.saving : copy.saveCheck}</button>
         </div>
       ) : null}
       {currentNote ? (
         <div aria-label="Note completeness check" style={{ marginBlock: 16 }}>
-          <div aria-label={LIGHT_LABELS[shownLight]} style={{ ...LIGHT_STYLES[shownLight], width: 180, height: 180, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 12, boxSizing: "border-box", fontWeight: 700 }}>{LIGHT_LABELS[shownLight]}</div>
+          <div aria-label={lightLabels[shownLight]} style={{ ...LIGHT_STYLES[shownLight], width: 180, height: 180, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 12, boxSizing: "border-box", fontWeight: 700 }}>{lightLabels[shownLight]}</div>
           <p>This checks whether the note covers items from the patient&apos;s data. It is not a medical judgment.</p>
-          {override || currentNote.override_light ? <p role="status">Doctor reviewed: overridden from {LIGHT_LABELS[currentNote.light ?? "grey"]} to {LIGHT_LABELS[currentNote.override_light ?? override?.newLight ?? "grey"]}. Reason: {currentNote.override_reason ?? override?.reason} · {currentNote.override_by_name ?? override?.name}</p> : null}
+          {override || currentNote.override_light ? <p role="status">{copy.reviewOverride} {lightLabels[currentNote.light ?? "grey"]} {copy.to} {lightLabels[currentNote.override_light ?? override?.newLight ?? "grey"]}. {copy.reasonLabel} {currentNote.override_reason ?? override?.reason} · {currentNote.override_by_name ?? override?.name}</p> : null}
           <p><strong>{modeLabel(currentNote)}</strong></p>
           {currentNote.check_mode === "fallback" || currentNote.check_mode === null ? <p>{fallbackReasonLabel(currentNote.fallback_reason)}</p> : null}
           {currentNote.fallback_detail ? <details><summary>Technical details</summary><code>{currentNote.fallback_detail}</code></details> : currentNote.check_model ? <details><summary>Technical details</summary><code>{currentNote.check_model}</code></details> : null}
@@ -217,7 +215,7 @@ export default function VisitNoteSection({
       ) : null}
       {error ? <div ref={errorRef} tabIndex={-1} role="alert" aria-live="assertive"><p>{error}</p></div> : null}
       {message ? <p role="status" aria-live="polite">{message}</p> : null}
-      <section aria-labelledby={`note-history-title-${patientId}`}><h3 id={`note-history-title-${patientId}`}>Note revision history</h3>{notes.length ? <ol>{notes.map((note) => <li key={note.id}><strong>Note #{note.id}</strong> · {displayDate(note.created_at)} · {note.author_role ?? "legacy author"}: {note.author_name ?? note.edited_by ?? "Unknown"} · {note.input_method ?? "legacy input"} · {note.light ? LIGHT_LABELS[note.light] : "? Could not verify automatically"} · {note.overridden_at ? "Overridden" : "Not overridden"}</li>)}</ol> : <p>No visit notes have been saved.</p>}</section>
+      <section aria-labelledby={`note-history-title-${patientId}`}><h3 id={`note-history-title-${patientId}`}>{copy.history}</h3>{notes.length ? <ol>{notes.map((note) => <li key={note.id}><strong>{copy.noteNumber}{note.id}</strong> · {displayDate(note.created_at)} · {note.author_role ?? copy.legacyAuthor}: {note.author_name ?? note.edited_by ?? copy.unknown} · {note.input_method ?? copy.legacyInput} · {note.light ? lightLabels[note.light] : lightLabels.grey} · {note.overridden_at ? copy.overridden : copy.notOverridden}</li>)}</ol> : <p>{copy.noSavedNotes}</p>}</section>
     </section>
   );
 }

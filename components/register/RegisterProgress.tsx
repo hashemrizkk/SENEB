@@ -5,11 +5,14 @@ import { ar } from "@/lib/strings.ar";
 export default function RegisterProgress({
   step,
   total,
+  locale,
 }: {
   step: number;
   total: number;
+  locale: "ar" | "en";
 }) {
-  const label = ar.register.stepOf(step, total);
+  const copy = locale === "ar" ? ar.register : ar.register.en;
+  const label = copy.stepOf(step, total);
 
   return (
     <div className="reg-progress">
