@@ -49,9 +49,9 @@ export default function LanguageSwitcher() {
   }
 
   return (
-    <nav className="global-language-switcher" aria-label="Language / اللغة">
-      <button type="button" lang="ar" aria-pressed={locale === "ar"} onClick={() => selectLanguage("ar")}>العربية</button>
+    <nav className="global-language-switcher" aria-label="Language / اللغة" dir="ltr">
       <button type="button" lang="en" aria-pressed={locale === "en"} onClick={() => selectLanguage("en")}>English</button>
+      <button type="button" lang="ar" aria-pressed={locale === "ar"} onClick={() => selectLanguage("ar")}>العربية</button>
     </nav>
   );
 }

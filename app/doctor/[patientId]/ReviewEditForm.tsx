@@ -246,6 +246,8 @@ export default function ReviewEditForm({
             transcript={noteTranscript}
             onTranscriptChange={setNoteTranscript}
             onAppend={(text) => setNote((current) => appendTranscript(current, text, 4_000))}
+              autoAppend
+              showTranscript={false}
             direction={isArabic ? "rtl" : "ltr"}
             locale={locale}
           />
