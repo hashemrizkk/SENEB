@@ -276,7 +276,7 @@ Read [AGENTS.md](AGENTS.md) before making changes. Work on the current branch, k
 
 ## 21. License and acknowledgements
 
-License: **TODO — confirm the intended project license before publishing.** A LICENSE file exists in the repository; its terms should be confirmed by the project owner before release.
+License: **Apache License 2.0**. See [LICENSE](LICENSE) for the full license text.
 
 Sources and services used include the [International Diabetes Federation Diabetes Atlas](https://diabetesatlas.org/), [NICE evidence materials for legacy FINDRISC](https://www.nice.org.uk/guidance/ph38/evidence/ep2-implementing-diabetes-prevention-programmes-jaakko-tuomilehto-pdf-435077533), Google Gemini, Groq, Resend, Twilio, Next.js, React, and better-sqlite3. See SCREENING.md for instrument sourcing and licensing notes.
 
