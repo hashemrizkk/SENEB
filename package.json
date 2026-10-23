@@ -26,6 +26,7 @@
     "audit:verify": "node --experimental-strip-types scripts/audit-verify.ts",
     "test:screening": "node --experimental-strip-types scripts/test-screening.ts",
     "e2e:screening": "node --experimental-strip-types scripts/screening-e2e.ts",
+    "debug:screening": "node --experimental-strip-types scripts/debug-screening.ts",
     "session:delete": "node --experimental-strip-types scripts/screening-session-delete.ts",
     "eval:extraction": "node --experimental-strip-types scripts/eval-extraction.ts",
     "test:providers": "node --experimental-strip-types scripts/test-provider-fallback.ts",
