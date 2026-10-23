@@ -14,7 +14,7 @@ import { recommend } from "../lib/screening/recommend.ts";
 import { categorizeLabResult } from "../lib/screening/result-category.ts";
 const isolatedDbPath=path.join(tmpdir(),`screening-test-${randomUUID()}.db`);
 process.env.HACKATHON_DB_PATH=isolatedDbPath;
-const {migrateScreening,appendScreeningAudit,verifyScreeningAudit,insertScoringVersion,approveScoringVersion,activateScoringVersion,insertRedflagRuleset,createAnonymousScreeningSession,saveScreeningContact,screeningContact,withdrawScreeningContactConsent,saveScreeningLabResult,updateScreeningReview,deleteScreeningSessionData,escalateScreening,default:appDb}=await import("../lib/db.ts");
+const {migrateScreening,appendScreeningAudit,verifyScreeningAudit,insertScoringVersion,approveScoringVersion,activateScoringVersion,insertRedflagRuleset,createAnonymousScreeningSession,saveScreeningContact,screeningContact,withdrawScreeningContactConsent,saveScreeningLabResult,updateScreeningReview,deleteScreeningSessionData,escalateScreening,recordScreeningResultUnavailable,recordScreeningEventQuietly,default:appDb}=await import("../lib/db.ts");
 const {migrateDoctorReview}=await import("../lib/doctor-review.ts");
 
 const instrument=config as Parameters<typeof scoreAssessment>[1];
@@ -37,11 +37,32 @@ assert.equal(deriveOptionId(config.items.find((item)=>item.id==="bmi") as never,
 assert.equal(deriveOptionId(config.items.find((item)=>item.id==="waist") as never,{waist_cm:95},"male"),"middle_range");
 assert.equal(deriveOptionId(config.items.find((item)=>item.id==="waist") as never,{waist_cm:82},"female"),"middle_range");
 assert.equal(recommend("low",true).kind,"test_recommended_soon");assert.equal(recommend("low",false).kind,"routine_info");
+const withSymptoms={...base,...Object.fromEntries(["increased_thirst","frequent_urination","unexplained_weight_loss","blurred_vision"].map((id)=>[id,"no"]))};
+assert.throws(()=>scoreAssessment(withSymptoms,instrument,false),/Unexpected answer/,"the scorer accepts instrument fields only");
+assert.doesNotThrow(()=>scoreAssessment(Object.fromEntries(config.items.map((item)=>[item.id,withSymptoms[item.id]])),instrument,false),"result pipeline must pass only instrument answers to the scorer");
 for(const [testType,value,unit,category] of [["hba1c",5.69,"percent","within_expected_range"],["hba1c",5.7,"percent","prediabetes_range"],["hba1c",6.4,"percent","prediabetes_range"],["hba1c",6.5,"percent","diabetes_range"],["fasting_glucose",99.9,"mg_dl","within_expected_range"],["fasting_glucose",100,"mg_dl","prediabetes_range"],["fasting_glucose",125,"mg_dl","prediabetes_range"],["fasting_glucose",126,"mg_dl","diabetes_range"],["fasting_glucose",5.59,"mmol_l","within_expected_range"],["fasting_glucose",5.6,"mmol_l","prediabetes_range"],["fasting_glucose",6.9,"mmol_l","prediabetes_range"],["fasting_glucose",7,"mmol_l","diabetes_range"]] as const){assert.equal(categorizeLabResult({testType,value,unit},config.result_categories).category,category,`${testType}/${unit} ${value}`);}
 assert.throws(()=>categorizeLabResult({testType:"hba1c",value:6.5,unit:"mg_dl"},config.result_categories));assert.throws(()=>categorizeLabResult({testType:"hba1c",value:1.9,unit:"percent"},config.result_categories));assert.equal(categorizeLabResult({testType:"hba1c",value:3.5,unit:"percent"},config.result_categories).requiresConfirmation,true);
 for(const item of content){assert(!/%|percent|probability|probability|you have diabetes|you are diabetic|your diagnosis|must go|confirm your visit now/i.test(item.body),`wording lint: ${item.key}/${item.locale}`);}
 for(const file of ["app/api/screening/answers/route.ts","app/api/screening/redflags/route.ts","app/api/screening/result/route.ts","app/api/screening/lab-results/route.ts","lib/screening/score.ts","lib/screening/recommend.ts","lib/screening/redflags.ts"]){const source=readFileSync(new URL(`../${file}`,import.meta.url),"utf8");assert(!/lib\/llm|from ["']ai["']|generateText|streamText/i.test(source),`LLM provider import in ${file}`);}
 const memory=new Database(":memory:");memory.exec(readFileSync(path.join(process.cwd(),"lib","schema.sql"),"utf8"));migrateDoctorReview(memory);migrateScreening(memory);
+const unavailableCodes=["session_not_found","session_cookie_missing","no_active_scoring_version","scoring_config_invalid","redflag_ruleset_missing","answers_incomplete","answer_invalid_for_version","derived_input_invalid","scoring_error","content_block_missing","database_error","audit_error","internal_error"] as const;
+const originalConsoleError=console.error;console.error=()=>{};
+try{for(const reasonCode of unavailableCodes)recordScreeningResultUnavailable(`forced_${reasonCode}`,reasonCode,memory);}finally{console.error=originalConsoleError;}
+const unavailableAudit=memory.prepare("SELECT action,detail_json,entity_id FROM audit_log WHERE action='screening_result_unavailable'").all() as {action:string;detail_json:string;entity_id:string|null}[];
+const unavailableAnalytics=memory.prepare("SELECT event,session_id,props_json FROM analytics_events WHERE event='screening_result_unavailable'").all() as {event:string;session_id:string|null;props_json:string}[];
+assert.equal(unavailableAudit.length,unavailableCodes.length);assert.equal(unavailableAnalytics.length,unavailableCodes.length);
+for(let i=0;i<unavailableCodes.length;i++){const detail=JSON.parse(unavailableAudit[i].detail_json);const props=JSON.parse(unavailableAnalytics[i].props_json);assert.deepEqual(Object.keys(detail).sort(),["reason_code","stage"]);assert.equal(detail.reason_code,unavailableCodes[i]);assert.equal(props.reason_code,unavailableCodes[i]);assert.equal(unavailableAudit[i].entity_id,null);assert.equal(unavailableAnalytics[i].session_id,null);}
+const unavailablePayload=JSON.stringify({unavailableAudit,unavailableAnalytics});for(const forbidden of ["cookie-secret","Demo Patient","01012345678","raw answer text"])assert.equal(unavailablePayload.includes(forbidden),false);
+assert.equal(verifyScreeningAudit(memory).ok,true,"unavailable events remain in the valid append-only audit chain");
+memory.exec("CREATE TRIGGER fail_screening_analytics BEFORE INSERT ON analytics_events BEGIN SELECT RAISE(ABORT,'forced analytics failure'); END");
+const auditBeforeAnalyticsFailure=(memory.prepare("SELECT COUNT(*) AS count FROM audit_log WHERE action='screening_result_unavailable'").get() as {count:number}).count;
+const errorBeforeAnalyticsFailure=console.error;console.error=()=>{};try{assert.doesNotThrow(()=>recordScreeningEventQuietly({sessionId:null,event:"screening_completed",step:"result"},memory));}finally{console.error=errorBeforeAnalyticsFailure;}
+memory.exec("DROP TRIGGER fail_screening_analytics");
+assert.equal((memory.prepare("SELECT COUNT(*) AS count FROM audit_log WHERE action='screening_result_unavailable'").get() as {count:number}).count,auditBeforeAnalyticsFailure,"non-critical analytics errors do not create an unavailable outcome");
+const resultSource=readFileSync(new URL("../components/screening/ScreeningWizard.tsx",import.meta.url),"utf8");
+const resultMarkup=resultSource.slice(resultSource.indexOf('{screen==="result"&&result&&'),resultSource.indexOf("</section>}",resultSource.indexOf('{screen==="result"&&result&&')));
+assert.equal((resultMarkup.match(/block\("safe_fallback",locale\)/g)??[]).length,1,"fallback guidance has a single render path");
+assert.ok(resultSource.includes('<p className="screening-demo">{t.demo}</p>'),"demo warning stays visible throughout the screening flow");
 assert.equal((memory.prepare("SELECT COUNT(*) AS count FROM anonymous_sessions").get() as {count:number}).count,0,"nothing stored before consent");
 const versionId=randomUUID();insertScoringVersion({id:versionId,instrumentKey:config.key,versionLabel:config.version,configJson:JSON.stringify(config),configHash:"test-hash",sourceCitation:config.citation,sourceUrl:config.source_url,retrievedAt:config.retrieved_at,licenseNote:config.license_note,validationNote:config.validation_note,createdBy:"test"},memory);
 approveScoringVersion(versionId,"clinician-test",memory);activateScoringVersion(versionId,"admin-test",memory);assert.throws(()=>memory.prepare("UPDATE scoring_versions SET config_json='{}' WHERE id=?").run(versionId));

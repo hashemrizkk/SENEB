@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { screeningDemoModeEnabled } from "./screening/demo.ts";
 import Database from "better-sqlite3";
 import type { InputMethod } from "./intake.ts";
 import { migrateInputMethodCheck } from "./db-migrations.ts";
@@ -22,7 +23,7 @@ import type { IntakeFields } from "./intake.ts";
 
 // ----- Connection (singleton for dev hot-reload) -----
 
-const databasePath = process.env.HACKATHON_DB_PATH
+export const appDatabasePath = process.env.HACKATHON_DB_PATH
   ? path.resolve(process.env.HACKATHON_DB_PATH)
   : path.join(process.cwd(), "hackathon.db");
 const schemaPath = path.join(process.cwd(), "lib", "schema.sql");
@@ -31,7 +32,7 @@ const globalForDatabase = globalThis as typeof globalThis & {
 };
 
 const db =
-  globalForDatabase.hackathonDatabase ?? new Database(databasePath);
+  globalForDatabase.hackathonDatabase ?? new Database(appDatabasePath);
 
 globalForDatabase.hackathonDatabase = db;
 
@@ -198,6 +199,21 @@ export function appendScreeningAudit(input: { actorType: "system" | "staff" | "a
   database.prepare("INSERT INTO audit_log(at,actor_type,actor_id,action,entity_type,entity_id,detail_json,prev_hash,hash) VALUES (?,?,?,?,?,?,?,?,?)").run(at, input.actorType, input.actorId, input.action, input.entityType, input.entityId, detailJson, prevHash, hash);
 }
 
+export type ScreeningUnavailableReason = "session_not_found" | "session_cookie_missing" | "no_active_scoring_version" | "scoring_config_invalid" | "redflag_ruleset_missing" | "answers_incomplete" | "answer_invalid_for_version" | "derived_input_invalid" | "scoring_error" | "content_block_missing" | "database_error" | "audit_error" | "internal_error";
+export function recordScreeningResultUnavailable(stage: string, reasonCode: ScreeningUnavailableReason, database: Database.Database = db): void {
+  console.error(`SCREENING_RESULT_UNAVAILABLE stage=${stage} reason_code=${reasonCode}`);
+  try {
+    appendScreeningAudit({ actorType: "system", actorId: null, action: "screening_result_unavailable", entityType: "screening_result", entityId: null, detail: { stage, reason_code: reasonCode } }, database);
+  } catch {
+    console.error("SCREENING_RESULT_UNAVAILABLE stage=audit_append reason_code=audit_error");
+  }
+  try {
+    recordScreeningEvent({ sessionId: null, event: "screening_result_unavailable", step: stage, props: { stage, reason_code: reasonCode } }, database);
+  } catch {
+    console.error("SCREENING_RESULT_UNAVAILABLE stage=analytics_append reason_code=database_error");
+  }
+}
+
 export function verifyScreeningAudit(database: Database.Database = db): { ok: boolean; checked: number; errorRow: number | null } {
   const rows = database.prepare("SELECT id,at,actor_type,actor_id,action,entity_type,entity_id,detail_json,prev_hash,hash FROM audit_log ORDER BY id").all() as { id: number; at: string; actor_type: string; actor_id: string | null; action: string; entity_type: string; entity_id: string | null; detail_json: string; prev_hash: string; hash: string }[];
   let previous = "0".repeat(64);
@@ -210,9 +226,57 @@ export function verifyScreeningAudit(database: Database.Database = db): { ok: bo
   return { ok: true, checked: rows.length, errorRow: null };
 }
 
+export function getScreeningDebugTrace(sessionId: string, database: Database.Database = db): Record<string, unknown> | undefined {
+  const session = database.prepare("SELECT id,status,locale,scoring_version_id,redflag_ruleset_id FROM anonymous_sessions WHERE id=?").get(sessionId) as { id: string; status: string; locale: string; scoring_version_id: string | null; redflag_ruleset_id: string | null } | undefined;
+  if (!session) return undefined;
+  const consentPresent = Boolean(database.prepare("SELECT 1 FROM consent_records WHERE session_id=? AND granted=1 LIMIT 1").get(sessionId));
+  const version = session.scoring_version_id ? database.prepare("SELECT id,status,config_json FROM scoring_versions WHERE id=?").get(session.scoring_version_id) as { id: string; status: string; config_json: string } | undefined : undefined;
+  const ruleset = session.redflag_ruleset_id ? database.prepare("SELECT status,rules_json FROM redflag_rulesets WHERE id=?").get(session.redflag_ruleset_id) as { status: string; rules_json: string } | undefined : undefined;
+  const responses = database.prepare("SELECT question_id,option_id FROM survey_responses WHERE session_id=?").all(sessionId) as { question_id: string; option_id: string }[];
+  const assessmentPresent = Boolean(database.prepare("SELECT 1 FROM risk_assessments WHERE session_id=? LIMIT 1").get(sessionId));
+  const recommendationPresent = Boolean(database.prepare("SELECT 1 FROM recommendations r JOIN risk_assessments a ON a.id=r.assessment_id WHERE a.session_id=? LIMIT 1").get(sessionId));
+  const unavailableEventCount = (database.prepare("SELECT COUNT(*) AS count FROM analytics_events WHERE event='screening_result_unavailable'").get() as { count: number }).count;
+  const auditAction = (database.prepare("SELECT action FROM audit_log WHERE entity_id=? ORDER BY id DESC LIMIT 1").get(sessionId) as { action: string } | undefined)?.action;
+  const analyticsEvents = (database.prepare("SELECT event FROM analytics_events WHERE session_id=? ORDER BY at").all(sessionId) as { event: string }[]).map((row) => row.event);
+  const contentBlocks = database.prepare("SELECT key,locale FROM content_blocks").all() as { key: string; locale: string }[];
+  const audit = verifyScreeningAudit(database);
+  return { session, consentPresent, version, ruleset, responses, assessmentPresent, recommendationPresent, unavailableEventCount, audit, auditAction, analyticsEvents, contentBlocks };
+}
+
+export function screeningPreflightSnapshot(database: Database.Database = db): Record<string, unknown> {
+  const requiredColumns: Record<string, string[]> = {
+    anonymous_sessions: ["id","token_hash","created_at","locale","status","last_step","completed_at","scoring_version_id","redflag_ruleset_id","expires_at"],
+    consent_records: ["id","session_id","purpose","legal_text_version","legal_text_hash","granted","granted_at","withdrawn_at"],
+    scoring_versions: ["id","instrument_key","version_label","status","config_json","config_hash","created_by","approved_by","approved_at","activated_at"],
+    redflag_rulesets: ["id","version_label","status","rules_json","emergency_number","created_by","approved_by","approved_at","activated_at"],
+    content_blocks: ["id","key","locale","version","status","body","approved_by","approved_at"],
+    survey_responses: ["id","session_id","question_id","option_id","answered_at","points"],
+    risk_assessments: ["id","session_id","scoring_version_id","total_points","band","breakdown_json","symptom_modifier_triggered","computed_at"],
+    recommendations: ["id","assessment_id","kind","content_block_keys_json","created_at"],
+    audit_log: ["id","at","actor_type","actor_id","action","entity_type","entity_id","detail_json","prev_hash","hash"],
+    analytics_events: ["id","session_id","event","step","props_json","at"],
+    test_locations: ["id","name","type","city","area","address","phone","hours_text","tests_offered_json","booking_url","active","is_demo_data"],
+    bookings: ["id","session_id","location_id","status","created_at","updated_at"],
+    safety_escalations: ["id","session_id","ruleset_id","rule_ids_json","source","triggered_at"],
+    contact_details: ["id","session_id","name","phone","email","preferred_channel","consent_id","created_at"],
+    lab_results: ["id","session_id","test_type","value","unit","taken_on","entered_by","category","categorization_version_id","verified","created_at"],
+    clinical_reviews: ["id","lab_result_id","status","outcome","note","reviewer_user_id","created_at","completed_at"],
+    staff_users: ["id","username","role","password_hash","password_salt","created_at"],
+  };
+  const actualTables = new Set((database.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((row) => row.name));
+  const schema = Object.entries(requiredColumns).map(([table, columns]) => {
+    const actual = actualTables.has(table) ? new Set((database.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => column.name)) : new Set<string>();
+    return { table, missingTable: !actualTables.has(table), missingColumns: columns.filter((column) => !actual.has(column)) };
+  });
+  const versions = database.prepare("SELECT id,instrument_key,version_label,status,config_json FROM scoring_versions ORDER BY created_at DESC").all() as { id: string; instrument_key: string; version_label: string; status: string; config_json: string }[];
+  const rulesets = database.prepare("SELECT id,version_label,status,rules_json FROM redflag_rulesets ORDER BY created_at DESC").all() as { id: string; version_label: string; status: string; rules_json: string }[];
+  const contentBlocks = database.prepare("SELECT key,locale,status FROM content_blocks").all() as { key: string; locale: string; status: string }[];
+  return { databasePath: appDatabasePath, schema, versions, rulesets, contentBlocks, audit: verifyScreeningAudit(database) };
+}
+
 export function createAnonymousScreeningSession(input: { tokenHash: string; locale: "ar" | "en"; consentVersion: string; consentHash: string }, database: Database.Database = db): { sessionId: string; scoringVersionId: string | null; redflagRulesetId: string | null } {
-  const scoring = database.prepare("SELECT id FROM scoring_versions WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get() as { id: string } | undefined ?? database.prepare("SELECT id FROM scoring_versions WHERE status='draft' ORDER BY created_at DESC LIMIT 1").get() as {id:string}|undefined;
-  const rules = database.prepare("SELECT id FROM redflag_rulesets WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get() as { id: string } | undefined ?? database.prepare("SELECT id FROM redflag_rulesets WHERE status='draft' ORDER BY created_at DESC LIMIT 1").get() as {id:string}|undefined;
+  const scoring = database.prepare("SELECT id FROM scoring_versions WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get() as { id: string } | undefined ?? (screeningDemoModeEnabled() ? database.prepare("SELECT id FROM scoring_versions WHERE status='draft' ORDER BY created_at DESC LIMIT 1").get() as {id:string}|undefined : undefined);
+  const rules = database.prepare("SELECT id FROM redflag_rulesets WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get() as { id: string } | undefined ?? (screeningDemoModeEnabled() ? database.prepare("SELECT id FROM redflag_rulesets WHERE status='draft' ORDER BY created_at DESC LIMIT 1").get() as {id:string}|undefined : undefined);
   const id = randomUUID(); const now = new Date().toISOString();
   database.transaction(() => {
     database.prepare("INSERT INTO anonymous_sessions(id,token_hash,created_at,locale,status,last_step,scoring_version_id,redflag_ruleset_id,expires_at) VALUES (?,?,?,?,?,?,?,?,?)").run(id,input.tokenHash,now,input.locale,"consented","redflag_gate",scoring?.id ?? null,rules?.id ?? null,new Date(Date.now()+24*60*60*1000).toISOString());
@@ -249,13 +313,13 @@ export function escalateScreening(sessionId: string, rulesetId: string, ruleIds:
 }
 
 export function activeScoringVersion(database: Database.Database = db): { id:string;version_label:string;status:string;config_json:string }|undefined {
-  return database.prepare("SELECT id,version_label,status,config_json FROM scoring_versions WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get() as {id:string;version_label:string;status:string;config_json:string}|undefined ?? database.prepare("SELECT id,version_label,status,config_json FROM scoring_versions WHERE status='draft' ORDER BY created_at DESC LIMIT 1").get() as {id:string;version_label:string;status:string;config_json:string}|undefined;
+  return database.prepare("SELECT id,version_label,status,config_json FROM scoring_versions WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get() as {id:string;version_label:string;status:string;config_json:string}|undefined ?? (screeningDemoModeEnabled() ? database.prepare("SELECT id,version_label,status,config_json FROM scoring_versions WHERE status='draft' ORDER BY created_at DESC LIMIT 1").get() as {id:string;version_label:string;status:string;config_json:string}|undefined : undefined);
 }
 export function scoringVersionById(id:string,database:Database.Database=db):{id:string;version_label:string;status:string;config_json:string}|undefined {
   return database.prepare("SELECT id,version_label,status,config_json FROM scoring_versions WHERE id=?").get(id) as {id:string;version_label:string;status:string;config_json:string}|undefined;
 }
 export function activeRedflagRuleset(database: Database.Database = db): { id:string;rules_json:string;emergency_number:string|null }|undefined {
-  return database.prepare("SELECT id,rules_json,emergency_number FROM redflag_rulesets WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get() as {id:string;rules_json:string;emergency_number:string|null}|undefined ?? database.prepare("SELECT id,rules_json,emergency_number FROM redflag_rulesets WHERE status='draft' ORDER BY created_at DESC LIMIT 1").get() as {id:string;rules_json:string;emergency_number:string|null}|undefined;
+  return database.prepare("SELECT id,rules_json,emergency_number FROM redflag_rulesets WHERE status='active' ORDER BY activated_at DESC LIMIT 1").get() as {id:string;rules_json:string;emergency_number:string|null}|undefined ?? (screeningDemoModeEnabled() ? database.prepare("SELECT id,rules_json,emergency_number FROM redflag_rulesets WHERE status='draft' ORDER BY created_at DESC LIMIT 1").get() as {id:string;rules_json:string;emergency_number:string|null}|undefined : undefined);
 }
 export function redflagRulesetById(id:string,database:Database.Database=db):{id:string;rules_json:string;emergency_number:string|null;status:string}|undefined {
   return database.prepare("SELECT id,rules_json,emergency_number,status FROM redflag_rulesets WHERE id=?").get(id) as {id:string;rules_json:string;emergency_number:string|null;status:string}|undefined;
@@ -269,15 +333,20 @@ export function completeScreeningAssessment(input:{sessionId:string;scoringVersi
     database.prepare("INSERT INTO risk_assessments(id,session_id,scoring_version_id,total_points,band,breakdown_json,symptom_modifier_triggered,computed_at) VALUES (?,?,?,?,?,?,?,?)").run(assessmentId,input.sessionId,input.scoringVersionId,input.total,input.band,JSON.stringify(input.breakdown),input.symptomModifier?1:0,now);
     database.prepare("INSERT INTO recommendations(id,assessment_id,kind,content_block_keys_json,created_at) VALUES (?,?,?,?,?)").run(randomUUID(),assessmentId,input.recommendationKind,JSON.stringify(input.contentKeys),now);
     database.prepare("UPDATE anonymous_sessions SET status='completed',last_step='result',completed_at=? WHERE id=? AND status='in_progress'").run(now,input.sessionId);
-    appendScreeningAudit({actorType:"system",actorId:null,action:"screening_completed",entityType:"screening_session",entityId:input.sessionId},database);
+    try { appendScreeningAudit({actorType:"system",actorId:null,action:"screening_completed",entityType:"screening_session",entityId:input.sessionId},database); }
+    catch { const error = new Error("Screening audit append failed."); error.name = "ScreeningAuditWriteError"; throw error; }
   })();
   return assessmentId;
 }
 export function recordScreeningEvent(input:{sessionId:string|null;event:string;step:string|null;props?:Record<string,unknown>},database:Database.Database=db):void {
-  const allowed=new Set(["screening_started","consent_given","redflag_gate_shown","safety_escalated","question_answered","screening_completed","result_viewed","locations_viewed","booking_clicked","booking_self_reported","test_completed_self_reported","result_entered","result_abnormal","review_created","review_completed","entered_care"]);
+  const allowed=new Set(["screening_started","consent_given","redflag_gate_shown","safety_escalated","question_answered","screening_completed","screening_result_unavailable","result_viewed","locations_viewed","booking_clicked","booking_self_reported","test_completed_self_reported","result_entered","result_abnormal","review_created","review_completed","entered_care"]);
   if(!allowed.has(input.event))throw new RangeError("Unknown analytics event.");
   const props=input.props??{};if(Object.keys(props).some((key)=>/name|phone|email|ip|user.?agent|answer|text/i.test(key)))throw new RangeError("Analytics properties cannot contain personal data or answers.");
   database.prepare("INSERT INTO analytics_events(id,session_id,event,step,props_json,at) VALUES (?,?,?,?,?,?)").run(randomUUID(),input.sessionId,input.event,input.step,JSON.stringify(props),new Date().toISOString());
+}
+export function recordScreeningEventQuietly(input:{sessionId:string|null;event:string;step:string|null;props?:Record<string,unknown>},database:Database.Database=db):void {
+  try { recordScreeningEvent(input,database); }
+  catch { console.error(`SCREENING_ANALYTICS_FAILED event=${input.event}`); }
 }
 export function listScreeningLocations(city?:string,testType?:string,database:Database.Database=db):Record<string,unknown>[] {
   const locations=database.prepare("SELECT * FROM test_locations WHERE active=1 ORDER BY city,name").all() as Record<string,unknown>[];
@@ -294,7 +363,7 @@ export function updateLatestScreeningBooking(sessionId:string,status:"self_repor
   const booking=latestScreeningBooking(sessionId,database);if(!booking)throw new RangeError("No booking is available.");const now=new Date().toISOString();database.prepare("UPDATE bookings SET status=?,updated_at=? WHERE id=? AND session_id=?").run(status,now,booking.id,sessionId);recordScreeningEvent({sessionId,event:status==="self_reported_booked"?"booking_self_reported":"test_completed_self_reported",step:"locations",props:{verification:"self_reported"}},database);
 }
 export function getScreeningSummary(sessionId:string,database:Database.Database=db):Record<string,unknown>|undefined {
-  return database.prepare("SELECT a.*,v.version_label,r.kind AS recommendation_kind,r.content_block_keys_json,s.locale FROM risk_assessments a JOIN scoring_versions v ON v.id=a.scoring_version_id JOIN recommendations r ON r.assessment_id=a.id JOIN anonymous_sessions s ON s.id=a.session_id WHERE a.session_id=?").get(sessionId) as Record<string,unknown>|undefined;
+  return database.prepare("SELECT a.*,v.version_label,v.status AS version_status,r.kind AS recommendation_kind,r.content_block_keys_json,s.locale FROM risk_assessments a JOIN scoring_versions v ON v.id=a.scoring_version_id JOIN recommendations r ON r.assessment_id=a.id JOIN anonymous_sessions s ON s.id=a.session_id WHERE a.session_id=?").get(sessionId) as Record<string,unknown>|undefined;
 }
 export function saveScreeningLabResult(input:{sessionId:string;testType:"hba1c"|"fasting_glucose";value:number;unit:string;takenOn:string;category:string;versionId:string;enteredBy:"self"|"navigator"|"clinician";verified:boolean},database:Database.Database=db):{resultId:string;reviewId:string|null} {
   return database.transaction(()=>{const resultId=randomUUID();const now=new Date().toISOString();database.prepare("INSERT INTO lab_results(id,session_id,test_type,value,unit,taken_on,entered_by,category,categorization_version_id,verified,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(resultId,input.sessionId,input.testType,input.value,input.unit,input.takenOn,input.enteredBy,input.category,input.versionId,input.verified?1:0,now);let reviewId:string|null=null;

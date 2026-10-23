@@ -40,6 +40,11 @@ Copy `.env.example` to `.env.local`.
 - `NEXT_PUBLIC_SITE_URL` - canonical site origin used by same-origin checks.
 - `HACKATHON_DB_PATH` - optional SQLite path; useful for testing without
   changing the default `hackathon.db`.
+- `SCREENING_DEMO_MODE` - set to `true` only when intentionally using a draft
+  screening instrument/ruleset for a demo. Local development enables demo
+  scoring by default unless set to `false`; production requires this explicit
+  opt-in. The `/screening` page keeps its demo-only warning visible. This does
+  not approve or activate any clinical configuration.
 - `RESEND_API_KEY` and `RESEND_FROM_EMAIL` - optional server-only Resend
   settings for nurse survey decision emails. Sending stays disabled unless
   both are valid. Resend requires a verified sender domain.
@@ -117,6 +122,21 @@ npm run test:voice-api
 npm run test:audio-wav
 npm run smoke:summary
 ```
+
+### Screening diagnostics
+
+Run `npm run screening:check` to verify the database path, screening schema,
+scoring configuration, red-flag ruleset, Arabic and English content blocks,
+and audit hash chain. At dev-server startup it runs in warning mode, so a
+failed preflight does not prevent the app from starting. In demo mode, one
+valid draft instrument and one valid draft ruleset may be used with the warning
+visible; production should use clinician-approved and admin-activated records.
+
+Run `npm run debug:screening -- --new` to create a synthetic screening session
+and trace each API/database stage. To inspect an existing session without
+printing the full id, run `npm run debug:screening -- <session-id>`; output
+redacts the id to its first six characters and does not print answers or cookie
+values.
 
 For a manual voice check, set `GEMINI_API_KEY` in `.env.local`, restart the
 server, and open `/voice-demo` in a browser over localhost or HTTPS. Choose a
