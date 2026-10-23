@@ -6,6 +6,7 @@ It helps patients share follow-up information and helps doctors and nurses turn 
 
 **Demo-grade. Fake data only. Do not enter real patient data.**
 
+
 This project was built for the **“Don’t Wait for the Hospital”** hackathon challenge and relates to [UN Sustainable Development Goal 3: Good Health and Well-Being](https://sdgs.un.org/goals/goal3). The IDF Diabetes Atlas 2025 estimates that in 2024, 19.8% of Egyptian adults aged 20–79 had diabetes, 13.2 million adults had diabetes, and 62.0% of cases were undiagnosed. These are population estimates, not app measurements. [IDF Diabetes Atlas, 11th edition, Egypt table](https://diabetesatlas.org/media/uploads/sites/3/2025/10/IDF_Diabetes_Atlas_11th_Edition_2025_WEB.pdf)
 
 ## Contents
