@@ -13,17 +13,13 @@ type VoiceInputProps = {
   onTranscriptChange: (value: string) => void;
   onAppend?: (value: string, speechPieces: readonly string[]) => void;
   direction?: "rtl" | "ltr";
+  locale?: "ar" | "en";
   context?: "patient" | "doctor_note";
   geminiAvailable?: boolean;
   autoAppend?: boolean;
   showTranscript?: boolean;
 };
 
-const LANGUAGES = [
-  { code: "ar-EG", label: ar.voice.languages.arabicEgypt },
-  { code: "ar", label: ar.voice.languages.arabic },
-  { code: "en-US", label: ar.voice.languages.english },
-];
 const PATIENT_MAX_RECORDING_MS = 30_000;
 const PATIENT_MAX_WAV_BYTES = 1024 * 1024;
 const DOCTOR_MAX_RECORDING_MS = 180_000;
@@ -50,53 +46,53 @@ function serverBrowserCapabilities(): number {
   return 0;
 }
 
-function errorMessage(error: string): string {
+function errorMessage(error: string, copy: typeof ar.voice | typeof ar.voice.en): string {
   switch (error) {
     case "not-allowed":
     case "permission-denied":
-      return ar.voice.permissionDenied;
+      return copy.permissionDenied;
     case "not-found":
     case "devices-not-found":
-      return ar.voice.noMicrophone;
+      return copy.noMicrophone;
     case "not-readable":
     case "track-start":
-      return ar.voice.microphoneBusy;
+      return copy.microphoneBusy;
     case "insecure-context":
-      return ar.voice.insecureContext;
+      return copy.insecureContext;
     case "no-audio":
-      return ar.voice.noAudio;
+      return copy.noAudio;
     case "audio-too-large":
-      return ar.voice.audioTooLarge;
+      return copy.audioTooLarge;
     case "gemini-not-configured":
-      return ar.voice.geminiNotConfigured;
+      return copy.geminiNotConfigured;
     case "rate-limited":
     case "rate_limited":
-      return ar.voice.rateLimited;
+      return copy.rateLimited;
     case "empty-transcript":
-      return ar.voice.emptyTranscript;
+      return copy.emptyTranscript;
     case "transcription-timeout":
-      return ar.voice.timeout;
+      return copy.timeout;
     case "transcription-failed":
-      return ar.voice.failed;
+      return copy.failed;
     case "gemini-auth-failed":
     case "provider-auth-failed":
-      return ar.voice.authFailed;
+      return copy.authFailed;
     case "gemini-model-unavailable":
-      return ar.voice.modelUnavailable;
+      return copy.modelUnavailable;
     case "unsupported-audio":
-      return ar.voice.unsupportedAudio;
+      return copy.unsupportedAudio;
     case "bad-audio":
     case "recorder-failed":
-      return ar.voice.recorderFailed;
+      return copy.recorderFailed;
     case "provider-unavailable":
     case "transcription-network-error":
-      return ar.voice.providerUnavailable;
+      return copy.providerUnavailable;
     case "bad-origin":
-      return ar.voice.badOrigin;
+      return copy.badOrigin;
     case "request-too-large":
-      return ar.voice.requestTooLarge;
+      return copy.requestTooLarge;
     default:
-      return ar.errorGeneric;
+      return copy.errorGeneric;
   }
 }
 
@@ -137,11 +133,19 @@ export default function VoiceInput({
   onTranscriptChange,
   onAppend,
   direction = "rtl",
+  locale = "ar",
   context = "patient",
   geminiAvailable = true,
   autoAppend = false,
   showTranscript = true,
 }: VoiceInputProps) {
+  const voiceCopy = locale === "ar" ? ar.voice : ar.voice.en;
+  const languages = [
+    { code: "ar-EG", label: voiceCopy.languages.arabicEgypt },
+    { code: "ar", label: voiceCopy.languages.arabic },
+    { code: "en-US", label: voiceCopy.languages.english },
+  ];
+  const localizedError = (error: string) => errorMessage(error, voiceCopy);
   const maxRecordingMs = context === "doctor_note" ? DOCTOR_MAX_RECORDING_MS : PATIENT_MAX_RECORDING_MS;
   const maxWavBytes = context === "doctor_note" ? DOCTOR_MAX_WAV_BYTES : PATIENT_MAX_WAV_BYTES;
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -207,10 +211,10 @@ export default function VoiceInput({
   async function transcribeAudio(audio: Blob): Promise<void> {
     const controller = new AbortController();
     setIsTranscribing(true);
-    setStatus(ar.voice.sendingStatus);
+    setStatus(voiceCopy.sendingStatus);
     try {
       if (!audio.size) {
-        setStatus(errorMessage("no-audio"));
+        setStatus(localizedError("no-audio"));
         return;
       }
       const conversionStartedAt = performance.now();
@@ -218,13 +222,13 @@ export default function VoiceInput({
       try {
         wavAudio = await recordingToWav(audio);
       } catch {
-        setStatus(errorMessage("unsupported-audio"));
+        setStatus(localizedError("unsupported-audio"));
         return;
       } finally {
         wavConversionMsRef.current = Math.round(performance.now() - conversionStartedAt);
       }
       if (wavAudio.size > maxWavBytes) {
-        setStatus(errorMessage("audio-too-large"));
+        setStatus(localizedError("audio-too-large"));
         return;
       }
       audioBytesRef.current = wavAudio.size;
@@ -266,11 +270,11 @@ export default function VoiceInput({
         }
 
         if (response.status === 413) {
-          setStatus(errorMessage("request-too-large"));
+          setStatus(localizedError("request-too-large"));
           return;
         }
         if (result === null || typeof result !== "object") {
-          setStatus(errorMessage("unexpected-response"));
+          setStatus(localizedError("unexpected-response"));
           return;
         }
         if (
@@ -282,13 +286,13 @@ export default function VoiceInput({
           const error = "error" in result && typeof result.error === "string"
             ? result.error
             : "transcription-failed";
-          setStatus(errorMessage(error));
+          setStatus(localizedError(error));
           return;
         }
 
         const cleanTranscript = result.transcript.trim().slice(0, maxChars);
         if (!cleanTranscript) {
-          setStatus(errorMessage("empty-transcript"));
+          setStatus(localizedError("empty-transcript"));
           return;
         }
         finalTranscriptRef.current = appendTranscript(
@@ -303,7 +307,7 @@ export default function VoiceInput({
           onAppend(cleanTranscript, [cleanTranscript]);
           setStatus("Dictated text appended to the note.");
         } else {
-          setStatus(ar.voice.completeStatus);
+          setStatus(voiceCopy.completeStatus);
         }
       } finally {
         clearTimeout(requestTimeout);
@@ -313,8 +317,8 @@ export default function VoiceInput({
       if (mountedRef.current) {
         setStatus(
           controller.signal.aborted
-            ? errorMessage("transcription-timeout")
-            : errorMessage("transcription-failed"),
+            ? localizedError("transcription-timeout")
+            : localizedError("transcription-failed"),
         );
       }
     } finally {
@@ -337,22 +341,22 @@ export default function VoiceInput({
   async function startRecording(consentConfirmed = false): Promise<void> {
     if (!voiceConsentAccepted && !consentConfirmed) {
       setShowVoiceConsent(true);
-      setStatus(ar.voice.consentPrompt);
+      setStatus(voiceCopy.consentPrompt);
       return;
     }
     if (!secureContext) {
-      setStatus(errorMessage("insecure-context"));
+      setStatus(localizedError("insecure-context"));
       return;
     }
     if (!supported || isRecording || isRequestingMic || isTranscribing) {
       if (!supported) {
-        setStatus(ar.voice.unsupportedShort);
+        setStatus(voiceCopy.unsupportedShort);
       }
       return;
     }
 
     setIsRequestingMic(true);
-    setStatus(ar.voice.permissionPrompt);
+    setStatus(voiceCopy.permissionPrompt);
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -369,13 +373,13 @@ export default function VoiceInput({
           stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         } catch (fallbackError: unknown) {
           if (!mountedRef.current) return;
-          setStatus(errorMessage(mediaErrorCode(fallbackError)));
+          setStatus(localizedError(mediaErrorCode(fallbackError)));
           setIsRequestingMic(false);
           return;
         }
       } else {
         if (!mountedRef.current) return;
-        setStatus(errorMessage(mediaErrorCode(error)));
+        setStatus(localizedError(mediaErrorCode(error)));
         setIsRequestingMic(false);
         return;
       }
@@ -404,7 +408,7 @@ export default function VoiceInput({
       recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     } catch {
       releaseStream(stream);
-      setStatus(ar.voice.unsupportedRecorder);
+      setStatus(voiceCopy.unsupportedRecorder);
       return;
     }
 
@@ -422,7 +426,7 @@ export default function VoiceInput({
       streamRef.current = null;
       recorderRef.current = null;
       setIsRecording(false);
-      setStatus(errorMessage("recorder-failed"));
+      setStatus(localizedError("recorder-failed"));
     };
     recorder.onstop = () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -456,7 +460,7 @@ export default function VoiceInput({
       providerMsRef.current = 0;
       audioBytesRef.current = 0;
       timingLoggedRef.current = false;
-      setStatus(ar.voice.recordingStatus);
+      setStatus(voiceCopy.recordingStatus);
       timeoutRef.current = setTimeout(() => {
         if (recorder.state === "recording") recorder.stop();
       }, maxRecordingMs);
@@ -464,7 +468,7 @@ export default function VoiceInput({
       releaseStream(streamRef.current);
       streamRef.current = null;
       recorderRef.current = null;
-      setStatus(ar.voice.recorderStartFailed);
+      setStatus(voiceCopy.recorderStartFailed);
     }
   }
 
@@ -472,7 +476,7 @@ export default function VoiceInput({
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = null;
     if (recorderRef.current?.state === "recording") {
-      setStatus(ar.voice.preparingStatus);
+      setStatus(voiceCopy.preparingStatus);
       recorderRef.current.stop();
     }
   }
@@ -482,16 +486,16 @@ export default function VoiceInput({
     finalTranscriptRef.current = "";
     speechPiecesRef.current = [];
     onTranscriptChange("");
-    setStatus(ar.voice.clearedStatus);
+    setStatus(voiceCopy.clearedStatus);
   }
 
   function appendToForm(): void {
     if (!transcript.trim() || !onAppend) {
-      setStatus(ar.voice.noTranscript);
+      setStatus(voiceCopy.noTranscript);
       return;
     }
     onAppend(transcript, speechPiecesRef.current);
-    setStatus(ar.voice.appendedStatus);
+    setStatus(voiceCopy.appendedStatus);
   }
 
   function acceptVoiceConsent(): void {
@@ -516,17 +520,17 @@ export default function VoiceInput({
         htmlFor={`${id}-language`}
         style={{ display: "block", fontWeight: 600, marginBottom: "0.4rem" }}
       >
-        {ar.voice.captureLabel}
+        {voiceCopy.captureLabel}
       </label>
       <label
         htmlFor={`${id}-transcript`}
         style={{ display: "block", fontWeight: 600, marginTop: "0.6rem" }}
       >
-        {ar.voice.typeOrReviewLabel}
+        {voiceCopy.typeOrReviewLabel}
       </label>
       <textarea
         id={`${id}-transcript`}
-        aria-label={ar.voice.transcriptLabel}
+        aria-label={voiceCopy.transcriptLabel}
         dir={direction}
         lang={language}
         maxLength={maxChars}
@@ -535,7 +539,7 @@ export default function VoiceInput({
           finalTranscriptRef.current = event.target.value;
           onTranscriptChange(event.target.value);
         }}
-        placeholder={ar.voice.transcriptPlaceholder}
+        placeholder={voiceCopy.transcriptPlaceholder}
         style={{
           width: "100%",
           minHeight: 96,
@@ -550,17 +554,17 @@ export default function VoiceInput({
         }}
       />
       </> : null}
-      {showTranscript ? <p style={hintStyle}>{ar.voice.characterCount(transcript.length, maxChars)}</p> : null}
+      {showTranscript ? <p style={hintStyle}>{voiceCopy.characterCount(transcript.length, maxChars)}</p> : null}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
         <select
           id={`${id}-language`}
           value={language}
           disabled={isRecording || isTranscribing}
           onChange={(event) => setLanguage(event.target.value)}
-          aria-label={ar.voice.languageLabel}
+          aria-label={voiceCopy.languageLabel}
           style={{ minHeight: 44, padding: "0.45rem", font: "inherit" }}
         >
-          {LANGUAGES.map((option) => (
+          {languages.map((option) => (
             <option key={option.code} value={option.code}>
               {option.label}
             </option>
@@ -568,7 +572,7 @@ export default function VoiceInput({
         </select>
         {isRecording ? (
           <button type="button" onClick={stopRecording} style={buttonStyle}>
-            {ar.voice.stopButton}
+            {voiceCopy.stopButton}
           </button>
         ) : (
           <button
@@ -578,10 +582,10 @@ export default function VoiceInput({
             style={buttonStyle}
           >
             {isRequestingMic
-              ? ar.voice.requestingMic
+              ? voiceCopy.requestingMic
               : isTranscribing
-                ? ar.voice.transcribing
-                : ar.voice.recordButton}
+                ? voiceCopy.transcribing
+                : voiceCopy.recordButton}
           </button>
         )}
         {showTranscript ? <button
@@ -592,7 +596,7 @@ export default function VoiceInput({
           }
           style={buttonStyle}
         >
-          {ar.voice.clearButton}
+          {voiceCopy.clearButton}
         </button> : null}
         {onAppend && !autoAppend && showTranscript ? (
           <button
@@ -601,26 +605,26 @@ export default function VoiceInput({
             disabled={!transcript.trim()}
             style={buttonStyle}
           >
-            {ar.voice.appendButton}
+            {voiceCopy.appendButton}
           </button>
         ) : null}
       </div>
       {!supported ? (
         <p style={hintStyle}>
-          {ar.voice.unsupportedBrowser}
+          {voiceCopy.unsupportedBrowser}
         </p>
       ) : !secureContext ? (
-        <p style={hintStyle}>{ar.voice.secureContextHint}</p>
+        <p style={hintStyle}>{voiceCopy.secureContextHint}</p>
       ) : null}
       {showVoiceConsent ? (
         <div role="group" aria-labelledby={`${id}-consent-title`} style={consentStyle}>
           <h3 id={`${id}-consent-title`} style={{ marginTop: 0 }}>
-            {ar.voice.consentTitle}
+            {voiceCopy.consentTitle}
           </h3>
-          <p>{ar.voice.consentNotice}</p>
+          <p>{voiceCopy.consentNotice}</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
             <button type="button" onClick={acceptVoiceConsent} style={buttonStyle}>
-              {ar.voice.consentContinue}
+              {voiceCopy.consentContinue}
             </button>
             <button
               type="button"
@@ -630,7 +634,7 @@ export default function VoiceInput({
               }}
               style={buttonStyle}
             >
-              {ar.voice.consentCancel}
+              {voiceCopy.consentCancel}
             </button>
           </div>
         </div>
@@ -639,7 +643,7 @@ export default function VoiceInput({
         {status}
       </p>
       <p style={hintStyle}>
-        {ar.voice.transferHint}
+        {voiceCopy.transferHint}
       </p>
     </section>
   );

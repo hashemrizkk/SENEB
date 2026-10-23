@@ -63,10 +63,17 @@ function isSaved(value: unknown): value is {
 export default function RecordFollowupForm({
   patient,
   savedClinicianNote,
+  locale,
 }: {
   patient: PatientContact;
   savedClinicianNote: string;
+  locale: "ar" | "en";
 }) {
+  const isArabic = locale === "ar";
+  const copy = isArabic ? ar.doctorFollowup : ar.doctorFollowup.en;
+  const intakeCopy = isArabic ? ar.doctorIntake : ar.doctorIntake.en;
+  const questionText = (key: string, fallback: string) => intakeCopy.questionLabels[key as keyof typeof intakeCopy.questionLabels] ?? fallback;
+  const optionText = (value: boolean | number, fallback: string) => isArabic ? fallback : typeof value === "boolean" ? value ? "Yes" : "No" : value === 0 ? "0" : value === 1 ? "1 time" : value === 2 ? "2 times" : "3 or more";
   const router = useRouter();
   const errorRef = useRef<HTMLDivElement>(null);
   const [answers, setAnswers] = useState<Taps>(EMPTY_TAPS);
@@ -96,7 +103,7 @@ export default function RecordFollowupForm({
     if (busy || (uncertain && !confirmedHistoryCheck)) return;
     setBusy(true);
     setError(null);
-    setStatus("Preparing the follow-up review…");
+    setStatus(copy.preparing);
     setUncertain(false);
     setConfirmedHistoryCheck(false);
     try {
@@ -116,18 +123,16 @@ export default function RecordFollowupForm({
           result !== null && typeof result === "object" &&
             "error" in result && typeof result.error === "string"
             ? result.error
-          : "The follow-up draft could not be prepared. The saved clinician note remains unchanged; try again.",
+          : copy.draftFailed,
         );
       }
       setDraft(result);
       setFields(result.fields);
       setRequestId(crypto.randomUUID());
       setStep(2);
-      setStatus(result.mode === "mock"
-        ? "MOCK extraction and plan — no LLM provider was used. Review every field."
-        : "LLM extraction and plan ready. Review every field before saving.");
+      setStatus(result.mode === "mock" ? copy.mockReady : copy.llmReady);
     } catch (caught: unknown) {
-      setError(caught instanceof Error ? caught.message : "The follow-up could not be prepared.");
+      setError(caught instanceof Error ? caught.message : copy.couldNotPrepare);
       setStatus("");
     } finally {
       setBusy(false);
@@ -145,7 +150,7 @@ export default function RecordFollowupForm({
     if (uncertain && !confirmedHistoryCheck) return;
     setBusy(true);
     setError(null);
-    setStatus("Saving the clinic follow-up…");
+    setStatus(copy.savingStatus);
     try {
       const response = await fetch(`/api/doctor/patients/${patient.id}/intakes`, {
         method: "POST",
@@ -167,15 +172,15 @@ export default function RecordFollowupForm({
         setSavedIntakeId(result.intake_id);
         setUncertain(false);
         setStatus(result.duplicate
-          ? "This follow-up was already saved; no duplicate was created."
-          : "Follow-up saved successfully.");
+          ? copy.duplicate
+          : copy.saved);
         router.refresh();
         return;
       }
       const message = result !== null && typeof result === "object" &&
         "error" in result && typeof result.error === "string"
         ? result.error
-        : "The save could not be confirmed.";
+        : copy.saveUnconfirmed;
       if (response.status >= 500) {
         setUncertain(true);
         setConfirmedHistoryCheck(false);
@@ -188,7 +193,7 @@ export default function RecordFollowupForm({
       setUncertain(true);
       setConfirmedHistoryCheck(false);
       setStatus("");
-      setError("The connection ended before the save was confirmed. Check the follow-up history before deciding whether to retry.");
+      setError(copy.connectionLost);
     } finally {
       setBusy(false);
     }
@@ -210,27 +215,28 @@ export default function RecordFollowupForm({
   return (
     <section
       aria-busy={busy}
+      lang={locale} dir={isArabic ? "rtl" : "ltr"}
       style={{ border: "1px solid var(--card-border)", borderRadius: 12, marginTop: 24, padding: 20 }}
     >
-      <h2>Record a new clinic follow-up</h2>
-      <p>This form uses the latest saved clinician note from the edit section, if available. Save note changes there before extracting.</p>
+      <h2>{copy.title}</h2>
+      <p>{copy.intro}</p>
       {savedIntakeId !== null ? (
         <div role="status" aria-live="polite">
           <p>{status}</p>
-          <p><Link href={`/doctor/${patient.id}?intakeId=${savedIntakeId}`}>View the saved follow-up</Link></p>
-          <button type="button" onClick={startAnother}>Record another follow-up</button>
+          <p><Link href={`/doctor/${patient.id}?intakeId=${savedIntakeId}&lang=${locale}`}>{copy.viewSaved}</Link></p>
+          <button type="button" onClick={startAnother}>{copy.another}</button>
         </div>
       ) : (
         <>
-          <p>Step {step} of 2: {step === 1 ? "Input" : "Review and save"}</p>
+          <p>{copy.step(step, step === 1 ? copy.input : copy.reviewSave)}</p>
           {step === 1 ? (
             <div>
               {followupQuestions.slice(0, 4).map((question) => {
                 const field = question.structuredField;
                 if (!isAnswerKey(field)) return null;
                 return (
-                  <fieldset key={question.id} dir="rtl" style={{ border: 0, margin: "0 0 16px", padding: 0 }}>
-                    <legend style={{ fontWeight: 600, marginBottom: 8 }}>{question.label}</legend>
+                  <fieldset key={question.id} dir={isArabic ? "rtl" : "ltr"} style={{ border: 0, margin: "0 0 16px", padding: 0 }}>
+                    <legend style={{ fontWeight: 600, marginBottom: 8 }}>{questionText(field, question.label)}</legend>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                       {question.options.map((option) => (
                         <button
@@ -246,7 +252,7 @@ export default function RecordFollowupForm({
                             padding: "8px 14px",
                           }}
                         >
-                          {option.label}
+                          {optionText(option.value, option.label)}
                         </button>
                       ))}
                     </div>
@@ -254,21 +260,21 @@ export default function RecordFollowupForm({
                 );
               })}
               <button type="button" disabled={busy || (uncertain && !confirmedHistoryCheck)} onClick={() => void extract()}>
-                {busy ? "Extracting…" : ar.doctorFollowup.extractLabel}
+                {busy ? copy.extracting : copy.extractLabel}
               </button>
             </div>
           ) : null}
 
           {step === 2 && draft && fields ? (
             <div>
-              <p>{draft.mode === "mock" ? "MOCK draft — no LLM provider was used." : "LLM draft — review and confirm each field."}</p>
-              <h3>Extracted answers</h3>
+              <p>{draft.mode === "mock" ? copy.mockDraft : copy.llmDraft}</p>
+              <h3>{copy.extractedAnswers}</h3>
               {followupQuestions.slice(0, 4).map((question) => {
                 const field = question.structuredField;
                 if (!isAnswerKey(field)) return null;
                 return (
-                  <fieldset key={question.id} dir="rtl" style={{ border: 0, margin: "0 0 16px", padding: 0 }}>
-                    <legend style={{ fontWeight: 600, marginBottom: 8 }}>{question.label}</legend>
+                  <fieldset key={question.id} dir={isArabic ? "rtl" : "ltr"} style={{ border: 0, margin: "0 0 16px", padding: 0 }}>
+                    <legend style={{ fontWeight: 600, marginBottom: 8 }}>{questionText(field, question.label)}</legend>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                       {question.options.map((option) => (
                         <button
@@ -286,7 +292,7 @@ export default function RecordFollowupForm({
                             padding: "8px 14px",
                           }}
                         >
-                          {option.label}
+                          {optionText(option.value, option.label)}
                         </button>
                       ))}
                     </div>
@@ -294,9 +300,9 @@ export default function RecordFollowupForm({
                 );
               })}
 
-              <h3>Follow-up plan</h3>
+              <h3>{copy.plan}</h3>
               <label>
-                Follow-up interval (weeks)
+                {copy.interval}
                 <input
                   type="number"
                   min="1"
@@ -307,7 +313,7 @@ export default function RecordFollowupForm({
                 />
               </label>
               <label>
-                Next visit date
+                {copy.nextVisit}
                 <input
                   type="date"
                   disabled={uncertain}
@@ -316,19 +322,19 @@ export default function RecordFollowupForm({
                 />
               </label>
               <label>
-                Care-gap reminders (one per line)
+                {copy.reminders}
                 <textarea
                   disabled={uncertain}
                   value={draft.plan.care_gap_reminders.join("\n")}
                   onChange={(event) => updatePlan("care_gap_reminders", event.target.value.split("\n"))}
                 />
               </label>
-              <h4>Monitoring checklist</h4>
+              <h4>{copy.monitoring}</h4>
               {draft.plan.monitoring_checklist.map((item, index) => (
                 <fieldset key={`monitor-${index}`}>
-                  <legend>{item.source === "guideline" ? "Guideline item" : "Doctor item"}</legend>
+                  <legend>{item.source === "guideline" ? copy.guidelineItem : copy.doctorItem}</legend>
                   <label>
-                    Item
+                    {copy.item}
                     <input
                       value={item.item}
                       maxLength={160}
@@ -338,7 +344,7 @@ export default function RecordFollowupForm({
                     />
                   </label>
                   <label>
-                    Due in days (negative means overdue)
+                    {copy.dueDays}
                     <input
                       type="number"
                       value={item.due_in_days ?? ""}
@@ -352,7 +358,7 @@ export default function RecordFollowupForm({
                     disabled={uncertain}
                     onClick={() => updatePlan("monitoring_checklist", draft.plan.monitoring_checklist.filter((_, currentIndex) => currentIndex !== index))}
                   >
-                    Remove item
+                    {copy.removeItem}
                   </button>
                 </fieldset>
               ))}
@@ -364,14 +370,14 @@ export default function RecordFollowupForm({
                   { item: "", due_in_days: null, source: "doctor" },
                 ])}
               >
-                Add monitoring item
+                {copy.addMonitoring}
               </button>
-              <h4>Medication changes</h4>
+              <h4>{copy.medicationChanges}</h4>
               {draft.plan.medication_changes.map((change, index) => (
                 <fieldset key={`medication-${index}`}>
-                  <legend>Medication change {index + 1}</legend>
+                  <legend>{copy.medicationChange(index + 1)}</legend>
                   <label>
-                    Drug
+                    {copy.drug}
                     <input
                       value={change.drug ?? ""}
                       maxLength={100}
@@ -381,7 +387,7 @@ export default function RecordFollowupForm({
                     />
                   </label>
                   <label>
-                    Change
+                    {copy.change}
                     <input
                       value={change.change}
                       maxLength={200}
@@ -395,7 +401,7 @@ export default function RecordFollowupForm({
                     disabled={uncertain}
                     onClick={() => updatePlan("medication_changes", draft.plan.medication_changes.filter((_, currentIndex) => currentIndex !== index))}
                   >
-                    Remove change
+                    {copy.removeChange}
                   </button>
                 </fieldset>
               ))}
@@ -407,13 +413,13 @@ export default function RecordFollowupForm({
                   { drug: null, change: "" },
                 ])}
               >
-                Add medication change
+                {copy.addMedication}
               </button>
               {([
-                ["return_precautions", "Return precautions"],
-                ["self_monitoring", "Self-monitoring"],
-                ["patient_instructions", "Patient instructions"],
-                ["rationale_summary", "Rationale summary"],
+                ["return_precautions", copy.returnPrecautions],
+                ["self_monitoring", copy.selfMonitoring],
+                ["patient_instructions", copy.patientInstructions],
+                ["rationale_summary", copy.rationale],
               ] as const).map(([key, label]) => (
                 <label key={key}>
                   {label}
@@ -426,7 +432,7 @@ export default function RecordFollowupForm({
                 </label>
               ))}
               <label>
-                Editable recap preview
+                {copy.recap}
                 <textarea
                   value={draft.recap}
                   maxLength={440}
@@ -436,13 +442,13 @@ export default function RecordFollowupForm({
                     : current)}
                 />
               </label>
-              {!draft.recapEligible ? <p>No recap will be queued because phone or messaging consent is not recorded.</p> : null}
+              {!draft.recapEligible ? <p>{copy.noRecap}</p> : null}
               <details>
-                <summary>Message preview</summary>
+                <summary>{copy.messagePreview}</summary>
                 <p>{draft.preview}</p>
               </details>
               <button type="button" disabled={busy || (uncertain && !confirmedHistoryCheck)} onClick={() => void save()}>
-                {busy ? "Saving…" : uncertain && !confirmedHistoryCheck ? "Check history before retrying" : "Save follow-up"}
+                {busy ? copy.saving : uncertain && !confirmedHistoryCheck ? copy.checkHistory : copy.save}
               </button>
               <button type="button" disabled={busy || uncertain} onClick={() => {
                 setStep(1);
@@ -450,7 +456,7 @@ export default function RecordFollowupForm({
                 setStatus("");
                 setRequestId(null);
               }}>
-                Back to input
+                {copy.backInput}
               </button>
             </div>
           ) : null}
@@ -471,7 +477,7 @@ export default function RecordFollowupForm({
                     checked={confirmedHistoryCheck}
                     onChange={(event) => setConfirmedHistoryCheck(event.target.checked)}
                   />{" "}
-                  I checked the follow-up history and confirmed no matching record was saved.
+                  {copy.errorHistory}
                 </label>
               ) : null}
             </div>

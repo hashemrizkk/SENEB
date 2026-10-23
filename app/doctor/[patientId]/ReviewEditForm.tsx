@@ -8,6 +8,7 @@ import { intakeFieldsSchema, type IntakeFields } from "@/lib/intake";
 import { followupQuestions, questionLabel } from "@/lib/questions";
 import { appendTranscript } from "@/lib/voice-utils";
 import RatingCircle from "@/components/RatingCircle";
+import { ar } from "@/lib/strings.ar";
 
 type NoteRatingDisplay = {
   rating: "green" | "yellow" | "red";
@@ -84,11 +85,11 @@ function latestRecordFromResponse(result: unknown): LatestRecordPreview | null {
   };
 }
 
-function displayAnswer(value: boolean | number | string | null): string {
-  if (value === null) return "Not answered";
-  if (typeof value === "string") return value || "Not recorded";
+function displayAnswer(value: boolean | number | string | null, copy: typeof ar.doctorReviewForm | typeof ar.doctorReviewForm.en): string {
+  if (value === null) return copy.notAnswered;
+  if (typeof value === "string") return value || copy.notRecorded;
   if (typeof value === "number") return String(value);
-  return value ? "Yes" : "No";
+  return value ? copy.yes : copy.no;
 }
 
 function isStatus(value: string): value is PatientIntakeRecord["status"] {
@@ -99,11 +100,17 @@ export default function ReviewEditForm({
   intake,
   patient,
   initialNoteRating,
+  locale,
 }: {
   intake: PatientIntakeRecord;
   patient: PatientContact;
   initialNoteRating: NoteRatingDisplay | null;
+  locale: "ar" | "en";
 }) {
+  const isArabic = locale === "ar";
+  const copy = isArabic ? ar.doctorReviewForm : ar.doctorReviewForm.en;
+  const intakeCopy = isArabic ? ar.doctorIntake : ar.doctorIntake.en;
+  const questionText = (key: string, fallback: string) => intakeCopy.questionLabels[key as keyof typeof intakeCopy.questionLabels] ?? fallback;
   const router = useRouter();
   const [name, setName] = useState(patient.name);
   const [phone, setPhone] = useState(patient.phone ?? "");
@@ -130,7 +137,7 @@ export default function ReviewEditForm({
   const changedFields = (Object.keys(fields) as (keyof IntakeFields)[]).filter((key) => fields[key] !== intake.fields[key]);
   const dirty = changedFields.length > 0 || name !== patient.name || phone !== (patient.phone ?? "") || email !== (patient.email ?? "") || selfDescription !== (patient.self_description ?? "") || rawText !== (intake.raw_text ?? "") || status !== intake.status || priority !== (intake.priority ?? "") || note !== (intake.doctorNotes[intake.doctorNotes.length - 1]?.note_text ?? "") || reason.length > 0 || reasonType.length > 0;
 
-  useEffect(() => { if (message && !message.startsWith("Changes saved")) errorRef.current?.focus(); }, [message]);
+  useEffect(() => { if (message && message !== copy.saved) errorRef.current?.focus(); }, [message, copy.saved]);
   useEffect(() => {
     if (!dirty) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
@@ -163,7 +170,7 @@ export default function ReviewEditForm({
       });
       const result: unknown = await response.json();
       if (response.ok) {
-        setMessage("Changes saved and added to revision history.");
+        setMessage(copy.saved);
         setReason("");
         setReasonType("");
         router.refresh();
@@ -186,12 +193,12 @@ export default function ReviewEditForm({
             self_description: "self_description" in preview && (typeof preview.self_description === "string" || preview.self_description === null) ? preview.self_description : null,
           });
         }
-        setMessage("Another clinician saved this intake first. Your unsaved edits are preserved, and the latest record is shown below.");
+        setMessage(copy.conflict);
       } else {
-        setMessage(responseMessage(result) ?? "The changes could not be saved.");
+        setMessage(responseMessage(result) ?? copy.saveFailed);
       }
     } catch {
-      setMessage("The request failed. Your edits remain in this form; try again.");
+      setMessage(copy.networkFailed);
     } finally {
       setSaving(false);
     }
@@ -213,78 +220,79 @@ export default function ReviewEditForm({
       if (selfDescription === (patient.self_description ?? "")) setSelfDescription(latestPatient.self_description ?? "");
     }
     setEditVersion(latestRecord.version);
-    setMergeNotice("Your changed answers were copied onto the latest version. Review the fields, then save again.");
+    setMergeNotice(copy.mergeNotice);
     setMessage(null);
   }
 
   return (
-    <section className="doctor-intake-edit-card">
+    <section className="doctor-intake-edit-card" lang={locale} dir={isArabic ? "rtl" : "ltr"}>
       <section className="doctor-clinical-note-panel" aria-labelledby="clinician-note-heading">
         <div className="doctor-clinical-note-heading">
-          <h2 id="clinician-note-heading">Clinician notes</h2>
+          <h2 id="clinician-note-heading">{copy.clinicianNotes}</h2>
         </div>
         <div className="doctor-edit-note-control">
-          <label htmlFor="clinician-note">Clinician note</label>
+          <label htmlFor="clinician-note">{copy.clinicianNote}</label>
           <textarea
             id="clinician-note"
             value={note}
             onChange={(event) => setNote(event.target.value)}
             maxLength={4000}
-            placeholder="Add a concise clinical note for the next clinic reviewer…"
+            placeholder={copy.notePlaceholder}
           />
           <VoiceInput
             id={`clinician-note-voice-${intake.id}`}
-            label="Dictate clinician note"
+            label={copy.dictateNote}
             maxChars={4_000}
             transcript={noteTranscript}
             onTranscriptChange={setNoteTranscript}
             onAppend={(text) => setNote((current) => appendTranscript(current, text, 4_000))}
-            direction="rtl"
+            direction={isArabic ? "rtl" : "ltr"}
+            locale={locale}
           />
         </div>
         <div className="doctor-edit-priority-controls">
           <label>
-            <span>Queue state</span>
+            <span>{copy.queueState}</span>
             <select value={status} onChange={(event) => {
               if (isStatus(event.target.value)) setStatus(event.target.value);
             }}>
-              <option value="new">New</option><option value="triaged">Triaged</option><option value="seen">Seen</option>
+              <option value="new">{copy.new}</option><option value="triaged">{copy.triaged}</option><option value="seen">{copy.seen}</option>
             </select>
           </label>
           <label>
-            <span>Clinical priority</span>
+            <span>{copy.clinicalPriority}</span>
             <select value={priority} onChange={(event) => setPriority(event.target.value)}>
-              <option value="">Not assigned</option><option value="urgent">Urgent</option><option value="important">Important</option><option value="normal">Normal</option>
+              <option value="">{copy.notAssigned}</option><option value="urgent">{copy.urgent}</option><option value="important">{copy.important}</option><option value="normal">{copy.normal}</option>
             </select>
           </label>
         </div>
         {intake.doctorNotes.length > 1 ? (
           <details className="doctor-previous-notes">
-            <summary>Previous clinician notes ({intake.doctorNotes.length - 1})</summary>
-            <ol>{[...intake.doctorNotes].slice(0, -1).reverse().map((savedNote) => <li key={savedNote.id}><p>{savedNote.note_text}</p><small>{savedNote.edited_by} · {savedNote.created_at ?? "Time unknown"}</small></li>)}</ol>
+            <summary>{copy.previousNotes(intake.doctorNotes.length - 1)}</summary>
+            <ol>{[...intake.doctorNotes].slice(0, -1).reverse().map((savedNote) => <li key={savedNote.id}><p>{savedNote.note_text}</p><small>{savedNote.edited_by} · {savedNote.created_at ?? copy.timeUnknown}</small></li>)}</ol>
           </details>
         ) : null}
       </section>
       <div className="doctor-edit-heading">
-        <div><p className="doctor-eyebrow">Review controls</p><h2>Edit intake and patient information</h2></div>
-        <button className="doctor-save-top" type="button" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+        <div><p className="doctor-eyebrow">{copy.reviewControls}</p><h2>{copy.sectionTitle}</h2></div>
+        <button className="doctor-save-top" type="button" onClick={save} disabled={saving}>{saving ? copy.saving : copy.save}</button>
       </div>
-      <p className="doctor-edit-safety-note">Saving creates a revision. Staff priority is a decision, not an automatic diagnosis.</p>
-      <label>Patient name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} /></label>
-      <label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} maxLength={30} /></label>
-      <label>Email<input value={email} onChange={(event) => setEmail(event.target.value)} maxLength={254} /></label>
-      <label>Patient description<textarea value={selfDescription} onChange={(event) => setSelfDescription(event.target.value)} maxLength={300} /></label>
+      <p className="doctor-edit-safety-note">{copy.safety}</p>
+      <label>{copy.name}<input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} /></label>
+      <label>{copy.phone}<input dir="ltr" value={phone} onChange={(event) => setPhone(event.target.value)} maxLength={30} /></label>
+      <label>{copy.email}<input dir="ltr" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={254} /></label>
+      <label>{copy.description}<textarea value={selfDescription} onChange={(event) => setSelfDescription(event.target.value)} maxLength={300} /></label>
       <fieldset>
-        <legend>Questionnaire answers</legend>
-        {changedFields.length ? <ul aria-label="Changed fields">{changedFields.map((key) => <li key={key}><span>{questionLabel(key)}</span>: {displayAnswer(intake.fields[key] as boolean | number | null)} → {displayAnswer(fields[key] as boolean | number | null)}</li>)}</ul> : <p>No questionnaire answers changed.</p>}
+        <legend>{copy.questionnaire}</legend>
+        {changedFields.length ? <ul aria-label={copy.changed}>{changedFields.map((key) => <li key={key}><span>{questionText(key, questionLabel(key))}</span>: {displayAnswer(intake.fields[key] as boolean | number | null, copy)} → {displayAnswer(fields[key] as boolean | number | null, copy)}</li>)}</ul> : <p>{copy.noAnswersChanged}</p>}
         {followupQuestions.slice(0, 4).map((question) => {
           const field = question.structuredField;
           if (!isEditableField(field)) return null;
           const current = fieldValue(fields, field);
           return (
             <fieldset key={question.id}>
-              <legend>{question.label}</legend>
-              <p>Original submitted value: {displayAnswer(intake.originalFields?.[field] ?? null)}</p>
+              <legend>{questionText(field, question.label)}</legend>
+              <p>{copy.originalValue}: {displayAnswer(intake.originalFields?.[field] ?? null, copy)}</p>
               {question.options.map((option) => (
                 <button
                   key={String(option.value)}
@@ -293,7 +301,7 @@ export default function ReviewEditForm({
                   onClick={() => updateField(field, option.value)}
                   style={{ fontWeight: current === option.value ? "bold" : "normal", marginInlineEnd: 8 }}
                 >
-                  {option.label}
+                  {isArabic ? option.label : typeof option.value === "boolean" ? option.value ? "Yes" : "No" : option.value === 0 ? "0" : option.value === 1 ? "1 time" : option.value === 2 ? "2 times" : "3 or more"}
                 </button>
               ))}
               {current !== null ? (
@@ -301,48 +309,48 @@ export default function ReviewEditForm({
                   type="button"
                   onClick={() => setFields((value) => ({ ...value, [field]: null }))}
                 >
-                  Clear answer
+                  {copy.clearAnswer}
                 </button>
               ) : null}
             </fieldset>
           );
         })}
       </fieldset>
-      <label>{followupQuestions[4].label}<textarea value={rawText} onChange={(event) => setRawText(event.target.value)} maxLength={1000} /></label>
+      <label>{questionText("symptoms_text", followupQuestions[4].label)}<textarea value={rawText} onChange={(event) => setRawText(event.target.value)} maxLength={1000} /></label>
       {initialNoteRating && initialNoteRating.note === note ? (
         <RatingCircle
           rating={initialNoteRating.rating}
-          label="Note completeness"
+          label={copy.noteCompleteness}
           details={initialNoteRating.details}
           mode={initialNoteRating.mode}
           prompt={initialNoteRating.prompt}
         />
       ) : null}
-      <label>Reason for changes
+      <label>{copy.reason}
         <select value={reasonType} onChange={(event) => setReasonType(event.target.value as typeof reasonType)}>
-          <option value="">Choose a reason</option><option value="transcription_error">Transcription error</option><option value="patient_clarified">Patient clarified</option><option value="typo_correction">Typo correction</option><option value="other">Other</option>
+          <option value="">{copy.chooseReason}</option><option value="transcription_error">{copy.reasonTypes.transcription_error}</option><option value="patient_clarified">{copy.reasonTypes.patient_clarified}</option><option value="typo_correction">{copy.reasonTypes.typo_correction}</option><option value="other">{copy.reasonTypes.other}</option>
         </select>
       </label>
-      <label>Additional detail (optional)<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} /></label>
+      <label>{copy.detail}<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} /></label>
       <p>
-        Low-sugar symptoms: {fields.hypoglycemia_symptoms === null ? "not recorded" : fields.hypoglycemia_symptoms ? "reported" : "not reported"}
-        {" · "}Emergency symptoms: {fields.emergency_symptoms_mentioned === null ? "not recorded" : fields.emergency_symptoms_mentioned ? "mentioned" : "not mentioned"}
+        {copy.lowSymptoms}: {fields.hypoglycemia_symptoms === null ? copy.notRecorded : fields.hypoglycemia_symptoms ? copy.reported : copy.notReported}
+        {" · "}{copy.emergencySymptoms}: {fields.emergency_symptoms_mentioned === null ? copy.notRecorded : fields.emergency_symptoms_mentioned ? copy.mentioned : copy.notReported}
       </p>
-      <button className="doctor-save-bottom" type="button" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+      <button className="doctor-save-bottom" type="button" onClick={save} disabled={saving}>{saving ? copy.saving : copy.save}</button>
       {mergeNotice ? <p role="status">{mergeNotice}</p> : null}
-      {message?.startsWith("Changes saved") ? <p role="status" aria-live="polite">{message}</p> : null}
-      {message && !message.startsWith("Changes saved") ? <div ref={errorRef} tabIndex={-1} role="alert" aria-live="assertive"><p>{message}</p>{conflictVersion !== null ? <div><button type="button" onClick={() => router.refresh()}>Discard my edits</button><button type="button" onClick={mergeOntoLatest} disabled={!latestRecord}>Copy my edits onto the latest version</button></div> : null}</div> : null}
-      {conflictVersion !== null ? <p>Latest server version: {conflictVersion}.</p> : null}
+      {message === copy.saved ? <p role="status" aria-live="polite">{message}</p> : null}
+      {message && message !== copy.saved ? <div ref={errorRef} tabIndex={-1} role="alert" aria-live="assertive"><p>{message}</p>{conflictVersion !== null ? <div><button type="button" onClick={() => router.refresh()}>{copy.discard}</button><button type="button" onClick={mergeOntoLatest} disabled={!latestRecord}>{copy.merge}</button></div> : null}</div> : null}
+      {conflictVersion !== null ? <p>{copy.latestVersion}: {conflictVersion}.</p> : null}
       {latestRecord ? (
-        <aside aria-label="Latest saved record">
-          <h3>Latest saved server record (read-only)</h3>
-          <p>Version {latestRecord.version} · {latestRecord.status} · {latestRecord.priority ?? "No priority assigned"}</p>
+        <aside aria-label={copy.latestRecord}>
+          <h3>{copy.latestSaved}</h3>
+          <p>{copy.version} {latestRecord.version} · {latestRecord.status} · {latestRecord.priority ?? copy.noPriority}</p>
           <dl>
             {Object.entries(latestRecord.fields).map(([field, value]) => (
-              <div key={field}><dt>{questionLabel(field)}</dt><dd>{displayAnswer(value)}</dd></div>
+              <div key={field}><dt>{questionText(field, questionLabel(field))}</dt><dd>{displayAnswer(value, copy)}</dd></div>
             ))}
           </dl>
-          <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{latestRecord.raw_text ?? "No text submitted"}</pre>
+          <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{latestRecord.raw_text ?? copy.noText}</pre>
         </aside>
       ) : null}
     </section>

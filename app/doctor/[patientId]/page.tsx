@@ -9,11 +9,9 @@ import {
   type PatientIntakeRecord,
 } from "@/lib/db";
 import { requireDoctorSession } from "@/lib/doctor-review";
-import { formatCairoDateTime } from "@/lib/date-time";
 import { flagLabel, followupQuestions, questionLabel } from "@/lib/questions";
 import { intakeFieldsSchema } from "@/lib/intake";
 import { priorityForIntake } from "@/lib/intake-priority";
-import { inputMethodLabel, inputMethodNote } from "@/lib/voice-utils";
 import RecordFollowupForm from "./RecordFollowupForm";
 import ReviewEditForm from "./ReviewEditForm";
 import { generateSummarySafely, summaryIsMissingOrStale } from "@/lib/summary-background";
@@ -25,6 +23,7 @@ import {
   type AusdriskItem,
 } from "@/lib/survey/ausdrisk";
 import { afterWorkRatingSchema } from "@/lib/summary-types";
+import { ar } from "@/lib/strings.ar";
 
 export const dynamic = "force-dynamic";
 
@@ -51,41 +50,32 @@ function answerForField(
   return null;
 }
 
-function displayAnswer(value: boolean | number | null): string {
-  if (value === null) return "Not answered";
+function displayAnswer(value: boolean | number | null, copy: typeof ar.doctorIntake | typeof ar.doctorIntake.en): string {
+  if (value === null) return copy.notAnswered;
   if (typeof value === "number") return String(value);
-  return value ? "Yes" : "No";
+  return value ? copy.yes : copy.no;
 }
 
-function displayFieldValue(value: boolean | number | string | null): string {
-  if (typeof value === "string") return value || "Not recorded";
-  return displayAnswer(value);
+function displayFieldValue(value: boolean | number | string | null, copy: typeof ar.doctorIntake | typeof ar.doctorIntake.en): string {
+  if (typeof value === "string") return value || copy.notRecorded;
+  return displayAnswer(value, copy);
 }
 
-function ausdriskItemLabel(item: AusdriskItem): string {
-  const labels: Record<AusdriskItem, string> = {
-    age: "Age",
-    sex: "Sex category",
-    family_history: "Parent or sibling diagnosed with diabetes",
-    high_glucose: "Previous high blood glucose",
-    antihypertensive: "Currently taking blood-pressure medication",
-    daily_smoking: "Daily tobacco use",
-    daily_fruit_veg: "Vegetables or fruit every day",
-    activity_150_minutes: "At least 150 minutes of activity weekly",
-    waist_cm: "Waist circumference",
-  };
-  return labels[item];
+function ausdriskItemLabel(item: AusdriskItem, copy: typeof ar.doctorIntake | typeof ar.doctorIntake.en): string {
+  return copy.surveyItems[item];
 }
 
-function ausdriskResultLabel(result: string): string {
-  if (result === "below_cutoff") return "Below the published cutoffs (does not rule out diabetes)";
-  if (result === "abnormal_glycemia_cutoff") return "Meets the ≥9 abnormal-glycemia screening cutoff";
-  if (result === "diabetes_cutoff") return "Meets the ≥13 undiagnosed-diabetes screening cutoff";
-  return "Incomplete — do not interpret as a low result";
+function ausdriskResultLabel(result: string, copy: typeof ar.doctorIntake | typeof ar.doctorIntake.en): string {
+  if (result === "below_cutoff") return copy.belowCutoff;
+  if (result === "abnormal_glycemia_cutoff") return copy.abnormalCutoff;
+  if (result === "diabetes_cutoff") return copy.diabetesCutoff;
+  return copy.incomplete;
 }
 
-function displayTime(value: string | null): string {
-  return value ? formatCairoDateTime(value) : "Unknown";
+function displayTime(value: string | null, locale: "ar" | "en"): string {
+  return value
+    ? new Intl.DateTimeFormat(locale === "ar" ? "ar-EG" : "en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Cairo" }).format(new Date(value))
+    : locale === "ar" ? "غير معروف" : "Unknown";
 }
 
 const revisionSnapshotSchema = z.object({
@@ -120,10 +110,13 @@ export default async function DoctorIntakePage({
   searchParams,
 }: {
   params: Promise<{ patientId: string }>;
-  searchParams: Promise<{ intakeId?: string }>;
+  searchParams: Promise<{ intakeId?: string; lang?: string }>;
 }) {
   await requireDoctorSession();
-  const [{ patientId: rawPatientId }, { intakeId }] = await Promise.all([params, searchParams]);
+  const [{ patientId: rawPatientId }, { intakeId, lang: requestedLocale }] = await Promise.all([params, searchParams]);
+  const locale = requestedLocale === "en" ? "en" : "ar";
+  const isArabic = locale === "ar";
+  const copy = isArabic ? ar.doctorIntake : ar.doctorIntake.en;
   const patientId = Number(rawPatientId);
   if (!Number.isSafeInteger(patientId) || patientId < 1) notFound();
   const record = getPatientRecord(patientId);
@@ -152,42 +145,42 @@ export default async function DoctorIntakePage({
         mode: storedNoteRating.mode,
         note: currentNote,
         details: [
-          ...noteRating.note_missing_required.map((item) => `Missing required: ${item}`),
-          ...noteRating.note_missing_important.map((item) => `Missing important: ${item}`),
-          ...noteRating.note_suggestions.map((item) => `Suggestion: ${item}`),
+          ...noteRating.note_missing_required.map((item) => `${isArabic ? "مطلوب: " : "Missing required: "}${item}`),
+          ...noteRating.note_missing_important.map((item) => `${isArabic ? "مهم: " : "Missing important: "}${item}`),
+          ...noteRating.note_suggestions.map((item) => `${isArabic ? "اقتراح: " : "Suggestion: "}${item}`),
         ],
         prompt: (() => {
           const suggestion = noteRating.note_missing_required[0] ?? noteRating.note_suggestions[0] ?? null;
           if (noteRating.note_rating === "green" || !suggestion) return null;
           return /\b(urgent|emergency|severe|critical|risk)\b/i.test(suggestion)
-            ? "Consider adding a clear description of the missing detail."
+            ? isArabic ? "يُرجى إضافة وصف واضح للتفصيل الناقص." : "Consider adding a clear description of the missing detail."
             : suggestion;
         })(),
       }
     : null;
 
   return (
-    <><a className="skip-link" href="#doctor-patient-content">Skip to content</a><main className="doctor-shell doctor-intake-shell" id="doctor-patient-content" tabIndex={-1}>
-      <p className="doctor-back-link"><Link href="/doctor">← Review queue</Link></p>
+    <><a className="skip-link" href="#doctor-patient-content">{copy.skip}</a><main lang={locale} dir={isArabic ? "rtl" : "ltr"} className="doctor-shell doctor-intake-shell" id="doctor-patient-content" tabIndex={-1}>
+      <p className="doctor-back-link"><Link href={`/doctor?lang=${locale}`}>{isArabic ? "→" : "←"} {copy.backQueue}</Link></p>
       <header className="doctor-intake-hero">
         <div className="doctor-intake-heading">
-          <p className="doctor-eyebrow">Patient intake review</p>
+            <p className="doctor-eyebrow">{copy.title}</p>
           <h1>{record.patient.name}</h1>
-          <p>Reference: {record.patient.reference_code ?? "Not available"}</p>
+          <p>{copy.reference}: {record.patient.reference_code ?? copy.unavailable}</p>
         </div>
         {intake ? (
           <>
-            <div className="doctor-intake-status-grid" aria-label="Record details">
-              <div className="doctor-intake-status-card"><span>Submitted</span><strong>{displayTime(intake.created_at)}</strong></div>
-              <div className="doctor-intake-status-card"><span>Revision</span><strong>v{intake.version}</strong></div>
+            <div className="doctor-intake-status-grid" aria-label={copy.recordDetails}>
+              <div className="doctor-intake-status-card"><span>{copy.submitted}</span><strong>{displayTime(intake.created_at, locale)}</strong></div>
+              <div className="doctor-intake-status-card"><span>{copy.revision}</span><strong>{isArabic ? `م${intake.version}` : `v${intake.version}`}</strong></div>
             </div>
-            <p className="doctor-intake-input-method">Input method: <strong>{inputMethodLabel(intake.input_method)}</strong></p>
-            {inputMethodNote(intake.input_method) ? (
-              <p>{inputMethodNote(intake.input_method)}</p>
+            <p className="doctor-intake-input-method">{copy.inputMethod}: <strong>{copy.inputMethods[intake.input_method ?? "unknown"]}</strong></p>
+            {intake.input_method === "voice" || intake.input_method === "mixed" ? (
+              <p>{copy.voiceNote}</p>
             ) : null}
           </>
-        ) : <p>This patient does not have an intake yet.</p>}
-        <div className="doctor-intake-demographics"><span>Age: <strong>{record.patient.age ?? "Not recorded"}</strong></span><span>Diabetes: <strong>{record.patient.diabetes_type ?? "Not recorded"}</strong></span><Link href={`/doctor/${patientId}/summary`}>Open case summary <span aria-hidden="true">→</span></Link></div>
+        ) : <p>{copy.noIntake}</p>}
+        <div className="doctor-intake-demographics"><span>{copy.age}: <strong>{record.patient.age ?? copy.notRecorded}</strong></span><span>{copy.diabetes}: <strong>{record.patient.diabetes_type ?? copy.notRecorded}</strong></span><Link href={`/doctor/${patientId}/summary?lang=${locale}`}>{copy.caseSummary} <span aria-hidden="true">→</span></Link></div>
       </header>
       {intake ? (
         <div id="intake-edit">
@@ -196,126 +189,123 @@ export default async function DoctorIntakePage({
             intake={intake}
             patient={record.patient}
             initialNoteRating={noteRatingDisplay}
+            locale={locale}
           />
         </div>
       ) : null}
-      <section id="intake-history">
-        <h2>Follow-up record history</h2>
+      <section id="intake-history" lang={locale} dir={isArabic ? "rtl" : "ltr"}>
+        <h2>{copy.history}</h2>
         {record.intakes.length ? (
           <ol>
             {record.intakes.map((item, index) => {
               const initialRevision = item.revisions.find((revision) => revision.revision === 1);
               const label = initialRevision?.source === "clinician"
-                ? "Clinic follow-up"
+                ? copy.clinicFollowup
                 : index === record.intakes.length - 1
-                  ? "Initial registration record"
-                  : "Patient-submitted follow-up";
+                  ? copy.initialRecord
+                  : copy.patientFollowup;
               return (
                 <li key={item.id} aria-current={item.id === intake?.id ? "page" : undefined}>
-                  <Link href={`/doctor/${patientId}?intakeId=${item.id}`}>
-                    {label} · {displayTime(item.created_at)}
+                  <Link href={`/doctor/${patientId}?intakeId=${item.id}&lang=${locale}`}>
+                    {label} · {displayTime(item.created_at, locale)}
                   </Link>
-                  {item.id === intake?.id ? " (currently selected)" : null}
+                  {item.id === intake?.id ? ` ${copy.current}` : null}
                 </li>
               );
             })}
           </ol>
-        ) : <p>No follow-up records yet.</p>}
+        ) : <p>{copy.noHistory}</p>}
       </section>
       {intake ? (
         <>
           {intake.meta?.needs_review ? (
-            <p role="status" style={{ background: "var(--important-bg)", padding: 12 }}>Extraction needs clinician review.</p>
+              <p role="status" style={{ background: "var(--important-bg)", padding: 12 }}>{copy.needsReview}</p>
           ) : null}
           {intake.meta?.contradiction ? (
-            <p role="status" style={{ background: "var(--important-bg)", padding: 12 }}>Potentially conflicting information was detected.</p>
+              <p role="status" style={{ background: "var(--important-bg)", padding: 12 }}>{copy.contradiction}</p>
           ) : null}
           {intake.meta?.survey ? (
             <section aria-labelledby="survey-review-title">
-              <h2 id="survey-review-title">Diabetes-risk screening — clinician review only</h2>
+              <h2 id="survey-review-title">{copy.surveyTitle}</h2>
               {"tool" in intake.meta.survey ? (
                 <>
                   <p>
-                    AUSDRISK Arabic score{intake.meta.survey.screeningResult === "incomplete" ? " (partial)" : ""}:{" "}
+                    {copy.surveyScore}{intake.meta.survey.screeningResult === "incomplete" ? ` ${copy.partial}` : ""}:{" "}
                     {intake.meta.survey.total}/{AUSDRISK_MAX_SCORE} ·{" "}
                     {intake.meta.survey.screeningResult === "incomplete"
-                      ? "Risk band unavailable due to unanswered answers"
-                      : `${intake.meta.survey.riskBand} band`} ·{" "}
-                    {ausdriskResultLabel(intake.meta.survey.screeningResult)}
+                      ? copy.riskUnavailable
+                      : `${copy.riskBands[intake.meta.survey.riskBand]} ${copy.band}`} ·{" "}
+                    {ausdriskResultLabel(intake.meta.survey.screeningResult, copy)}
                   </p>
                   <p>
-                    Research screening cutoffs only: ≥{AUSDRISK_ABNORMAL_GLYCEMIA_CUTOFF}
-                    {" "}for abnormal glycemia and ≥{AUSDRISK_DIABETES_CUTOFF}
-                    {" "}for undiagnosed diabetes. Not diagnostic and not for ER triage.
+                    {copy.screeningCutoffNote} (≥{AUSDRISK_ABNORMAL_GLYCEMIA_CUTOFF} / ≥{AUSDRISK_DIABETES_CUTOFF})
                   </p>
                   <dl>
                     {intake.meta.survey.items.map((item, index) => (
                       <div key={indexedKey(item.item, index)}>
-                        <dt>{ausdriskItemLabel(item.item)}</dt>
-                        <dd>{displayFieldValue(item.answer)} · {item.points} points</dd>
+                        <dt>{ausdriskItemLabel(item.item, copy)}</dt>
+                        <dd>{displayFieldValue(item.answer, copy)} · {item.points} {copy.points}</dd>
                       </div>
                     ))}
                   </dl>
                   {intake.meta.survey.unknownItems.length ? (
-                    <p>Unanswered: {intake.meta.survey.unknownItems.map(ausdriskItemLabel).join(", ")}</p>
+                    <p>{copy.unanswered}: {intake.meta.survey.unknownItems.map((item) => ausdriskItemLabel(item, copy)).join(isArabic ? "، " : ", ")}</p>
                   ) : null}
                   <p>
-                    Sources:{" "}
+                    {copy.sources}:{" "}
                     <a href="https://doi.org/10.1186/s13104-022-06200-2" target="_blank" rel="noreferrer">
-                      Arabic AUSDRISK validation
+                      {copy.validationStudy}
                     </a>
                     {" · "}
                     <a href="https://doi.org/10.1186/s12889-023-15819-0" target="_blank" rel="noreferrer">
-                      Egyptian screening study
+                      {copy.egyptStudy}
                     </a>
                   </p>
                 </>
               ) : (
-                <p>Legacy FINDRISC record · {intake.meta.survey.total} points · {intake.meta.survey.band}</p>
+                <p>{copy.legacy} · {intake.meta.survey.total} {copy.points} · {intake.meta.survey.band}</p>
               )}
             </section>
           ) : null}
           <section>
-            <h2>Patient answers</h2>
+            <h2>{copy.answersTitle}</h2>
             <dl>
               {followupQuestions.slice(0, 4).map((question) => (
                 <div key={question.id}>
-                  <dt>{question.label}</dt>
-                  <dd>{displayAnswer(answerForField(intake, question.structuredField))}</dd>
+                  <dt>{copy.questionLabels[question.key as keyof typeof copy.questionLabels] ?? question.label}</dt>
+                  <dd>{displayAnswer(answerForField(intake, question.structuredField), copy)}</dd>
                 </div>
               ))}
-              <dt>{questionLabel("hypoglycemia_symptoms")}</dt>
-              <dd>{displayAnswer(intake.fields.hypoglycemia_symptoms)}</dd>
-              <dt>{questionLabel("emergency_symptoms_mentioned")}</dt>
-              <dd>{displayAnswer(intake.fields.emergency_symptoms_mentioned)}</dd>
-              <dt>{questionLabel("symptoms_text")}</dt>
-              <dd>{intake.fields.symptoms_text ?? "Not recorded"}</dd>
+              <dt>{copy.questionLabels.hypoglycemia_symptoms}</dt>
+              <dd>{displayAnswer(intake.fields.hypoglycemia_symptoms, copy)}</dd>
+              <dt>{copy.questionLabels.emergency_symptoms_mentioned}</dt>
+              <dd>{displayAnswer(intake.fields.emergency_symptoms_mentioned, copy)}</dd>
+              <dt>{copy.questionLabels.symptoms_text}</dt>
+              <dd>{intake.fields.symptoms_text ?? copy.notRecorded}</dd>
             </dl>
             {intake.input_method === "typed" && intake.fields.hypoglycemia_episodes !== null ? (
               <p>
-                Some older registration submissions converted a yes/no low-sugar answer to 1/0.
-                This record does not identify that source, so the stored value is shown as
-                recorded and its original yes/no meaning cannot be recovered.
+                {copy.legacyNote}
               </p>
             ) : null}
-            <h3>Flags to review</h3>
+            <h3>{copy.flagsTitle}</h3>
             {intake.flags.flags.length ? (
-              <ul>{intake.flags.flags.map((flag, index) => <li key={indexedKey(flag, index)}>{flagLabel(flag)}</li>)}</ul>
-            ) : <p>No rule flags.</p>}
+              <ul>{intake.flags.flags.map((flag, index) => <li key={indexedKey(flag, index)}>{isArabic ? flagLabel(flag) : ar.doctor.en.riskFlags[flag as keyof typeof ar.doctor.en.riskFlags] ?? flag}</li>)}</ul>
+            ) : <p>{copy.noFlags}</p>}
             {(() => {
               const suggestion = priorityForIntake(intake.fields, intake.raw_text, intake.meta?.needs_review ?? false);
               const latestRevision = intake.revisions.find((revision) => revision.revision === intake.version);
-              return <section className="doctor-suggested-priority" aria-label="Suggested priority">
-                <p><strong>Rule-based suggestion:</strong> {suggestion.priority ?? "Not assigned"} <span>({latestRevision?.reason?.includes("Priority source: manual") ? "staff-set priority" : "automatic rules"})</span></p>
+              return <section className="doctor-suggested-priority" aria-label={copy.suggestedPriority}>
+                <p><strong>{copy.suggestedPriority}:</strong> {suggestion.priority ?? (isArabic ? "غير محدد" : "Not assigned")} <span>({latestRevision?.reason?.includes("Priority source: manual") ? copy.staffPriority : copy.automaticRules})</span></p>
                 {suggestion.reasons.length ? <ul>{suggestion.reasons.map((reason, index) => <li key={indexedKey(reason.rule_id, index)}>{reason.text}</li>)}</ul> : null}
               </section>;
             })()}
-            {intake.unansweredCount ? <p>{intake.unansweredCount} unanswered questions.</p> : null}
-            <h3>Submitted patient text</h3>
-            <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{intake.raw_text ?? "No text submitted"}</pre>
+            {intake.unansweredCount ? <p>{intake.unansweredCount} {copy.unanswered}.</p> : null}
+            <h3>{copy.submittedText}</h3>
+            <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{intake.raw_text ?? copy.noText}</pre>
           </section>
-          <section>
-            <h2>Revision history for this record</h2>
+          <section lang={locale} dir={isArabic ? "rtl" : "ltr"}>
+            <h2>{copy.revisionHistory}</h2>
             <ol>
               {intake.revisions.map((revision) => {
                 const snapshot = revisionSnapshot(revision.snapshot_json);
@@ -324,31 +314,31 @@ export default async function DoctorIntakePage({
                 );
                 return (
                   <li key={revision.id}>
-                    <strong>Revision {revision.revision}</strong> · {revision.source} · {displayTime(revision.edited_at)} · {revision.edited_by ?? "Patient"}
-                    {revision.reason_type || revision.reason ? <p>Reason: {revision.reason_type ? ({ transcription_error: "Transcription error", patient_clarified: "Patient clarified", typo_correction: "Typo correction", other: "Other" } as const)[revision.reason_type] : ""}{revision.reason ? ` · ${revision.reason}` : ""}</p> : null}
+                    <strong>{copy.revisionLabel(revision.revision)}</strong> · {revision.source === "clinician" ? (isArabic ? "العيادة" : "Clinic") : (isArabic ? "المريض" : "Patient")} · {displayTime(revision.edited_at, locale)} · {revision.edited_by ?? copy.editedByPatient}
+                    {revision.reason_type || revision.reason ? <p>{copy.reason}: {revision.reason_type ? copy.reasonTypes[revision.reason_type] : ""}{revision.reason ? ` · ${revision.reason}` : ""}</p> : null}
                     {revision.is_backfill ? (
-                      <p>This is a reconstructed current-state snapshot; it is not the original submission.</p>
+                      <p>{copy.backfill}</p>
                     ) : null}
                     <details>
-                      <summary>View saved record values</summary>
-                      <p>Patient name: {snapshot.patient.name}</p>
-                      <p>Input method: {inputMethodLabel(snapshot.intake.input_method)}</p>
-                      {inputMethodNote(snapshot.intake.input_method) ? (
-                        <p>{inputMethodNote(snapshot.intake.input_method)}</p>
+                      <summary>{copy.viewValues}</summary>
+                      <p>{copy.patient}: {snapshot.patient.name}</p>
+                      <p>{copy.inputMethod}: {copy.inputMethods[snapshot.intake.input_method ?? "unknown"]}</p>
+                      {snapshot.intake.input_method === "voice" || snapshot.intake.input_method === "mixed" ? (
+                        <p>{copy.voiceNote}</p>
                       ) : null}
-                      <p>Queue status: {snapshot.intake.status} · Priority: {snapshot.intake.priority ?? "Not assigned"}</p>
-                      <h4>Saved answers</h4>
+                      <p>{copy.queueState}: {copy.queueStates[snapshot.intake.status]} · {copy.priority}: {snapshot.intake.priority ? copy.priorityNames[snapshot.intake.priority] : (isArabic ? "غير محدد" : "Not assigned")}</p>
+                      <h4>{copy.savedAnswers}</h4>
                       {snapshot.fields ? (
                         <dl>
                           {Object.entries(snapshot.fields).map(([field, value]) => (
-                            <div key={field}><dt>{questionLabel(field)}</dt><dd>{displayFieldValue(value)}</dd></div>
+                            <div key={field}><dt>{copy.questionLabels[field as keyof typeof copy.questionLabels] ?? questionLabel(field)}</dt><dd>{displayFieldValue(value, copy)}</dd></div>
                           ))}
                         </dl>
-                      ) : <p>Structured answers were not recorded in this revision.</p>}
-                      <h4>Saved free text</h4>
-                      <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{snapshot.intake.raw_text ?? "No text submitted"}</pre>
+                      ) : <p>{copy.unavailableAnswers}</p>}
+                      <h4>{copy.savedText}</h4>
+                      <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{snapshot.intake.raw_text ?? copy.noText}</pre>
                     </details>
-                    {revision.revision > 1 ? <p>Changed fields: {changedFields.join(", ") || "No field changes recorded"}</p> : null}
+                    {revision.revision > 1 ? <p>{copy.changedFields}: {changedFields.join(isArabic ? "، " : ", ") || copy.noChanges}</p> : null}
                   </li>
                 );
               })}
@@ -359,6 +349,7 @@ export default async function DoctorIntakePage({
       <RecordFollowupForm
         patient={record.patient}
         savedClinicianNote={savedClinicianNote}
+        locale={locale}
       />
     </main></>
   );
